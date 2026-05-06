@@ -1,0 +1,116 @@
+{
+  "project_name": "Inter Car Auto Sales",
+  "domain": "Automotive Dealership Showcase & Admin Panel",
+  "theme": "Dark",
+  "archetype": "Archetype 5 (Jewel & Luxury) mixed with Archetype 4 (High-Contrast) - Premium Automotive",
+  "design_philosophy": "Ultra-premium dark interface treating vehicles as art. High contrast with deep obsidian backgrounds, pure white text, and aggressive signal red accents. Cinematic layout for showcase, high-density clarity for admin dashboard.",
+  "colors": {
+    "background": "#0A0A0A",
+    "surface": "#121212",
+    "surface_hover": "#1A1A1A",
+    "primary": "#D92D20",
+    "primary_hover": "#B91C1C",
+    "text_primary": "#FFFFFF",
+    "text_secondary": "#A3A3A3",
+    "border": "#262626",
+    "success": "#10B981",
+    "warning": "#F59E0B"
+  },
+  "typography": {
+    "font_strategy": "The 'Editorial Future' pairing. Wide Display Sans for presence, clean Geometric Sans for data.",
+    "headings": {
+      "family": "Outfit, sans-serif",
+      "h1": "text-5xl sm:text-6xl tracking-tighter font-black uppercase",
+      "h2": "text-3xl sm:text-4xl tracking-tight font-bold uppercase",
+      "h3": "text-xl sm:text-2xl tracking-tight font-semibold"
+    },
+    "body": {
+      "family": "Manrope, sans-serif",
+      "base": "text-base font-medium leading-relaxed",
+      "small": "text-sm font-medium",
+      "labels": "text-xs tracking-[0.2em] uppercase font-bold text-text_secondary"
+    }
+  },
+  "layout_spacing": {
+    "philosophy": "Generous Spacing for Marketing, Control Room density for Admin.",
+    "marketing_grid": "grid-cols-1 md:grid-cols-12 gap-8 md:gap-12",
+    "admin_grid": "grid-cols-1 md:grid-cols-4 gap-4",
+    "section_padding": "py-20 md:py-32 px-4 md:px-8 max-w-7xl mx-auto",
+    "card_padding": "p-6",
+    "radius": "rounded-none md:rounded-sm",
+    "surface_strategy": "Flat Solid surfaces with 1px subtle borders (border-[#262626]). No glowing drop shadows, opt for crisp technical lines."
+  },
+  "components_strategy": {
+    "navigation": "Crystal Glass sticky header: bg-[#0A0A0A]/70 backdrop-blur-xl border-b border-[#262626] z-50.",
+    "buttons": "Primary: bg-[#D92D20] text-white hover:bg-[#B91C1C] rounded-none px-8 py-4 uppercase tracking-wider font-bold transition-colors. Secondary: bg-transparent border border-white text-white hover:bg-white hover:text-black.",
+    "vehicle_cards": "Cardless design. Image wrapper with aspect-[4/3] overflow-hidden. Image has hover:scale-105 transition-transform duration-700. Content below image left-aligned, tight spacing. 1px border bottom on the card.",
+    "forms": "Shadcn based. bg-[#121212] border-[#262626] text-white focus:ring-1 focus:ring-[#D92D20]. No rounded corners (rounded-none).",
+    "floating_whatsapp": "Fixed bottom-6 right-6 z-50 bg-[#25D366] text-white p-4 rounded-full shadow-lg hover:scale-110 transition-transform flex items-center justify-center.",
+    "data_tables": "Shadcn table for Admin. Dense, border-collapse, text-sm, text-left."
+  },
+  "pages_and_features": {
+    "home_page": {
+      "hero": "Full-bleed background image with bg-black/50 overlay. H1 left-aligned: 'DRIVE YOUR DREAM', red primary CTA 'Ver Estoque'.",
+      "featured_cars": "Bento grid or 3-column layout highlighting top tier vehicles.",
+      "about_teaser": "High-contrast split section: 50% image, 50% typography heavy text."
+    },
+    "inventory_page": {
+      "layout": "Sidebar filters (left, 3 cols) + Vehicle Grid (right, 9 cols).",
+      "filters": "Accordions for Brand, Model, Year, Price range slider, Kilometers, Transmission, Fuel Type."
+    },
+    "vehicle_detail_page": {
+      "gallery": "Hero image full width + thumbnail grid below.",
+      "specs": "Grid of specs using small monoline icons (lucide-react).",
+      "financing_simulator": "Interactive widget inside a 1px border container. Sliders for down payment and terms.",
+      "cta": "Sticky bottom bar on mobile, prominent right sidebar on desktop to 'Contact via WhatsApp' or 'Send Proposal'."
+    },
+    "admin_dashboard": {
+      "layout": "Sidebar navigation (Estoque, Leads, Estatísticas).",
+      "stats_overview": "Top row bento boxes: Total Vehicles, Active Leads, Total Views.",
+      "inventory_manager": "CRUD table with photo upload preview, price, status toggle.",
+      "leads_viewer": "List view of incoming proposals/contacts."
+    }
+  },
+  "motion_interactions": {
+    "page_transitions": "Fade in.",
+    "scroll_effects": "Use lenis for smooth momentum scrolling. Reveal elements on scroll (framer-motion fade-up).",
+    "micro_interactions": "Images scale slightly on hover. Red elements use a subtle brightness increase."
+  },
+  "media": {
+    "hero_background": {
+      "url": "https://images.unsplash.com/photo-1763165524637-9067debdc80b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2Mzl8MHwxfHNlYXJjaHwxfHxsdXh1cnklMjBjYXIlMjBkZWFsZXJzaGlwJTIwc2hvd3Jvb218ZW58MHx8fHwxNzc4MTA5NjE2fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Black porsche parked inside a luxury showroom, dark cinematic vibe."
+    },
+    "featured_car_1": {
+      "url": "https://images.pexels.com/photos/17632052/pexels-photo-17632052.jpeg",
+      "description": "Lamborghini in a sleek modern showroom."
+    },
+    "featured_car_2": {
+      "url": "https://images.unsplash.com/photo-1774177898171-228eeeb159b5?crop=entropy&cs=srgb&fm=jpg",
+      "description": "Blue sports car driving on a winding road."
+    },
+    "featured_car_3": {
+      "url": "https://images.pexels.com/photos/6732604/pexels-photo-6732604.jpeg",
+      "description": "Yellow luxury sports car displayed."
+    },
+    "about_image": {
+      "url": "https://images.unsplash.com/photo-1774979300787-bd3563a085b8?crop=entropy&cs=srgb&fm=jpg",
+      "description": "A luxury car displayed in a showroom with neon lights."
+    }
+  },
+  "testing_accessibility": {
+    "contrast": "Ensure pure white text on #0A0A0A passes AAA. Form borders must be visible.",
+    "test_ids": "All buttons, filters, and form inputs must have descriptive data-testid attributes (e.g., data-testid='inventory-filter-brand', data-testid='admin-login-submit').",
+    "focus_states": "focus:ring-2 focus:ring-[#D92D20] focus:outline-none applied to all interactive elements."
+  },
+  "instructions_to_main_agent": [
+    "Use Tailwind CSS for all styling based on the color palette above. Do not use raw CSS.",
+    "Install and use 'lucide-react' for all icons.",
+    "Implement Shadcn UI for forms, selects, tables, and accordions, but heavily customize them to remove default styling (remove rounded corners, use dark borders).",
+    "Create a responsive multi-page structure using React Router (Home, Estoque, Detalhes, Sobre, Contato, Admin).",
+    "Mock the API connections to the 'Auto Manager (Lovable/Supabase)' for the MVP.",
+    "Use the provided image URLs as src for all media tags. NEVER use placeholder services like via.placeholder.com.",
+    "Implement the WhatsApp floating button site-wide.",
+    "Ensure the application language is set to Portuguese (Brazil)."
+  ]
+}
