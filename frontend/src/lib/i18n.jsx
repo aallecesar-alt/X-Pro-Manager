@@ -103,6 +103,9 @@ const TRANSLATIONS = {
     step_notes_label: "Notas desta etapa",
     step_notes_placeholder: "Ex: Cliente pediu troca de pastilha de freio e revisão dos pneus...",
     save_notes: "Salvar notas",
+    delivery_photos: "Fotos da entrega",
+    delivery_photos_hint: "Suba todas as fotos do carro no momento da entrega ao cliente (estado externo, interno, hodômetro, documentos, etc.). Sem limite de quantidade.",
+    photos_count: "fotos",
   },
   en: {
     app_name: "Auto Manager",
@@ -207,6 +210,9 @@ const TRANSLATIONS = {
     step_notes_label: "Notes for this step",
     step_notes_placeholder: "e.g. Customer asked for brake pad replacement and tire rotation...",
     save_notes: "Save notes",
+    delivery_photos: "Delivery photos",
+    delivery_photos_hint: "Upload all photos of the car at the moment of delivery (exterior, interior, odometer, paperwork, etc.). No quantity limit.",
+    photos_count: "photos",
   },
   es: {
     app_name: "Auto Manager",
@@ -311,6 +317,9 @@ const TRANSLATIONS = {
     step_notes_label: "Notas de esta etapa",
     step_notes_placeholder: "Ej: Cliente pidió cambio de pastillas de freno y rotación de neumáticos...",
     save_notes: "Guardar notas",
+    delivery_photos: "Fotos de entrega",
+    delivery_photos_hint: "Sube todas las fotos del coche en el momento de la entrega (exterior, interior, odómetro, documentos, etc.). Sin límite de cantidad.",
+    photos_count: "fotos",
   },
 };
 

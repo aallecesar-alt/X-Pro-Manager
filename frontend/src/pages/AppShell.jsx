@@ -547,6 +547,39 @@ function Delivery({ deliveries, t, onReload }) {
                 {v.payment_method && <Pill label={t("payment_method")} value={v.payment_method} />}
               </div>
 
+              {/* Step 8 — Delivery photos preview */}
+              {(() => {
+                const deliveryPhotos = (v.step_files?.["8"] || []).filter(f => (f.type || "").startsWith("image/"));
+                if (deliveryPhotos.length === 0) return null;
+                return (
+                  <div className="mb-4 border border-success/40 bg-success/5 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="label-eyebrow text-success">{t("delivery_photos")} · {deliveryPhotos.length} {t("photos_count")}</p>
+                      <button
+                        type="button"
+                        data-testid={`open-delivery-photos-${v.id}`}
+                        onClick={() => setFilesOpen({ vehicle: v, step: 8 })}
+                        className="text-[10px] text-success hover:underline uppercase tracking-wider"
+                      >
+                        {t("view")} →
+                      </button>
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {deliveryPhotos.slice(0, 10).map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setFilesOpen({ vehicle: v, step: 8 })}
+                          className="w-16 h-16 flex-shrink-0 bg-background overflow-hidden border border-border hover:border-success transition-colors"
+                        >
+                          <img src={p.data_url} alt={p.name} className="w-full h-full object-cover" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Actions */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <button
@@ -762,12 +795,20 @@ function StepFilesModal({ vehicle, step, t, onClose, onChanged }) {
       <div className="bg-background border border-border w-full max-w-2xl">
         <div className="flex items-center justify-between p-6 border-b border-border">
           <div>
-            <p className="label-eyebrow text-primary mb-1">{t("upload_for_step")} {step}</p>
+            <p className="label-eyebrow text-primary mb-1">{step === 8 ? t("delivery_photos") : `${t("upload_for_step")} ${step}`}</p>
             <h2 className="font-display font-bold text-xl uppercase tracking-tight">{t(`step_${step}`)}</h2>
             <p className="text-xs text-text-secondary mt-1">{vehicle.year} {vehicle.make} {vehicle.model} · {vehicle.buyer_name}</p>
           </div>
           <button onClick={onClose}><X size={20} className="text-text-secondary hover:text-primary" /></button>
         </div>
+
+        {step === 8 && (
+          <div className="px-6 pt-5 -mb-2">
+            <p className="text-xs text-text-secondary leading-relaxed border-l-2 border-success pl-3">
+              {t("delivery_photos_hint")}
+            </p>
+          </div>
+        )}
 
         {/* Notes section */}
         <div className="px-6 pt-6">
