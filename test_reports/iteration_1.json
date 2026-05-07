@@ -1,0 +1,39 @@
+{
+  "summary": "Comprehensive role-based access (owner vs salesperson) testing of Inter Car app. Backend: 22/22 pytest tests passed. Frontend: salesperson UI restrictions all verified (4-card dashboard, no Settings, no Add/Import/Delete vehicle buttons, no purchase price column, no purchase price/expense/profit fields in edit form, only own row in salespeople tab, add-salesperson hidden, toggle-paid disabled when sales). Owner UI verified: 8 stat cards, Settings nav present, Vendedores tab shows EMAIL DE LOGIN column, creds-sp-{id} buttons render for all salespeople (5 found), SalespersonCredentialsModal opens with creds-email/creds-password/creds-submit fields, Joao's login_email rendered as sp-login-{id}. End-to-end flow: salesperson Joao marked vehicle as sold; owner GET returns salesperson_name='Joao Silva' and commission_amount=500. All forbidden-for-salesperson endpoints return 403. Stats and sales-report properly strip financial aggregates for salesperson role. Vehicle PUT silently strips purchase_price/expenses/expense_items/commission_paid from salesperson payloads.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "AppShell.jsx is 1676 lines — consider splitting into per-tab files (Overview, Inventory, Pipeline, Delivery, Salespeople, Settings, modals) for maintainability.",
+    "server.py is ~1000 lines — consider splitting routes into modules (auth, vehicles, salespeople, stats, dealership) and shared helpers into deps.py.",
+    "/api/salespeople/credentials endpoint sits BEFORE the /salespeople/{sid} routes — order is correct but worth noting; if anyone reorders accidentally, GET /salespeople/credentials would be matched as sid='credentials'.",
+    "Email validator rejects the .test TLD (used in tests). Not a real bug but worth noting for future test fixtures (use real-looking domains).",
+    "POST /api/salespeople/{sid}/credentials does not enforce a minimum password length — owner could set a 1-char password for a salesperson login. Consider adding a Pydantic validator: min_length=6.",
+    "Salesperson PUT /vehicles silently drops forbidden fields without logging — consider returning 400 if a salesperson sends purchase_price/etc, instead of silently stripping (debate: silent stripping is more forgiving for legitimate UI flows).",
+    "Salesperson can update commission_amount=0 indirectly: if a salesperson marks sold and the salesperson record has commission_amount=0, it stays 0 forever even if owner later updates the salesperson record (snapshotted at sale time — this is correct behavior, just call out)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (22/22)",
+    "frontend": "100% of role-based UI checks (sp & owner)"
+  },
+  "test_credentials": "Owner: carlos@intercar.com / senha123 ; Salesperson: joao@intercar.com / senha456 (both from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Tests create their own salesperson + vehicle records prefixed TEST_/TEST_E2E and clean them up via fixtures.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "backend_test.py covers full role matrix (auth, creds CRUD, vehicle field stripping, stats stripping, sales-report filtering, 403 enforcement, auto-assign-on-sold). Avoid using .test TLD in salesperson credential emails — Pydantic EmailStr rejects it. Use intercar.com sub-addresses or any real TLD. Joao's salesperson record has commission_amount=500.",
+  "rca of the issue": "N/A — feature works end-to-end. Initial test failures during development were due to .test TLD being a reserved/special-use domain rejected by Pydantic EmailStr; switched to intercar.com and all tests passed."
+}

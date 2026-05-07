@@ -16,6 +16,7 @@ const STATUS_COLUMNS = [
 export default function AppShell() {
   const { t, lang, setLang } = useI18n();
   const { user, dealership, logout, refreshDealership } = useAuth();
+  const isSalesperson = user?.role === "salesperson";
   const [tab, setTab] = useState("overview");
   const [stats, setStats] = useState(null);
   const [vehicles, setVehicles] = useState([]);
@@ -31,7 +32,7 @@ export default function AppShell() {
     { id: "pipeline", label: t("pipeline"), icon: TrendingUp },
     { id: "delivery", label: t("delivery"), icon: Truck },
     { id: "salespeople", label: t("salespeople"), icon: Users },
-    { id: "settings", label: t("settings"), icon: Settings },
+    ...(isSalesperson ? [] : [{ id: "settings", label: t("settings"), icon: Settings }]),
   ];
 
   const reload = async () => {
@@ -115,20 +116,20 @@ export default function AppShell() {
 
       {/* MAIN */}
       <main className="flex-1 p-8 overflow-auto">
-        {tab === "overview" && <Overview stats={stats} t={t} />}
+        {tab === "overview" && <Overview stats={stats} t={t} isSalesperson={isSalesperson} />}
         {tab === "inventory" && (
           <Inventory
-            vehicles={vehicles} t={t} search={search} setSearch={setSearch}
+            vehicles={vehicles} t={t} search={search} setSearch={setSearch} isSalesperson={isSalesperson}
             onAdd={() => setEditing("new")} onImport={() => setImportOpen(true)} onEdit={(v) => setEditing(v)} onDelete={onDelete}
           />
         )}
         {tab === "pipeline" && <Pipeline vehicles={vehicles} t={t} onMove={updateStatus} onEdit={(v) => setEditing(v)} />}
         {tab === "delivery" && <Delivery deliveries={deliveries} t={t} onReload={reload} />}
-        {tab === "salespeople" && <SalespeopleTab salespeople={salespeople} t={t} onReload={reload} />}
-        {tab === "settings" && <SettingsTab dealership={dealership} t={t} onRefresh={refreshDealership} />}
+        {tab === "salespeople" && <SalespeopleTab salespeople={salespeople} t={t} onReload={reload} isSalesperson={isSalesperson} currentSpId={user?.salesperson_id || ""} />}
+        {tab === "settings" && !isSalesperson && <SettingsTab dealership={dealership} t={t} onRefresh={refreshDealership} />}
 
         {editing && (
-          <VehicleForm t={t} vehicle={editing === "new" || (editing && editing.__prefill) ? null : editing} prefill={editing && editing.__prefill ? editing : null} salespeople={salespeople} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />
+          <VehicleForm t={t} vehicle={editing === "new" || (editing && editing.__prefill) ? null : editing} prefill={editing && editing.__prefill ? editing : null} salespeople={salespeople} isSalesperson={isSalesperson} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />
         )}
 
         {importOpen && (
@@ -146,19 +147,29 @@ export default function AppShell() {
   );
 }
 
-function Overview({ stats, t }) {
+function Overview({ stats, t, isSalesperson }) {
   if (!stats) return <p className="text-text-secondary">...</p>;
-  const cards = [
-    { label: t("total_vehicles"), value: stats.total_vehicles },
-    { label: t("in_stock"), value: stats.in_stock },
-    { label: t("reserved"), value: stats.reserved },
-    { label: t("sold"), value: stats.sold },
-    { label: t("invested"), value: formatCurrency(stats.stock_total_cost), accent: false },
-    { label: t("revenue"), value: formatCurrency(stats.total_revenue), accent: true },
-    { label: t("profit"), value: formatCurrency(stats.total_profit), accent: true },
-    { label: t("avg_ticket"), value: formatCurrency(stats.avg_ticket) },
-  ];
-  const maxRev = Math.max(...stats.monthly_sales.map(m => m.revenue), 1);
+  const cards = isSalesperson
+    ? [
+        { label: t("total_vehicles"), value: stats.total_vehicles },
+        { label: t("in_stock"), value: stats.in_stock },
+        { label: t("reserved"), value: stats.reserved },
+        { label: t("sold"), value: stats.sold },
+      ]
+    : [
+        { label: t("total_vehicles"), value: stats.total_vehicles },
+        { label: t("in_stock"), value: stats.in_stock },
+        { label: t("reserved"), value: stats.reserved },
+        { label: t("sold"), value: stats.sold },
+        { label: t("invested"), value: formatCurrency(stats.stock_total_cost), accent: false },
+        { label: t("revenue"), value: formatCurrency(stats.total_revenue), accent: true },
+        { label: t("profit"), value: formatCurrency(stats.total_profit), accent: true },
+        { label: t("avg_ticket"), value: formatCurrency(stats.avg_ticket) },
+      ];
+  const monthly = stats.monthly_sales || [];
+  const maxRev = isSalesperson
+    ? Math.max(...monthly.map(m => m.count || 0), 1)
+    : Math.max(...monthly.map(m => m.revenue || 0), 1);
 
   return (
     <div data-testid="overview-tab">
@@ -176,22 +187,31 @@ function Overview({ stats, t }) {
 
       <div className="border border-border p-6">
         <p className="label-eyebrow text-primary mb-6">{t("monthly_performance")}</p>
-        {stats.monthly_sales.length === 0 ? (
+        {monthly.length === 0 ? (
           <p className="text-text-secondary text-sm py-8 text-center">—</p>
         ) : (
           <div className="space-y-3">
-            {stats.monthly_sales.map((m) => (
-              <div key={m.month} className="flex items-center gap-4">
-                <span className="font-display font-bold text-sm w-24">{m.month}</span>
-                <div className="flex-1 bg-surface h-8 relative overflow-hidden">
-                  <div className="absolute inset-y-0 left-0 bg-primary" style={{ width: `${(m.revenue / maxRev) * 100}%` }} />
+            {monthly.map((m) => {
+              const barValue = isSalesperson ? (m.count || 0) : (m.revenue || 0);
+              return (
+                <div key={m.month} className="flex items-center gap-4">
+                  <span className="font-display font-bold text-sm w-24">{m.month}</span>
+                  <div className="flex-1 bg-surface h-8 relative overflow-hidden">
+                    <div className="absolute inset-y-0 left-0 bg-primary" style={{ width: `${(barValue / maxRev) * 100}%` }} />
+                  </div>
+                  {isSalesperson ? (
+                    <span className="font-display font-bold text-sm w-32 text-right">{m.count} {t("sales_count").toLowerCase()}</span>
+                  ) : (
+                    <>
+                      <span className="font-display font-bold text-sm w-32 text-right">{formatCurrency(m.revenue)}</span>
+                      <span className={`font-display font-bold text-sm w-32 text-right ${m.profit >= 0 ? "text-success" : "text-primary"}`}>
+                        {formatCurrency(m.profit)}
+                      </span>
+                    </>
+                  )}
                 </div>
-                <span className="font-display font-bold text-sm w-32 text-right">{formatCurrency(m.revenue)}</span>
-                <span className={`font-display font-bold text-sm w-32 text-right ${m.profit >= 0 ? "text-success" : "text-primary"}`}>
-                  {formatCurrency(m.profit)}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -199,7 +219,7 @@ function Overview({ stats, t }) {
   );
 }
 
-function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, onDelete }) {
+function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, onDelete, isSalesperson }) {
   return (
     <div data-testid="inventory-tab">
       <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
@@ -207,14 +227,16 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, on
           <p className="label-eyebrow text-primary mb-2">{t("inventory")}</p>
           <h1 className="font-display font-black text-4xl uppercase tracking-tighter">{t("inventory")}</h1>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <button data-testid="import-url" onClick={onImport} className="border border-border hover:border-primary hover:text-primary transition-colors px-5 py-3 font-display font-bold uppercase text-xs tracking-widest inline-flex items-center gap-2">
-            <Download size={14} className="rotate-180" /> {t("import_from_url")}
-          </button>
-          <button data-testid="add-vehicle" onClick={onAdd} className="bg-primary hover:bg-primary-hover px-5 py-3 font-display font-bold uppercase text-xs tracking-widest inline-flex items-center gap-2">
-            <Plus size={14} /> {t("add_vehicle")}
-          </button>
-        </div>
+        {!isSalesperson && (
+          <div className="flex gap-2 flex-wrap">
+            <button data-testid="import-url" onClick={onImport} className="border border-border hover:border-primary hover:text-primary transition-colors px-5 py-3 font-display font-bold uppercase text-xs tracking-widest inline-flex items-center gap-2">
+              <Download size={14} className="rotate-180" /> {t("import_from_url")}
+            </button>
+            <button data-testid="add-vehicle" onClick={onAdd} className="bg-primary hover:bg-primary-hover px-5 py-3 font-display font-bold uppercase text-xs tracking-widest inline-flex items-center gap-2">
+              <Plus size={14} /> {t("add_vehicle")}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="border border-border flex items-center px-4 h-12 mb-6">
@@ -229,7 +251,7 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, on
               <th className="text-left p-3 label-eyebrow">{t("make")}/{t("model")}</th>
               <th className="text-left p-3 label-eyebrow">{t("year")}</th>
               <th className="text-left p-3 label-eyebrow">{t("vin")}</th>
-              <th className="text-left p-3 label-eyebrow">{t("purchase_price")}</th>
+              {!isSalesperson && <th className="text-left p-3 label-eyebrow">{t("purchase_price")}</th>}
               <th className="text-left p-3 label-eyebrow">{t("sale_price")}</th>
               <th className="text-left p-3 label-eyebrow">{t("status")}</th>
               <th className="text-right p-3 label-eyebrow"></th>
@@ -241,18 +263,20 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, on
                 <td className="p-3"><p className="font-display font-bold">{v.make} {v.model}</p><p className="text-xs text-text-secondary">{v.color}</p></td>
                 <td className="p-3">{v.year}</td>
                 <td className="p-3 font-mono text-xs">{v.vin || "—"}</td>
-                <td className="p-3">{formatCurrency(v.purchase_price)}</td>
+                {!isSalesperson && <td className="p-3">{formatCurrency(v.purchase_price)}</td>}
                 <td className="p-3 font-display font-bold">{formatCurrency(v.sale_price)}</td>
                 <td className="p-3"><StatusPill status={v.status} t={t} /></td>
                 <td className="p-3 text-right">
                   <div className="inline-flex gap-1">
                     <button data-testid={`edit-${v.id}`} onClick={() => onEdit(v)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Edit2 size={14} /></button>
-                    <button data-testid={`delete-${v.id}`} onClick={() => onDelete(v.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Trash2 size={14} /></button>
+                    {!isSalesperson && (
+                      <button data-testid={`delete-${v.id}`} onClick={() => onDelete(v.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Trash2 size={14} /></button>
+                    )}
                   </div>
                 </td>
               </tr>
             ))}
-            {vehicles.length === 0 && <tr><td colSpan={7} className="p-12 text-center text-text-secondary">{t("no_vehicles")}</td></tr>}
+            {vehicles.length === 0 && <tr><td colSpan={isSalesperson ? 6 : 7} className="p-12 text-center text-text-secondary">{t("no_vehicles")}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -353,7 +377,7 @@ function SettingsTab({ dealership, t, onRefresh }) {
   );
 }
 
-function VehicleForm({ vehicle, prefill, onClose, onSaved, t }) {
+function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClose, onSaved, t }) {
   const isEdit = !!vehicle;
   const initial = vehicle || {
     make: prefill?.make || "", model: prefill?.model || "", year: prefill?.year || 2024, color: "", vin: "",
@@ -376,10 +400,19 @@ function VehicleForm({ vehicle, prefill, onClose, onSaved, t }) {
   const save = async (e) => {
     e.preventDefault();
     setSaving(true);
-    const payload = { ...form, images: photos, expense_items: expenseItems };
+    const payload = { ...form, images: photos };
     numFields.forEach((k) => { payload[k] = Number(payload[k]) || 0; });
-    // Compute total expenses from items
-    payload.expenses = expenseItems.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+    if (isSalesperson) {
+      // Salespeople cannot edit cost/profit fields. Backend also strips these.
+      delete payload.purchase_price;
+      delete payload.expenses;
+      delete payload.expense_items;
+      delete payload.commission_amount;
+      delete payload.commission_paid;
+    } else {
+      payload.expense_items = expenseItems;
+      payload.expenses = expenseItems.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+    }
     try {
       if (isEdit) await api.put(`/vehicles/${vehicle.id}`, payload);
       else await api.post("/vehicles", payload);
@@ -408,16 +441,20 @@ function VehicleForm({ vehicle, prefill, onClose, onSaved, t }) {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-2 gap-4 pt-4 border-t border-border">
-          <Input label={t("purchase_price")} type="number" value={form.purchase_price} set={(v) => set("purchase_price", v)} testid="f-purchase" />
+          {!isSalesperson && (
+            <Input label={t("purchase_price")} type="number" value={form.purchase_price} set={(v) => set("purchase_price", v)} testid="f-purchase" />
+          )}
           <Input label={t("sale_price")} type="number" value={form.sale_price} set={(v) => set("sale_price", v)} testid="f-sale" />
         </div>
 
-        <div className="pt-4 border-t border-border">
-          <ExpenseManager items={expenseItems} onChange={setExpenseItems} t={t} />
-        </div>
+        {!isSalesperson && (
+          <div className="pt-4 border-t border-border">
+            <ExpenseManager items={expenseItems} onChange={setExpenseItems} t={t} />
+          </div>
+        )}
 
-        {/* Real profit summary */}
-        {(() => {
+        {/* Real profit summary — only for owner */}
+        {!isSalesperson && (() => {
           const totalExp = expenseItems.reduce((s, it) => s + (Number(it.amount) || 0), 0);
           const profit = (Number(form.sale_price) || 0) - (Number(form.purchase_price) || 0) - totalExp;
           return (
@@ -451,6 +488,30 @@ function VehicleForm({ vehicle, prefill, onClose, onSaved, t }) {
             <Input label={t("payment_method")} value={form.payment_method} set={(v) => set("payment_method", v)} testid="f-payment" />
             <Input label={t("bank_name_label")} value={form.bank_name || ""} set={(v) => set("bank_name", v)} testid="f-bank" />
             <Input label={t("sold_price")} type="number" value={form.sold_price} set={(v) => set("sold_price", v)} testid="f-sold-price" />
+            {/* Salesperson selector — owner only. Salespeople auto-assign themselves on save */}
+            {!isSalesperson && (
+              <div>
+                <label className="label-eyebrow block mb-2">{t("salesperson")}</label>
+                <select
+                  data-testid="f-salesperson"
+                  value={form.salesperson_id || ""}
+                  onChange={(e) => {
+                    const sp = salespeople.find(s => s.id === e.target.value);
+                    set("salesperson_id", e.target.value);
+                    set("salesperson_name", sp ? sp.name : "");
+                    if (sp && !Number(form.commission_amount)) {
+                      set("commission_amount", sp.commission_amount || 0);
+                    }
+                  }}
+                  className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm"
+                >
+                  <option value="">{t("select_salesperson")}</option>
+                  {salespeople.filter(s => s.active !== false).map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         )}
 
@@ -774,11 +835,13 @@ function DeliveryEditModal({ vehicle, mode, t, onClose, onSaved }) {
   );
 }
 
-function SalespeopleTab({ salespeople, t, onReload }) {
+function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }) {
   const [editingSp, setEditingSp] = useState(null);
+  const [credsFor, setCredsFor] = useState(null); // salesperson object whose credentials are being edited
   const [periodFilter, setPeriodFilter] = useState("all");
-  const [selectedSp, setSelectedSp] = useState("all"); // "all" | "unassigned" | salesperson_id
+  const [selectedSp, setSelectedSp] = useState(isSalesperson ? (currentSpId || "all") : "all");
   const [report, setReport] = useState({ rows: [], by_salesperson: [], total_sales: 0, total_revenue: 0, total_profit: 0 });
+  const [credentialsMap, setCredentialsMap] = useState({}); // { spId: {has_login, login_email} }
 
   const loadReport = async () => {
     const params = {};
@@ -797,7 +860,16 @@ function SalespeopleTab({ salespeople, t, onReload }) {
     } catch { /* noop */ }
   };
 
+  const loadCreds = async () => {
+    if (isSalesperson) return;
+    try {
+      const r = await api.get("/salespeople/credentials");
+      setCredentialsMap(r.data || {});
+    } catch { /* noop */ }
+  };
+
   useEffect(() => { loadReport(); /* eslint-disable-next-line */ }, [periodFilter, salespeople.length]);
+  useEffect(() => { loadCreds(); /* eslint-disable-next-line */ }, [salespeople.length]);
 
   const removeSp = async (id) => {
     if (!window.confirm(t("confirm_delete"))) return;
@@ -809,6 +881,7 @@ function SalespeopleTab({ salespeople, t, onReload }) {
   };
 
   const togglePaid = async (vehicle_id, currentlyPaid) => {
+    if (isSalesperson) return; // read-only for salespeople
     try {
       await api.put(`/vehicles/${vehicle_id}`, { commission_paid: !currentlyPaid });
       toast.success(t("saved"));
@@ -817,6 +890,11 @@ function SalespeopleTab({ salespeople, t, onReload }) {
     } catch { toast.error(t("error_generic")); }
   };
 
+  // Salespeople list visible to current viewer
+  const visibleSalespeople = isSalesperson
+    ? salespeople.filter(s => s.id === currentSpId)
+    : salespeople;
+
   return (
     <div data-testid="salespeople-tab">
       <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
@@ -824,13 +902,15 @@ function SalespeopleTab({ salespeople, t, onReload }) {
           <p className="label-eyebrow text-primary mb-2">{t("salespeople")}</p>
           <h1 className="font-display font-black text-4xl uppercase tracking-tighter">{t("sales_report")}</h1>
         </div>
-        <button
-          data-testid="add-salesperson"
-          onClick={() => setEditingSp({})}
-          className="bg-primary hover:bg-primary-hover px-5 py-3 font-display font-bold uppercase text-xs tracking-widest inline-flex items-center gap-2"
-        >
-          <Plus size={14} /> {t("add_salesperson")}
-        </button>
+        {!isSalesperson && (
+          <button
+            data-testid="add-salesperson"
+            onClick={() => setEditingSp({})}
+            className="bg-primary hover:bg-primary-hover px-5 py-3 font-display font-bold uppercase text-xs tracking-widest inline-flex items-center gap-2"
+          >
+            <Plus size={14} /> {t("add_salesperson")}
+          </button>
+        )}
       </div>
 
       {/* Period filter */}
@@ -854,15 +934,17 @@ function SalespeopleTab({ salespeople, t, onReload }) {
       </div>
 
       {/* Top-level stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border border border-border mb-8">
+      <div className={`grid grid-cols-2 ${isSalesperson ? "md:grid-cols-3" : "md:grid-cols-4"} gap-px bg-border border border-border mb-8`}>
         <div className="bg-background p-5">
           <p className="label-eyebrow mb-2">{t("sales_count")}</p>
           <p className="font-display font-black text-2xl">{report.total_sales}</p>
         </div>
-        <div className="bg-background p-5">
-          <p className="label-eyebrow mb-2">{t("total_revenue")}</p>
-          <p className="font-display font-black text-2xl text-primary">{formatCurrency(report.total_revenue)}</p>
-        </div>
+        {!isSalesperson && (
+          <div className="bg-background p-5">
+            <p className="label-eyebrow mb-2">{t("total_revenue")}</p>
+            <p className="font-display font-black text-2xl text-primary">{formatCurrency(report.total_revenue)}</p>
+          </div>
+        )}
         <div className="bg-background p-5">
           <p className="label-eyebrow mb-2">{t("commission_paid")}</p>
           <p className="font-display font-black text-2xl text-success">{formatCurrency(report.total_commission_paid || 0)}</p>
@@ -878,7 +960,7 @@ function SalespeopleTab({ salespeople, t, onReload }) {
         <div className="bg-surface px-4 py-3 border-b border-border">
           <p className="label-eyebrow text-primary">{t("by_salesperson")}</p>
         </div>
-        {salespeople.length === 0 && report.by_salesperson.length === 0 ? (
+        {visibleSalespeople.length === 0 && report.by_salesperson.length === 0 ? (
           <p className="text-text-secondary text-sm text-center py-12">{t("no_salespeople")}</p>
         ) : (
           <table className="w-full text-sm">
@@ -889,12 +971,14 @@ function SalespeopleTab({ salespeople, t, onReload }) {
                 <th className="text-right p-3 label-eyebrow">{t("sales_count")}</th>
                 <th className="text-right p-3 label-eyebrow">{t("commission_paid")}</th>
                 <th className="text-right p-3 label-eyebrow">{t("commission_pending")}</th>
+                {!isSalesperson && <th className="text-left p-3 label-eyebrow">{t("login_email")}</th>}
                 <th className="text-right p-3 label-eyebrow"></th>
               </tr>
             </thead>
             <tbody>
-              {salespeople.map((sp) => {
+              {visibleSalespeople.map((sp) => {
                 const stats = report.by_salesperson.find(b => b.salesperson_id === sp.id) || { count: 0, commission_paid_total: 0, commission_pending_total: 0, commission_paid_count: 0, commission_pending_count: 0 };
+                const cred = credentialsMap[sp.id];
                 return (
                   <tr
                     key={sp.id}
@@ -922,17 +1006,40 @@ function SalespeopleTab({ salespeople, t, onReload }) {
                         {stats.commission_pending_count > 0 && <span className="text-xs text-text-secondary">({stats.commission_pending_count})</span>}
                       </div>
                     </td>
+                    {!isSalesperson && (
+                      <td className="p-3 text-xs">
+                        {cred?.has_login ? (
+                          <span className="text-success font-mono" data-testid={`sp-login-${sp.id}`}>{cred.login_email}</span>
+                        ) : (
+                          <span className="text-text-secondary uppercase tracking-wider">{t("no_login")}</span>
+                        )}
+                      </td>
+                    )}
                     <td className="p-3 text-right">
                       <div className="inline-flex gap-1" onClick={(e) => e.stopPropagation()}>
-                        <button data-testid={`edit-sp-${sp.id}`} onClick={() => setEditingSp(sp)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Edit2 size={14} /></button>
-                        <button data-testid={`del-sp-${sp.id}`} onClick={() => removeSp(sp.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Trash2 size={14} /></button>
+                        {!isSalesperson && (
+                          <button
+                            data-testid={`creds-sp-${sp.id}`}
+                            onClick={() => setCredsFor(sp)}
+                            title={cred?.has_login ? t("edit_login") : t("set_login")}
+                            className={`w-8 h-8 border flex items-center justify-center transition-colors ${cred?.has_login ? "border-success text-success hover:bg-success/10" : "border-border hover:border-primary hover:text-primary"}`}
+                          >
+                            <Users size={14} />
+                          </button>
+                        )}
+                        {!isSalesperson && (
+                          <>
+                            <button data-testid={`edit-sp-${sp.id}`} onClick={() => setEditingSp(sp)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Edit2 size={14} /></button>
+                            <button data-testid={`del-sp-${sp.id}`} onClick={() => removeSp(sp.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Trash2 size={14} /></button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
                 );
               })}
-              {/* Unassigned row */}
-              {report.by_salesperson.find(b => !b.salesperson_id) && (() => {
+              {/* Unassigned row — owner only */}
+              {!isSalesperson && report.by_salesperson.find(b => !b.salesperson_id) && (() => {
                 const u = report.by_salesperson.find(b => !b.salesperson_id);
                 return (
                   <tr className="border-b border-border bg-warning/5">
@@ -943,6 +1050,7 @@ function SalespeopleTab({ salespeople, t, onReload }) {
                     <td className="p-3 text-right font-display font-bold">{u.count}</td>
                     <td className="p-3 text-right">—</td>
                     <td className="p-3 text-right">—</td>
+                    <td></td>
                     <td></td>
                   </tr>
                 );
@@ -958,65 +1066,67 @@ function SalespeopleTab({ salespeople, t, onReload }) {
           <p className="label-eyebrow text-primary">{t("detailed_sales")}</p>
         </div>
 
-        {/* Salesperson filter pills */}
-        <div className="flex flex-wrap gap-2 px-4 py-3 border-b border-border bg-surface/30">
-          <button
-            type="button"
-            data-testid="filter-sp-all"
-            onClick={() => setSelectedSp("all")}
-            className={`px-3 py-1.5 text-xs font-display font-bold uppercase tracking-widest border transition-colors ${
-              selectedSp === "all" ? "border-primary text-primary bg-primary/10" : "border-border text-text-secondary hover:text-white"
-            }`}
-          >
-            {t("all_time")} ({report.rows.length})
-          </button>
-          {salespeople.map((sp) => {
-            const cnt = report.rows.filter(r => r.salesperson_id === sp.id).length;
-            return (
-              <button
-                key={sp.id}
-                type="button"
-                data-testid={`filter-sp-${sp.id}`}
-                onClick={() => setSelectedSp(sp.id)}
-                className={`px-3 py-1.5 text-xs font-display font-bold uppercase tracking-widest border transition-colors ${
-                  selectedSp === sp.id ? "border-primary text-primary bg-primary/10" : "border-border text-text-secondary hover:text-white"
-                }`}
-              >
-                {sp.name} ({cnt})
-              </button>
-            );
-          })}
-          {report.rows.some(r => !r.salesperson_id) && (
+        {/* Salesperson filter pills — owner only (salesperson sees only their own sales) */}
+        {!isSalesperson && (
+          <div className="flex flex-wrap gap-2 px-4 py-3 border-b border-border bg-surface/30">
             <button
               type="button"
-              data-testid="filter-sp-unassigned"
-              onClick={() => setSelectedSp("unassigned")}
+              data-testid="filter-sp-all"
+              onClick={() => setSelectedSp("all")}
               className={`px-3 py-1.5 text-xs font-display font-bold uppercase tracking-widest border transition-colors ${
-                selectedSp === "unassigned" ? "border-warning text-warning bg-warning/10" : "border-border text-text-secondary hover:text-white"
+                selectedSp === "all" ? "border-primary text-primary bg-primary/10" : "border-border text-text-secondary hover:text-white"
               }`}
             >
-              {t("unassigned")} ({report.rows.filter(r => !r.salesperson_id).length})
+              {t("all_time")} ({report.rows.length})
             </button>
-          )}
-        </div>
+            {salespeople.map((sp) => {
+              const cnt = report.rows.filter(r => r.salesperson_id === sp.id).length;
+              return (
+                <button
+                  key={sp.id}
+                  type="button"
+                  data-testid={`filter-sp-${sp.id}`}
+                  onClick={() => setSelectedSp(sp.id)}
+                  className={`px-3 py-1.5 text-xs font-display font-bold uppercase tracking-widest border transition-colors ${
+                    selectedSp === sp.id ? "border-primary text-primary bg-primary/10" : "border-border text-text-secondary hover:text-white"
+                  }`}
+                >
+                  {sp.name} ({cnt})
+                </button>
+              );
+            })}
+            {report.rows.some(r => !r.salesperson_id) && (
+              <button
+                type="button"
+                data-testid="filter-sp-unassigned"
+                onClick={() => setSelectedSp("unassigned")}
+                className={`px-3 py-1.5 text-xs font-display font-bold uppercase tracking-widest border transition-colors ${
+                  selectedSp === "unassigned" ? "border-warning text-warning bg-warning/10" : "border-border text-text-secondary hover:text-white"
+                }`}
+              >
+                {t("unassigned")} ({report.rows.filter(r => !r.salesperson_id).length})
+              </button>
+            )}
+          </div>
+        )}
 
         {(() => {
           const filteredRows = report.rows.filter((r) => {
+            if (isSalesperson) return true; // backend already filters to own sales
             if (selectedSp === "all") return true;
             if (selectedSp === "unassigned") return !r.salesperson_id;
             return r.salesperson_id === selectedSp;
           });
           // Subtotals for the filtered selection
           const subtotalRevenue = filteredRows.reduce((s, r) => s + r.sold_price, 0);
-          const subtotalCommission = filteredRows.reduce((s, r) => s + (r.commission_amount || 0), 0);
           const paidCount = filteredRows.filter(r => r.commission_paid).length;
           const pendingCount = filteredRows.filter(r => !r.commission_paid).length;
           const selectedSpName = selectedSp === "all" ? t("all_time") : selectedSp === "unassigned" ? t("unassigned") : (salespeople.find(p => p.id === selectedSp)?.name || "");
 
           return (
             <>
-              {/* Subtotals card when a specific salesperson is selected */}
-              {selectedSp !== "all" && filteredRows.length > 0 && (
+              {/* Subtotals card when a specific salesperson is selected — owner view only */}
+              {!isSalesperson && selectedSp !== "all" && filteredRows.length > 0 && (
                 <div className="px-4 py-3 border-b border-border bg-surface/50 grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div>
                     <p className="label-eyebrow mb-1">{selectedSpName}</p>
@@ -1048,7 +1158,7 @@ function SalespeopleTab({ salespeople, t, onReload }) {
                         <th className="text-left p-3 label-eyebrow">{t("sale_date")}</th>
                         <th className="text-left p-3 label-eyebrow">{t("make")}/{t("model")}</th>
                         <th className="text-left p-3 label-eyebrow">{t("buyer_name")}</th>
-                        <th className="text-left p-3 label-eyebrow">{t("salesperson")}</th>
+                        {!isSalesperson && <th className="text-left p-3 label-eyebrow">{t("salesperson")}</th>}
                         <th className="text-right p-3 label-eyebrow">{t("sold_price")}</th>
                         <th className="text-right p-3 label-eyebrow">{t("commission_amount")}</th>
                         <th className="text-center p-3 label-eyebrow">{t("paid")}</th>
@@ -1069,26 +1179,29 @@ function SalespeopleTab({ salespeople, t, onReload }) {
                             </div>
                           </td>
                           <td className="p-3">{r.buyer_name || "—"}</td>
-                          <td className="p-3">
-                            {r.salesperson_name && r.salesperson_name !== "—" ? (
-                              <span className="font-display font-bold">{r.salesperson_name}</span>
-                            ) : (
-                              <span className="text-warning text-xs uppercase tracking-wider">{t("unassigned")}</span>
-                            )}
-                          </td>
+                          {!isSalesperson && (
+                            <td className="p-3">
+                              {r.salesperson_name && r.salesperson_name !== "—" ? (
+                                <span className="font-display font-bold">{r.salesperson_name}</span>
+                              ) : (
+                                <span className="text-warning text-xs uppercase tracking-wider">{t("unassigned")}</span>
+                              )}
+                            </td>
+                          )}
                           <td className="p-3 text-right font-display font-bold">{formatCurrency(r.sold_price)}</td>
                           <td className="p-3 text-right font-display font-bold">{formatCurrency(r.commission_amount || 0)}</td>
                           <td className="p-3 text-center">
                             <button
                               type="button"
                               data-testid={`toggle-paid-${r.vehicle_id}`}
-                              onClick={() => togglePaid(r.vehicle_id, r.commission_paid)}
-                              title={r.commission_paid ? t("mark_unpaid") : t("mark_paid")}
+                              onClick={() => !isSalesperson && togglePaid(r.vehicle_id, r.commission_paid)}
+                              disabled={isSalesperson}
+                              title={isSalesperson ? "" : (r.commission_paid ? t("mark_unpaid") : t("mark_paid"))}
                               className={`inline-flex items-center gap-1.5 px-3 py-1.5 border transition-colors text-xs font-display font-bold uppercase tracking-wider ${
                                 r.commission_paid
                                   ? "border-success text-success hover:bg-success/10"
                                   : "border-warning text-warning hover:bg-warning/10"
-                              }`}
+                              } ${isSalesperson ? "cursor-default" : ""}`}
                             >
                               {r.commission_paid ? <CheckCircle2 size={14} /> : <Clock size={14} />}
                               {r.commission_paid ? t("paid") : t("pending")}
@@ -1107,6 +1220,16 @@ function SalespeopleTab({ salespeople, t, onReload }) {
 
       {editingSp && (
         <SalespersonForm sp={editingSp.id ? editingSp : null} t={t} onClose={() => setEditingSp(null)} onSaved={() => { setEditingSp(null); onReload(); }} />
+      )}
+
+      {credsFor && (
+        <SalespersonCredentialsModal
+          sp={credsFor}
+          t={t}
+          existing={credentialsMap[credsFor.id]}
+          onClose={() => setCredsFor(null)}
+          onSaved={() => { setCredsFor(null); loadCreds(); }}
+        />
       )}
     </div>
   );
@@ -1152,6 +1275,78 @@ function SalespersonForm({ sp, t, onClose, onSaved }) {
           <button type="submit" data-testid="sp-submit" disabled={saving} className="bg-primary hover:bg-primary-hover disabled:opacity-50 px-5 py-2.5 text-xs font-display font-bold uppercase tracking-widest transition-colors inline-flex items-center gap-2">
             <Check size={14} /> {saving ? "..." : t("save")}
           </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function SalespersonCredentialsModal({ sp, t, existing, onClose, onSaved }) {
+  const [email, setEmail] = useState(existing?.login_email || sp.email || "");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const save = async (e) => {
+    e.preventDefault();
+    if (!email || !password) {
+      toast.error(t("error_generic"));
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.post(`/salespeople/${sp.id}/credentials`, { email, password });
+      toast.success(t("saved"));
+      onSaved();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || t("error_generic"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const revoke = async () => {
+    if (!window.confirm(t("confirm_revoke_login"))) return;
+    setSaving(true);
+    try {
+      await api.delete(`/salespeople/${sp.id}/credentials`);
+      toast.success(t("saved"));
+      onSaved();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || t("error_generic"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-12 px-4">
+      <form onSubmit={save} className="bg-background border border-border w-full max-w-lg p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="label-eyebrow text-primary mb-1">{sp.name}</p>
+            <h2 className="font-display font-black text-xl uppercase tracking-tight">
+              {existing?.has_login ? t("edit_login") : t("set_login")}
+            </h2>
+          </div>
+          <button type="button" onClick={onClose}><X size={20} className="text-text-secondary hover:text-primary" /></button>
+        </div>
+        <p className="text-xs text-text-secondary leading-relaxed border-l-2 border-primary pl-3">
+          {t("salesperson_login_hint")}
+        </p>
+        <Input label={t("login_email")} type="email" value={email} set={setEmail} required testid="creds-email" />
+        <Input label={t("new_password")} type="password" value={password} set={setPassword} required testid="creds-password" />
+        <div className="flex justify-between gap-3 pt-4 border-t border-border">
+          {existing?.has_login ? (
+            <button type="button" data-testid="creds-revoke" onClick={revoke} disabled={saving} className="px-5 py-2.5 border border-primary text-primary hover:bg-primary/10 disabled:opacity-50 text-xs font-display font-bold uppercase tracking-widest transition-colors inline-flex items-center gap-2">
+              <Trash2 size={14} /> {t("revoke_login")}
+            </button>
+          ) : <span />}
+          <div className="flex gap-3">
+            <button type="button" onClick={onClose} className="px-5 py-2.5 border border-border hover:border-primary text-xs font-display font-bold uppercase tracking-widest transition-colors">{t("cancel")}</button>
+            <button type="submit" data-testid="creds-submit" disabled={saving} className="bg-primary hover:bg-primary-hover disabled:opacity-50 px-5 py-2.5 text-xs font-display font-bold uppercase tracking-widest transition-colors inline-flex items-center gap-2">
+              <Check size={14} /> {saving ? "..." : t("save")}
+            </button>
+          </div>
         </div>
       </form>
     </div>

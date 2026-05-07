@@ -174,11 +174,35 @@ async def get_current_user(request: Request) -> dict:
         user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
         if not user:
             raise HTTPException(401, "User not found")
+        # Default role for accounts created before role was introduced
+        user.setdefault("role", "owner")
+        user.setdefault("salesperson_id", "")
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(401, "Token expired")
     except jwt.InvalidTokenError:
         raise HTTPException(401, "Invalid token")
+
+
+def is_salesperson(user: dict) -> bool:
+    return user.get("role") == "salesperson"
+
+
+# Fields hidden from salespeople (per-vehicle financials that reveal cost/profit)
+_HIDDEN_VEHICLE_FIELDS = ("purchase_price", "expenses", "expense_items")
+
+
+def strip_vehicle_for_salesperson(v: dict) -> dict:
+    """Remove cost/profit fields from a vehicle dict before returning to salesperson."""
+    if not v:
+        return v
+    out = {k: val for k, val in v.items() if k not in _HIDDEN_VEHICLE_FIELDS}
+    return out
+
+
+def require_owner(user: dict):
+    if user.get("role") != "owner":
+        raise HTTPException(403, "Owner access required")
 
 
 # ============================================================
@@ -220,13 +244,15 @@ async def signup(payload: SignupRequest):
         "password_hash": hash_password(payload.password),
         "full_name": payload.full_name,
         "dealership_id": dealership_id,
+        "role": "owner",
+        "salesperson_id": "",
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
 
     token = create_token(user_id, dealership_id, email)
     return {
         "access_token": token,
-        "user": {"id": user_id, "email": email, "full_name": payload.full_name, "dealership_id": dealership_id},
+        "user": {"id": user_id, "email": email, "full_name": payload.full_name, "dealership_id": dealership_id, "role": "owner", "salesperson_id": ""},
         "dealership": {"id": dealership_id, "name": payload.dealership_name, "api_token": api_token},
     }
 
@@ -240,7 +266,14 @@ async def login(payload: LoginRequest):
     token = create_token(user["id"], user["dealership_id"], user["email"])
     return {
         "access_token": token,
-        "user": {"id": user["id"], "email": user["email"], "full_name": user.get("full_name", ""), "dealership_id": user["dealership_id"]},
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "full_name": user.get("full_name", ""),
+            "dealership_id": user["dealership_id"],
+            "role": user.get("role", "owner"),
+            "salesperson_id": user.get("salesperson_id", ""),
+        },
         "dealership": dealership,
     }
 
@@ -254,7 +287,7 @@ async def me(current: dict = Depends(get_current_user)):
 # ============================================================
 # VEHICLES (multi-tenant)
 # ============================================================
-@api_router.get("/vehicles", response_model=List[Vehicle])
+@api_router.get("/vehicles")
 async def list_vehicles(
     status: Optional[str] = None,
     search: Optional[str] = None,
@@ -267,11 +300,14 @@ async def list_vehicles(
         rx = {"$regex": search, "$options": "i"}
         q["$or"] = [{"make": rx}, {"model": rx}, {"plate": rx}, {"vin": rx}]
     items = await db.vehicles.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    if is_salesperson(current):
+        items = [strip_vehicle_for_salesperson(v) for v in items]
     return items
 
 
 @api_router.post("/vehicles", response_model=Vehicle)
 async def create_vehicle(payload: VehicleCreate, current: dict = Depends(get_current_user)):
+    require_owner(current)
     v = Vehicle(dealership_id=current["dealership_id"], **payload.model_dump())
     # Auto-compute expenses total from items if present
     if v.expense_items:
@@ -280,17 +316,35 @@ async def create_vehicle(payload: VehicleCreate, current: dict = Depends(get_cur
     return v
 
 
-@api_router.get("/vehicles/{vid}", response_model=Vehicle)
+@api_router.get("/vehicles/{vid}")
 async def get_vehicle(vid: str, current: dict = Depends(get_current_user)):
     v = await db.vehicles.find_one({"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0})
     if not v:
         raise HTTPException(404, "Vehicle not found")
+    if is_salesperson(current):
+        v = strip_vehicle_for_salesperson(v)
     return v
 
 
-@api_router.put("/vehicles/{vid}", response_model=Vehicle)
+@api_router.put("/vehicles/{vid}")
 async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depends(get_current_user)):
     upd = {k: val for k, val in payload.model_dump().items() if val is not None}
+    # Salesperson restrictions: strip financial fields + forbid changing payment status / commission
+    if is_salesperson(current):
+        for forbidden in ("purchase_price", "expenses", "expense_items", "commission_amount", "commission_paid"):
+            upd.pop(forbidden, None)
+        # When marking as sold, auto-assign salesperson to themselves
+        if upd.get("status") == "sold" and not upd.get("salesperson_id"):
+            sp_id = current.get("salesperson_id") or ""
+            if sp_id:
+                sp = await db.salespeople.find_one(
+                    {"id": sp_id, "dealership_id": current["dealership_id"]}, {"_id": 0}
+                )
+                if sp:
+                    upd["salesperson_id"] = sp_id
+                    upd["salesperson_name"] = sp.get("name", "")
+                    if not upd.get("commission_amount"):
+                        upd["commission_amount"] = float(sp.get("commission_amount") or 0)
     # Auto-compute expenses total from itemized list when provided
     if "expense_items" in upd and isinstance(upd["expense_items"], list):
         upd["expenses"] = sum(float(it.get("amount") or 0) for it in upd["expense_items"])
@@ -299,6 +353,17 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
         existing = await db.vehicles.find_one({"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0})
         if existing and existing.get("status") != "sold":
             upd["sold_at"] = datetime.now(timezone.utc).isoformat()
+            # Auto-assign currently logged-in salesperson when no one is set
+            if not upd.get("salesperson_id") and not existing.get("salesperson_id"):
+                if is_salesperson(current) and current.get("salesperson_id"):
+                    sp = await db.salespeople.find_one(
+                        {"id": current["salesperson_id"], "dealership_id": current["dealership_id"]}, {"_id": 0}
+                    )
+                    if sp:
+                        upd["salesperson_id"] = sp["id"]
+                        upd["salesperson_name"] = sp.get("name", "")
+                        if not upd.get("commission_amount"):
+                            upd["commission_amount"] = float(sp.get("commission_amount") or 0)
             # Force delivery_step = 1 on first transition to sold (override any 0/None payload value)
             if (existing.get("delivery_step") or 0) == 0 and (upd.get("delivery_step") or 0) == 0:
                 upd["delivery_step"] = 1
@@ -310,16 +375,21 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
     res = await db.vehicles.update_one({"id": vid, "dealership_id": current["dealership_id"]}, {"$set": upd})
     if res.matched_count == 0:
         raise HTTPException(404, "Vehicle not found")
-    return await db.vehicles.find_one({"id": vid}, {"_id": 0})
+    v = await db.vehicles.find_one({"id": vid}, {"_id": 0})
+    if is_salesperson(current):
+        v = strip_vehicle_for_salesperson(v)
+    return v
 
 
-@api_router.get("/delivery", response_model=List[Vehicle])
+@api_router.get("/delivery")
 async def list_delivery(current: dict = Depends(get_current_user)):
     """Vehicles currently in the delivery pipeline (sold but not delivered)."""
     items = await db.vehicles.find(
         {"dealership_id": current["dealership_id"], "status": "sold", "delivery_step": {"$gte": 1, "$lte": 8}},
         {"_id": 0}
     ).sort("sold_at", -1).to_list(500)
+    if is_salesperson(current):
+        items = [strip_vehicle_for_salesperson(v) for v in items]
     return items
 
 
@@ -376,6 +446,7 @@ async def import_vehicle_from_url(payload: dict, current: dict = Depends(get_cur
     Returns extracted fields for the user to confirm/edit before saving.
     Does NOT save the vehicle automatically.
     """
+    require_owner(current)
     url = (payload or {}).get("url", "").strip()
     if not url or not (url.startswith("http://") or url.startswith("https://")):
         raise HTTPException(400, "Provide a valid http(s) URL")
@@ -532,6 +603,7 @@ async def cloudinary_delete(public_id: str = Query(...), current: dict = Depends
 
 @api_router.delete("/vehicles/{vid}")
 async def delete_vehicle(vid: str, current: dict = Depends(get_current_user)):
+    require_owner(current)
     res = await db.vehicles.delete_one({"id": vid, "dealership_id": current["dealership_id"]})
     if res.deleted_count == 0:
         raise HTTPException(404, "Vehicle not found")
@@ -590,6 +662,16 @@ async def stats(current: dict = Depends(get_current_user)):
             pass
     monthly_list = sorted(monthly.values(), key=lambda x: x["month"])[-6:]
 
+    if is_salesperson(current):
+        # Hide aggregate cost/revenue/profit numbers from salespeople
+        return {
+            "total_vehicles": total,
+            "in_stock": in_stock,
+            "reserved": reserved,
+            "sold": sold,
+            "monthly_sales": [{"month": m["month"], "count": m["count"]} for m in monthly_list],
+        }
+
     return {
         "total_vehicles": total,
         "in_stock": in_stock,
@@ -647,8 +729,71 @@ async def list_salespeople(current: dict = Depends(get_current_user)):
     return items
 
 
+@api_router.get("/salespeople/credentials")
+async def list_salesperson_credentials(current: dict = Depends(get_current_user)):
+    """Map of salesperson_id -> {has_login: bool, login_email: str} for the owner UI."""
+    require_owner(current)
+    users = await db.users.find(
+        {"dealership_id": current["dealership_id"], "role": "salesperson"},
+        {"_id": 0, "salesperson_id": 1, "email": 1}
+    ).to_list(500)
+    return {u["salesperson_id"]: {"has_login": True, "login_email": u["email"]} for u in users if u.get("salesperson_id")}
+
+
+class SalespersonCredentials(BaseModel):
+    email: EmailStr
+    password: str
+
+
+@api_router.post("/salespeople/{sid}/credentials")
+async def set_salesperson_credentials(sid: str, payload: SalespersonCredentials, current: dict = Depends(get_current_user)):
+    """Owner sets/replaces login credentials for a salesperson."""
+    require_owner(current)
+    sp = await db.salespeople.find_one({"id": sid, "dealership_id": current["dealership_id"]}, {"_id": 0})
+    if not sp:
+        raise HTTPException(404, "Salesperson not found")
+    email = payload.email.lower()
+    # Reject if email belongs to a different user (different dealership or different salesperson)
+    existing = await db.users.find_one({"email": email})
+    if existing and not (
+        existing.get("role") == "salesperson"
+        and existing.get("dealership_id") == current["dealership_id"]
+        and existing.get("salesperson_id") == sid
+    ):
+        raise HTTPException(400, "Email already in use")
+    # Upsert: one login per salesperson
+    user_doc = {
+        "email": email,
+        "password_hash": hash_password(payload.password),
+        "full_name": sp.get("name", ""),
+        "dealership_id": current["dealership_id"],
+        "role": "salesperson",
+        "salesperson_id": sid,
+    }
+    found = await db.users.find_one({"dealership_id": current["dealership_id"], "salesperson_id": sid, "role": "salesperson"})
+    if found:
+        await db.users.update_one({"id": found["id"]}, {"$set": user_doc})
+    else:
+        user_doc["id"] = str(uuid.uuid4())
+        user_doc["created_at"] = datetime.now(timezone.utc).isoformat()
+        await db.users.insert_one(user_doc)
+    return {"ok": True, "login_email": email}
+
+
+@api_router.delete("/salespeople/{sid}/credentials")
+async def revoke_salesperson_credentials(sid: str, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    res = await db.users.delete_one({
+        "dealership_id": current["dealership_id"],
+        "salesperson_id": sid,
+        "role": "salesperson",
+    })
+    return {"deleted": res.deleted_count}
+
+
 @api_router.post("/salespeople", response_model=Salesperson)
 async def create_salesperson(payload: SalespersonBase, current: dict = Depends(get_current_user)):
+    require_owner(current)
     sp = Salesperson(dealership_id=current["dealership_id"], **payload.model_dump())
     await db.salespeople.insert_one(sp.model_dump())
     return sp
@@ -656,6 +801,7 @@ async def create_salesperson(payload: SalespersonBase, current: dict = Depends(g
 
 @api_router.put("/salespeople/{sid}", response_model=Salesperson)
 async def update_salesperson(sid: str, payload: SalespersonUpdate, current: dict = Depends(get_current_user)):
+    require_owner(current)
     upd = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not upd:
         raise HTTPException(400, "Nothing to update")
@@ -675,9 +821,16 @@ async def update_salesperson(sid: str, payload: SalespersonUpdate, current: dict
 
 @api_router.delete("/salespeople/{sid}")
 async def delete_salesperson(sid: str, current: dict = Depends(get_current_user)):
+    require_owner(current)
     res = await db.salespeople.delete_one({"id": sid, "dealership_id": current["dealership_id"]})
     if res.deleted_count == 0:
         raise HTTPException(404, "Salesperson not found")
+    # Also revoke login (if any)
+    await db.users.delete_one({
+        "dealership_id": current["dealership_id"],
+        "salesperson_id": sid,
+        "role": "salesperson",
+    })
     # Vehicles keep snapshot of salesperson_name; only clear the FK
     await db.vehicles.update_many(
         {"dealership_id": current["dealership_id"], "salesperson_id": sid},
@@ -692,8 +845,13 @@ async def sales_report(
     month: Optional[int] = None,
     current: dict = Depends(get_current_user),
 ):
-    """All sold vehicles with salesperson details. Optional year/month filter."""
+    """All sold vehicles with salesperson details. Optional year/month filter.
+    Salespeople only see their own sales and don't get profit/cost data.
+    """
     q = {"dealership_id": current["dealership_id"], "status": "sold"}
+    # Filter to own sales when role=salesperson
+    if is_salesperson(current):
+        q["salesperson_id"] = current.get("salesperson_id") or "__none__"
     sales = await db.vehicles.find(q, {"_id": 0}).sort("sold_at", -1).to_list(2000)
 
     def parse_dt(iso: str):
@@ -704,6 +862,7 @@ async def sales_report(
         except Exception:
             return None
 
+    sp_view = is_salesperson(current)
     rows = []
     for v in sales:
         dt = parse_dt(v.get("sold_at"))
@@ -714,7 +873,7 @@ async def sales_report(
         sale_amt = float(v.get("sold_price") or v.get("sale_price") or 0)
         cost = float(v.get("purchase_price") or 0) + float(v.get("expenses") or 0)
         profit = sale_amt - cost
-        rows.append({
+        row = {
             "vehicle_id": v["id"],
             "make": v.get("make", ""),
             "model": v.get("model", ""),
@@ -725,13 +884,15 @@ async def sales_report(
             "month": dt.month if dt else None,
             "year_sold": dt.year if dt else None,
             "sold_price": sale_amt,
-            "profit": profit,
             "salesperson_id": v.get("salesperson_id", ""),
             "salesperson_name": v.get("salesperson_name", "") or "—",
             "commission_amount": float(v.get("commission_amount") or 0),
             "commission_paid": bool(v.get("commission_paid", False)),
             "image": (v.get("images") or [None])[0] if v.get("images") else None,
-        })
+        }
+        if not sp_view:
+            row["profit"] = profit
+        rows.append(row)
 
     # Aggregate by salesperson
     by_sp = {}
@@ -751,7 +912,7 @@ async def sales_report(
         })
         bucket["count"] += 1
         bucket["total_revenue"] += r["sold_price"]
-        bucket["total_profit"] += r["profit"]
+        bucket["total_profit"] += r.get("profit", 0)
         bucket["commission_total"] += r["commission_amount"]
         if r["commission_paid"]:
             bucket["commission_paid_total"] += r["commission_amount"]
@@ -760,20 +921,29 @@ async def sales_report(
             bucket["commission_pending_total"] += r["commission_amount"]
             bucket["commission_pending_count"] += 1
 
-    return {
+    response = {
         "rows": rows,
         "by_salesperson": list(by_sp.values()),
         "total_sales": len(rows),
-        "total_revenue": sum(r["sold_price"] for r in rows),
-        "total_profit": sum(r["profit"] for r in rows),
         "total_commission": sum(r["commission_amount"] for r in rows),
         "total_commission_paid": sum(r["commission_amount"] for r in rows if r["commission_paid"]),
         "total_commission_pending": sum(r["commission_amount"] for r in rows if not r["commission_paid"]),
     }
+    if not sp_view:
+        response["total_revenue"] = sum(r["sold_price"] for r in rows)
+        response["total_profit"] = sum(r.get("profit", 0) for r in rows)
+        # strip total_profit from per-salesperson aggregates? keep it, owner only sees this anyway
+    else:
+        # Strip aggregate totals that reveal owner financials
+        for b in response["by_salesperson"]:
+            b.pop("total_revenue", None)
+            b.pop("total_profit", None)
+    return response
 
 
 @api_router.post("/dealership/regenerate-token")
 async def regen_token(current: dict = Depends(get_current_user)):
+    require_owner(current)
     new_token = secrets.token_urlsafe(24)
     await db.dealerships.update_one({"id": current["dealership_id"]}, {"$set": {"api_token": new_token}})
     return {"api_token": new_token}
