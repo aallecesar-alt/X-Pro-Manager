@@ -361,19 +361,42 @@ async def import_vehicle_from_url(payload: dict, current: dict = Depends(get_cur
         raise HTTPException(400, "Provide a valid http(s) URL")
 
     import requests
+    import cloudscraper
     from bs4 import BeautifulSoup
     import re as _re
 
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,pt-BR;q=0.8",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
+    r = None
+    last_error = None
+
+    # Try plain requests first
     try:
-        r = requests.get(
-            url,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; AutoManagerImporter/1.0)"},
-            timeout=15,
-            allow_redirects=True,
-        )
-        r.raise_for_status()
+        r = requests.get(url, headers=headers, timeout=20, allow_redirects=True)
+        if r.status_code != 200:
+            r = None
     except Exception as e:
-        raise HTTPException(400, f"Could not fetch URL: {str(e)[:200]}")
+        last_error = str(e)
+
+    # Fallback to cloudscraper (handles Cloudflare JS challenges)
+    if r is None:
+        try:
+            scraper = cloudscraper.create_scraper(
+                browser={"browser": "chrome", "platform": "darwin", "mobile": False}
+            )
+            r = scraper.get(url, headers=headers, timeout=30, allow_redirects=True)
+            r.raise_for_status()
+        except Exception as e:
+            last_error = str(e)
+            r = None
+
+    if r is None or r.status_code != 200:
+        raise HTTPException(400, f"Could not fetch URL: {last_error or 'site blocked the request'}"[:200])
 
     soup = BeautifulSoup(r.text, "lxml")
 
