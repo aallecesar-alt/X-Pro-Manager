@@ -777,6 +777,7 @@ function DeliveryEditModal({ vehicle, mode, t, onClose, onSaved }) {
 function SalespeopleTab({ salespeople, t, onReload }) {
   const [editingSp, setEditingSp] = useState(null);
   const [periodFilter, setPeriodFilter] = useState("all");
+  const [selectedSp, setSelectedSp] = useState("all"); // "all" | "unassigned" | salesperson_id
   const [report, setReport] = useState({ rows: [], by_salesperson: [], total_sales: 0, total_revenue: 0, total_profit: 0 });
 
   const loadReport = async () => {
@@ -895,7 +896,12 @@ function SalespeopleTab({ salespeople, t, onReload }) {
               {salespeople.map((sp) => {
                 const stats = report.by_salesperson.find(b => b.salesperson_id === sp.id) || { count: 0, commission_paid_total: 0, commission_pending_total: 0, commission_paid_count: 0, commission_pending_count: 0 };
                 return (
-                  <tr key={sp.id} data-testid={`sp-row-${sp.id}`} className="border-b border-border hover:bg-surface transition-colors">
+                  <tr
+                    key={sp.id}
+                    data-testid={`sp-row-${sp.id}`}
+                    onClick={() => setSelectedSp(sp.id)}
+                    className={`border-b border-border cursor-pointer transition-colors ${selectedSp === sp.id ? "bg-primary/10" : "hover:bg-surface"}`}
+                  >
                     <td className="p-3">
                       <p className="font-display font-bold">{sp.name}</p>
                       <p className="text-xs text-text-secondary">{sp.phone || sp.email || ""}</p>
@@ -917,7 +923,7 @@ function SalespeopleTab({ salespeople, t, onReload }) {
                       </div>
                     </td>
                     <td className="p-3 text-right">
-                      <div className="inline-flex gap-1">
+                      <div className="inline-flex gap-1" onClick={(e) => e.stopPropagation()}>
                         <button data-testid={`edit-sp-${sp.id}`} onClick={() => setEditingSp(sp)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Edit2 size={14} /></button>
                         <button data-testid={`del-sp-${sp.id}`} onClick={() => removeSp(sp.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Trash2 size={14} /></button>
                       </div>
@@ -948,72 +954,155 @@ function SalespeopleTab({ salespeople, t, onReload }) {
 
       {/* Detailed sales spreadsheet */}
       <div className="border border-border">
-        <div className="bg-surface px-4 py-3 border-b border-border">
+        <div className="bg-surface px-4 py-3 border-b border-border flex flex-wrap items-center gap-3">
           <p className="label-eyebrow text-primary">{t("detailed_sales")}</p>
         </div>
-        {report.rows.length === 0 ? (
-          <p className="text-text-secondary text-sm text-center py-12">—</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b border-border">
-                <tr>
-                  <th className="text-left p-3 label-eyebrow">{t("day_of_month")}</th>
-                  <th className="text-left p-3 label-eyebrow">{t("sale_date")}</th>
-                  <th className="text-left p-3 label-eyebrow">{t("make")}/{t("model")}</th>
-                  <th className="text-left p-3 label-eyebrow">{t("buyer_name")}</th>
-                  <th className="text-left p-3 label-eyebrow">{t("salesperson")}</th>
-                  <th className="text-right p-3 label-eyebrow">{t("sold_price")}</th>
-                  <th className="text-right p-3 label-eyebrow">{t("commission_amount")}</th>
-                  <th className="text-center p-3 label-eyebrow">{t("paid")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.rows.map((r) => (
-                  <tr key={r.vehicle_id} data-testid={`sale-${r.vehicle_id}`} className="border-b border-border hover:bg-surface transition-colors">
-                    <td className="p-3 font-display font-black text-primary text-2xl text-center w-16">{r.day || "—"}</td>
-                    <td className="p-3 text-xs text-text-secondary">{r.sold_at ? new Date(r.sold_at).toLocaleDateString() : "—"}</td>
-                    <td className="p-3">
-                      <div className="flex items-center gap-2">
-                        {r.image && <img src={r.image} alt="" className="w-10 h-8 object-cover" />}
-                        <div>
-                          <p className="font-display font-bold">{r.make} {r.model}</p>
-                          <p className="text-xs text-text-secondary">{r.year}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="p-3">{r.buyer_name || "—"}</td>
-                    <td className="p-3">
-                      {r.salesperson_name && r.salesperson_name !== "—" ? (
-                        <span className="font-display font-bold">{r.salesperson_name}</span>
-                      ) : (
-                        <span className="text-warning text-xs uppercase tracking-wider">{t("unassigned")}</span>
-                      )}
-                    </td>
-                    <td className="p-3 text-right font-display font-bold">{formatCurrency(r.sold_price)}</td>
-                    <td className="p-3 text-right font-display font-bold">{formatCurrency(r.commission_amount || 0)}</td>
-                    <td className="p-3 text-center">
-                      <button
-                        type="button"
-                        data-testid={`toggle-paid-${r.vehicle_id}`}
-                        onClick={() => togglePaid(r.vehicle_id, r.commission_paid)}
-                        title={r.commission_paid ? t("mark_unpaid") : t("mark_paid")}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 border transition-colors text-xs font-display font-bold uppercase tracking-wider ${
-                          r.commission_paid
-                            ? "border-success text-success hover:bg-success/10"
-                            : "border-warning text-warning hover:bg-warning/10"
-                        }`}
-                      >
-                        {r.commission_paid ? <CheckCircle2 size={14} /> : <Clock size={14} />}
-                        {r.commission_paid ? t("paid") : t("pending")}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+
+        {/* Salesperson filter pills */}
+        <div className="flex flex-wrap gap-2 px-4 py-3 border-b border-border bg-surface/30">
+          <button
+            type="button"
+            data-testid="filter-sp-all"
+            onClick={() => setSelectedSp("all")}
+            className={`px-3 py-1.5 text-xs font-display font-bold uppercase tracking-widest border transition-colors ${
+              selectedSp === "all" ? "border-primary text-primary bg-primary/10" : "border-border text-text-secondary hover:text-white"
+            }`}
+          >
+            {t("all_time")} ({report.rows.length})
+          </button>
+          {salespeople.map((sp) => {
+            const cnt = report.rows.filter(r => r.salesperson_id === sp.id).length;
+            return (
+              <button
+                key={sp.id}
+                type="button"
+                data-testid={`filter-sp-${sp.id}`}
+                onClick={() => setSelectedSp(sp.id)}
+                className={`px-3 py-1.5 text-xs font-display font-bold uppercase tracking-widest border transition-colors ${
+                  selectedSp === sp.id ? "border-primary text-primary bg-primary/10" : "border-border text-text-secondary hover:text-white"
+                }`}
+              >
+                {sp.name} ({cnt})
+              </button>
+            );
+          })}
+          {report.rows.some(r => !r.salesperson_id) && (
+            <button
+              type="button"
+              data-testid="filter-sp-unassigned"
+              onClick={() => setSelectedSp("unassigned")}
+              className={`px-3 py-1.5 text-xs font-display font-bold uppercase tracking-widest border transition-colors ${
+                selectedSp === "unassigned" ? "border-warning text-warning bg-warning/10" : "border-border text-text-secondary hover:text-white"
+              }`}
+            >
+              {t("unassigned")} ({report.rows.filter(r => !r.salesperson_id).length})
+            </button>
+          )}
+        </div>
+
+        {(() => {
+          const filteredRows = report.rows.filter((r) => {
+            if (selectedSp === "all") return true;
+            if (selectedSp === "unassigned") return !r.salesperson_id;
+            return r.salesperson_id === selectedSp;
+          });
+          // Subtotals for the filtered selection
+          const subtotalRevenue = filteredRows.reduce((s, r) => s + r.sold_price, 0);
+          const subtotalCommission = filteredRows.reduce((s, r) => s + (r.commission_amount || 0), 0);
+          const paidCount = filteredRows.filter(r => r.commission_paid).length;
+          const pendingCount = filteredRows.filter(r => !r.commission_paid).length;
+          const selectedSpName = selectedSp === "all" ? t("all_time") : selectedSp === "unassigned" ? t("unassigned") : (salespeople.find(p => p.id === selectedSp)?.name || "");
+
+          return (
+            <>
+              {/* Subtotals card when a specific salesperson is selected */}
+              {selectedSp !== "all" && filteredRows.length > 0 && (
+                <div className="px-4 py-3 border-b border-border bg-surface/50 grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <p className="label-eyebrow mb-1">{selectedSpName}</p>
+                    <p className="font-display font-bold">{filteredRows.length} {t("sales_count")}</p>
+                  </div>
+                  <div>
+                    <p className="label-eyebrow mb-1">{t("total_revenue")}</p>
+                    <p className="font-display font-bold text-primary">{formatCurrency(subtotalRevenue)}</p>
+                  </div>
+                  <div>
+                    <p className="label-eyebrow mb-1">{t("commission_paid")}</p>
+                    <p className="font-display font-bold text-success">{paidCount}</p>
+                  </div>
+                  <div>
+                    <p className="label-eyebrow mb-1">{t("commission_pending")}</p>
+                    <p className="font-display font-bold text-warning">{pendingCount}</p>
+                  </div>
+                </div>
+              )}
+
+              {filteredRows.length === 0 ? (
+                <p className="text-text-secondary text-sm text-center py-12">—</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b border-border">
+                      <tr>
+                        <th className="text-left p-3 label-eyebrow">{t("day_of_month")}</th>
+                        <th className="text-left p-3 label-eyebrow">{t("sale_date")}</th>
+                        <th className="text-left p-3 label-eyebrow">{t("make")}/{t("model")}</th>
+                        <th className="text-left p-3 label-eyebrow">{t("buyer_name")}</th>
+                        <th className="text-left p-3 label-eyebrow">{t("salesperson")}</th>
+                        <th className="text-right p-3 label-eyebrow">{t("sold_price")}</th>
+                        <th className="text-right p-3 label-eyebrow">{t("commission_amount")}</th>
+                        <th className="text-center p-3 label-eyebrow">{t("paid")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredRows.map((r) => (
+                        <tr key={r.vehicle_id} data-testid={`sale-${r.vehicle_id}`} className="border-b border-border hover:bg-surface transition-colors">
+                          <td className="p-3 font-display font-black text-primary text-2xl text-center w-16">{r.day || "—"}</td>
+                          <td className="p-3 text-xs text-text-secondary">{r.sold_at ? new Date(r.sold_at).toLocaleDateString() : "—"}</td>
+                          <td className="p-3">
+                            <div className="flex items-center gap-2">
+                              {r.image && <img src={r.image} alt="" className="w-10 h-8 object-cover" />}
+                              <div>
+                                <p className="font-display font-bold">{r.make} {r.model}</p>
+                                <p className="text-xs text-text-secondary">{r.year}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="p-3">{r.buyer_name || "—"}</td>
+                          <td className="p-3">
+                            {r.salesperson_name && r.salesperson_name !== "—" ? (
+                              <span className="font-display font-bold">{r.salesperson_name}</span>
+                            ) : (
+                              <span className="text-warning text-xs uppercase tracking-wider">{t("unassigned")}</span>
+                            )}
+                          </td>
+                          <td className="p-3 text-right font-display font-bold">{formatCurrency(r.sold_price)}</td>
+                          <td className="p-3 text-right font-display font-bold">{formatCurrency(r.commission_amount || 0)}</td>
+                          <td className="p-3 text-center">
+                            <button
+                              type="button"
+                              data-testid={`toggle-paid-${r.vehicle_id}`}
+                              onClick={() => togglePaid(r.vehicle_id, r.commission_paid)}
+                              title={r.commission_paid ? t("mark_unpaid") : t("mark_paid")}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 border transition-colors text-xs font-display font-bold uppercase tracking-wider ${
+                                r.commission_paid
+                                  ? "border-success text-success hover:bg-success/10"
+                                  : "border-warning text-warning hover:bg-warning/10"
+                              }`}
+                            >
+                              {r.commission_paid ? <CheckCircle2 size={14} /> : <Clock size={14} />}
+                              {r.commission_paid ? t("paid") : t("pending")}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          );
+        })()}
       </div>
 
       {editingSp && (
