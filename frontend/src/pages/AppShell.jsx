@@ -477,11 +477,14 @@ function Delivery({ deliveries, t, onReload }) {
             <div key={v.id} data-testid={`delivery-${v.id}`} className="border border-border bg-surface p-5">
               <div className="flex flex-wrap items-start gap-5">
                 {/* Photo */}
-                <div className="w-24 h-24 bg-background border border-border overflow-hidden flex-shrink-0">
+                <div className="w-32 h-24 bg-background border border-border overflow-hidden flex-shrink-0 relative">
                   {v.images?.[0] ? (
-                    <img src={v.images[0]} alt="" className="w-full h-full object-cover" />
+                    <img src={v.images[0]} alt={`${v.make} ${v.model}`} className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center"><Car size={28} className="text-text-secondary" /></div>
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-surface">
+                      <Car size={24} className="text-text-secondary" />
+                      <span className="text-[9px] text-text-secondary uppercase tracking-wider">{t("no_photo")}</span>
+                    </div>
                   )}
                 </div>
 

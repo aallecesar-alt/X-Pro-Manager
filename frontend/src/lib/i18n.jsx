@@ -93,6 +93,7 @@ const TRANSLATIONS = {
     bank_name_label: "Nome do banco",
     delivered: "Entregue",
     in_progress: "Em andamento",
+    no_photo: "Sem foto",
   },
   en: {
     app_name: "Auto Manager",
@@ -187,6 +188,7 @@ const TRANSLATIONS = {
     bank_name_label: "Bank name",
     delivered: "Delivered",
     in_progress: "In progress",
+    no_photo: "No photo",
   },
   es: {
     app_name: "Auto Manager",
@@ -281,6 +283,7 @@ const TRANSLATIONS = {
     bank_name_label: "Nombre del banco",
     delivered: "Entregado",
     in_progress: "En progreso",
+    no_photo: "Sin foto",
   },
 };
 
