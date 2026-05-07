@@ -95,6 +95,12 @@ class VehicleBase(BaseModel):
     # Itemized expense list. Each item:
     # { id, description, amount, category, date, attachments: [{url, name, public_id}] }
     expense_items: List[Dict] = Field(default_factory=list)
+    # Salesperson who closed the deal (snapshot fields for stability after deletion)
+    salesperson_id: str = ""
+    salesperson_name: str = ""
+    # Commission tracking (fixed amount per sale + paid/unpaid status)
+    commission_amount: float = 0
+    commission_paid: bool = False
 
 
 class Vehicle(VehicleBase):
@@ -135,6 +141,8 @@ class VehicleUpdate(BaseModel):
     expense_items: Optional[List[Dict]] = None
     salesperson_id: Optional[str] = None
     salesperson_name: Optional[str] = None
+    commission_amount: Optional[float] = None
+    commission_paid: Optional[bool] = None
 
 
 # ============================================================
@@ -611,7 +619,7 @@ async def get_dealership(current: dict = Depends(get_current_user)):
 # ============================================================
 class SalespersonBase(BaseModel):
     name: str
-    commission_percent: float = 0
+    commission_amount: float = 0
     phone: str = ""
     email: str = ""
     active: bool = True
@@ -625,7 +633,7 @@ class Salesperson(SalespersonBase):
 
 class SalespersonUpdate(BaseModel):
     name: Optional[str] = None
-    commission_percent: Optional[float] = None
+    commission_amount: Optional[float] = None
     phone: Optional[str] = None
     email: Optional[str] = None
     active: Optional[bool] = None
@@ -720,6 +728,8 @@ async def sales_report(
             "profit": profit,
             "salesperson_id": v.get("salesperson_id", ""),
             "salesperson_name": v.get("salesperson_name", "") or "—",
+            "commission_amount": float(v.get("commission_amount") or 0),
+            "commission_paid": bool(v.get("commission_paid", False)),
             "image": (v.get("images") or [None])[0] if v.get("images") else None,
         })
 
@@ -733,21 +743,22 @@ async def sales_report(
             "count": 0,
             "total_revenue": 0.0,
             "total_profit": 0.0,
-            "commission": 0.0,
+            "commission_total": 0.0,
+            "commission_paid_total": 0.0,
+            "commission_pending_total": 0.0,
+            "commission_paid_count": 0,
+            "commission_pending_count": 0,
         })
         bucket["count"] += 1
         bucket["total_revenue"] += r["sold_price"]
         bucket["total_profit"] += r["profit"]
-
-    # Add commission per salesperson based on their percent
-    salespeople = {sp["id"]: sp for sp in await db.salespeople.find(
-        {"dealership_id": current["dealership_id"]}, {"_id": 0}
-    ).to_list(500)}
-    for sp_id, bucket in by_sp.items():
-        if sp_id in salespeople:
-            pct = float(salespeople[sp_id].get("commission_percent") or 0)
-            bucket["commission"] = bucket["total_revenue"] * (pct / 100)
-            bucket["commission_percent"] = pct
+        bucket["commission_total"] += r["commission_amount"]
+        if r["commission_paid"]:
+            bucket["commission_paid_total"] += r["commission_amount"]
+            bucket["commission_paid_count"] += 1
+        else:
+            bucket["commission_pending_total"] += r["commission_amount"]
+            bucket["commission_pending_count"] += 1
 
     return {
         "rows": rows,
@@ -755,6 +766,9 @@ async def sales_report(
         "total_sales": len(rows),
         "total_revenue": sum(r["sold_price"] for r in rows),
         "total_profit": sum(r["profit"] for r in rows),
+        "total_commission": sum(r["commission_amount"] for r in rows),
+        "total_commission_paid": sum(r["commission_amount"] for r in rows if r["commission_paid"]),
+        "total_commission_pending": sum(r["commission_amount"] for r in rows if not r["commission_paid"]),
     }
 
 

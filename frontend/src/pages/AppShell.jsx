@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -361,6 +361,7 @@ function VehicleForm({ vehicle, prefill, onClose, onSaved, t }) {
     purchase_price: 0, sale_price: prefill?.price || 0, expenses: 0, description: prefill?.description || "",
     images: [], status: "in_stock", buyer_name: "", buyer_phone: "", payment_method: "", sold_price: 0, bank_name: "",
     salesperson_id: "", salesperson_name: "",
+    commission_amount: 0, commission_paid: false,
   };
   const [form, setForm] = useState(initial);
   const [photos, setPhotos] = useState(
@@ -370,7 +371,7 @@ function VehicleForm({ vehicle, prefill, onClose, onSaved, t }) {
   const [saving, setSaving] = useState(false);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-  const numFields = ["year", "purchase_price", "sale_price", "expenses", "sold_price"];
+  const numFields = ["year", "purchase_price", "sale_price", "expenses", "sold_price", "commission_amount"];
 
   const save = async (e) => {
     e.preventDefault();
@@ -806,6 +807,15 @@ function SalespeopleTab({ salespeople, t, onReload }) {
     } catch { toast.error(t("error_generic")); }
   };
 
+  const togglePaid = async (vehicle_id, currentlyPaid) => {
+    try {
+      await api.put(`/vehicles/${vehicle_id}`, { commission_paid: !currentlyPaid });
+      toast.success(t("saved"));
+      loadReport();
+      onReload();
+    } catch { toast.error(t("error_generic")); }
+  };
+
   return (
     <div data-testid="salespeople-tab">
       <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
@@ -853,14 +863,12 @@ function SalespeopleTab({ salespeople, t, onReload }) {
           <p className="font-display font-black text-2xl text-primary">{formatCurrency(report.total_revenue)}</p>
         </div>
         <div className="bg-background p-5">
-          <p className="label-eyebrow mb-2">{t("profit")}</p>
-          <p className="font-display font-black text-2xl text-success">{formatCurrency(report.total_profit)}</p>
+          <p className="label-eyebrow mb-2">{t("commission_paid")}</p>
+          <p className="font-display font-black text-2xl text-success">{formatCurrency(report.total_commission_paid || 0)}</p>
         </div>
         <div className="bg-background p-5">
-          <p className="label-eyebrow mb-2">{t("total_commission")}</p>
-          <p className="font-display font-black text-2xl">
-            {formatCurrency(report.by_salesperson.reduce((s, b) => s + (b.commission || 0), 0))}
-          </p>
+          <p className="label-eyebrow mb-2">{t("commission_pending")}</p>
+          <p className="font-display font-black text-2xl text-warning">{formatCurrency(report.total_commission_pending || 0)}</p>
         </div>
       </div>
 
@@ -876,28 +884,38 @@ function SalespeopleTab({ salespeople, t, onReload }) {
             <thead className="border-b border-border">
               <tr>
                 <th className="text-left p-3 label-eyebrow">{t("salesperson")}</th>
-                <th className="text-left p-3 label-eyebrow">{t("commission_percent")}</th>
+                <th className="text-left p-3 label-eyebrow">{t("commission_amount")}</th>
                 <th className="text-right p-3 label-eyebrow">{t("sales_count")}</th>
-                <th className="text-right p-3 label-eyebrow">{t("total_revenue")}</th>
-                <th className="text-right p-3 label-eyebrow">{t("profit")}</th>
-                <th className="text-right p-3 label-eyebrow">{t("total_commission")}</th>
+                <th className="text-right p-3 label-eyebrow">{t("commission_paid")}</th>
+                <th className="text-right p-3 label-eyebrow">{t("commission_pending")}</th>
                 <th className="text-right p-3 label-eyebrow"></th>
               </tr>
             </thead>
             <tbody>
               {salespeople.map((sp) => {
-                const stats = report.by_salesperson.find(b => b.salesperson_id === sp.id) || { count: 0, total_revenue: 0, total_profit: 0, commission: sp.commission_percent ? 0 : 0 };
+                const stats = report.by_salesperson.find(b => b.salesperson_id === sp.id) || { count: 0, commission_paid_total: 0, commission_pending_total: 0, commission_paid_count: 0, commission_pending_count: 0 };
                 return (
                   <tr key={sp.id} data-testid={`sp-row-${sp.id}`} className="border-b border-border hover:bg-surface transition-colors">
                     <td className="p-3">
                       <p className="font-display font-bold">{sp.name}</p>
                       <p className="text-xs text-text-secondary">{sp.phone || sp.email || ""}</p>
                     </td>
-                    <td className="p-3">{sp.commission_percent || 0}%</td>
+                    <td className="p-3 font-display font-bold">{formatCurrency(sp.commission_amount || 0)}</td>
                     <td className="p-3 text-right font-display font-bold">{stats.count}</td>
-                    <td className="p-3 text-right font-display font-bold">{formatCurrency(stats.total_revenue)}</td>
-                    <td className="p-3 text-right font-display font-bold text-success">{formatCurrency(stats.total_profit)}</td>
-                    <td className="p-3 text-right font-display font-bold text-primary">{formatCurrency(stats.commission)}</td>
+                    <td className="p-3 text-right">
+                      <div className="inline-flex items-center gap-1.5 justify-end">
+                        <CheckCircle2 size={14} className="text-success" />
+                        <span className="font-display font-bold text-success">{formatCurrency(stats.commission_paid_total)}</span>
+                        {stats.commission_paid_count > 0 && <span className="text-xs text-text-secondary">({stats.commission_paid_count})</span>}
+                      </div>
+                    </td>
+                    <td className="p-3 text-right">
+                      <div className="inline-flex items-center gap-1.5 justify-end">
+                        <Clock size={14} className="text-warning" />
+                        <span className="font-display font-bold text-warning">{formatCurrency(stats.commission_pending_total)}</span>
+                        {stats.commission_pending_count > 0 && <span className="text-xs text-text-secondary">({stats.commission_pending_count})</span>}
+                      </div>
+                    </td>
                     <td className="p-3 text-right">
                       <div className="inline-flex gap-1">
                         <button data-testid={`edit-sp-${sp.id}`} onClick={() => setEditingSp(sp)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Edit2 size={14} /></button>
@@ -917,8 +935,7 @@ function SalespeopleTab({ salespeople, t, onReload }) {
                     </td>
                     <td className="p-3">—</td>
                     <td className="p-3 text-right font-display font-bold">{u.count}</td>
-                    <td className="p-3 text-right font-display font-bold">{formatCurrency(u.total_revenue)}</td>
-                    <td className="p-3 text-right font-display font-bold">{formatCurrency(u.total_profit)}</td>
+                    <td className="p-3 text-right">—</td>
                     <td className="p-3 text-right">—</td>
                     <td></td>
                   </tr>
@@ -947,7 +964,8 @@ function SalespeopleTab({ salespeople, t, onReload }) {
                   <th className="text-left p-3 label-eyebrow">{t("buyer_name")}</th>
                   <th className="text-left p-3 label-eyebrow">{t("salesperson")}</th>
                   <th className="text-right p-3 label-eyebrow">{t("sold_price")}</th>
-                  <th className="text-right p-3 label-eyebrow">{t("profit")}</th>
+                  <th className="text-right p-3 label-eyebrow">{t("commission_amount")}</th>
+                  <th className="text-center p-3 label-eyebrow">{t("paid")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -973,7 +991,23 @@ function SalespeopleTab({ salespeople, t, onReload }) {
                       )}
                     </td>
                     <td className="p-3 text-right font-display font-bold">{formatCurrency(r.sold_price)}</td>
-                    <td className={`p-3 text-right font-display font-bold ${r.profit >= 0 ? "text-success" : "text-primary"}`}>{formatCurrency(r.profit)}</td>
+                    <td className="p-3 text-right font-display font-bold">{formatCurrency(r.commission_amount || 0)}</td>
+                    <td className="p-3 text-center">
+                      <button
+                        type="button"
+                        data-testid={`toggle-paid-${r.vehicle_id}`}
+                        onClick={() => togglePaid(r.vehicle_id, r.commission_paid)}
+                        title={r.commission_paid ? t("mark_unpaid") : t("mark_paid")}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 border transition-colors text-xs font-display font-bold uppercase tracking-wider ${
+                          r.commission_paid
+                            ? "border-success text-success hover:bg-success/10"
+                            : "border-warning text-warning hover:bg-warning/10"
+                        }`}
+                      >
+                        {r.commission_paid ? <CheckCircle2 size={14} /> : <Clock size={14} />}
+                        {r.commission_paid ? t("paid") : t("pending")}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -990,14 +1024,14 @@ function SalespeopleTab({ salespeople, t, onReload }) {
 }
 
 function SalespersonForm({ sp, t, onClose, onSaved }) {
-  const [form, setForm] = useState(sp || { name: "", commission_percent: 0, phone: "", email: "", active: true });
+  const [form, setForm] = useState(sp || { name: "", commission_amount: 0, phone: "", email: "", active: true });
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const save = async (e) => {
     e.preventDefault();
     setSaving(true);
-    const payload = { ...form, commission_percent: Number(form.commission_percent) || 0 };
+    const payload = { ...form, commission_amount: Number(form.commission_amount) || 0 };
     try {
       if (sp) await api.put(`/salespeople/${sp.id}`, payload);
       else await api.post("/salespeople", payload);
@@ -1016,7 +1050,7 @@ function SalespersonForm({ sp, t, onClose, onSaved }) {
         </div>
         <Input label={t("salesperson_name")} value={form.name} set={(v) => set("name", v)} required testid="sp-name" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Input label={t("commission_percent")} type="number" value={form.commission_percent} set={(v) => set("commission_percent", v)} testid="sp-commission" />
+          <Input label={t("commission_amount")} type="number" value={form.commission_amount} set={(v) => set("commission_amount", v)} testid="sp-commission" />
           <Input label={t("phone")} value={form.phone} set={(v) => set("phone", v)} testid="sp-phone" />
         </div>
         <Input label={t("email")} type="email" value={form.email} set={(v) => set("email", v)} testid="sp-email" />
