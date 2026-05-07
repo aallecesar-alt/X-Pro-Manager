@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -201,6 +201,18 @@ function Overview({ stats, t, isSalesperson }) {
 }
 
 function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, onDelete, isSalesperson }) {
+  const [view, setView] = useState(() => localStorage.getItem("inventory_view") || "grid");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const setViewSticky = (v) => { setView(v); localStorage.setItem("inventory_view", v); };
+
+  const counts = {
+    all: vehicles.length,
+    in_stock: vehicles.filter(v => v.status === "in_stock").length,
+    reserved: vehicles.filter(v => v.status === "reserved").length,
+    sold: vehicles.filter(v => v.status === "sold").length,
+  };
+  const filtered = statusFilter === "all" ? vehicles : vehicles.filter(v => v.status === statusFilter);
+
   return (
     <div data-testid="inventory-tab">
       <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
@@ -220,46 +232,177 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, on
         )}
       </div>
 
-      <div className="border border-border flex items-center px-4 h-12 mb-6">
-        <Search size={16} className="text-text-secondary mr-3" />
-        <input data-testid="inventory-search" type="text" placeholder={t("search")} value={search} onChange={(e) => setSearch(e.target.value)} className="bg-transparent w-full focus:outline-none text-sm" />
+      {/* Search + View toggle */}
+      <div className="flex flex-wrap gap-3 mb-5">
+        <div className="border border-border flex items-center px-4 h-12 flex-1 min-w-[280px]">
+          <Search size={16} className="text-text-secondary mr-3" />
+          <input data-testid="inventory-search" type="text" placeholder={t("search")} value={search} onChange={(e) => setSearch(e.target.value)} className="bg-transparent w-full focus:outline-none text-sm" />
+        </div>
+        <div className="flex border border-border h-12">
+          <button
+            data-testid="view-grid"
+            onClick={() => setViewSticky("grid")}
+            title="Grid"
+            className={`w-12 flex items-center justify-center transition-colors ${view === "grid" ? "bg-primary text-white" : "text-text-secondary hover:text-white"}`}
+          >
+            <LayoutGrid size={16} />
+          </button>
+          <button
+            data-testid="view-list"
+            onClick={() => setViewSticky("list")}
+            title="List"
+            className={`w-12 flex items-center justify-center transition-colors ${view === "list" ? "bg-primary text-white" : "text-text-secondary hover:text-white"}`}
+          >
+            <List size={16} />
+          </button>
+        </div>
       </div>
 
-      <div className="border border-border overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-surface border-b border-border">
-            <tr>
-              <th className="text-left p-3 label-eyebrow">{t("make")}/{t("model")}</th>
-              <th className="text-left p-3 label-eyebrow">{t("year")}</th>
-              <th className="text-left p-3 label-eyebrow">{t("vin")}</th>
-              {!isSalesperson && <th className="text-left p-3 label-eyebrow">{t("purchase_price")}</th>}
-              <th className="text-left p-3 label-eyebrow">{t("sale_price")}</th>
-              <th className="text-left p-3 label-eyebrow">{t("status")}</th>
-              <th className="text-right p-3 label-eyebrow"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {vehicles.map((v) => (
-              <tr key={v.id} data-testid={`row-${v.id}`} className="border-b border-border hover:bg-surface transition-colors">
-                <td className="p-3"><p className="font-display font-bold">{v.make} {v.model}</p><p className="text-xs text-text-secondary">{v.color}</p></td>
-                <td className="p-3">{v.year}</td>
-                <td className="p-3 font-mono text-xs">{v.vin || "—"}</td>
-                {!isSalesperson && <td className="p-3">{formatCurrency(v.purchase_price)}</td>}
-                <td className="p-3 font-display font-bold">{formatCurrency(v.sale_price)}</td>
-                <td className="p-3"><StatusPill status={v.status} t={t} /></td>
-                <td className="p-3 text-right">
-                  <div className="inline-flex gap-1">
-                    <button data-testid={`edit-${v.id}`} onClick={() => onEdit(v)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Edit2 size={14} /></button>
-                    {!isSalesperson && (
-                      <button data-testid={`delete-${v.id}`} onClick={() => onDelete(v.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Trash2 size={14} /></button>
-                    )}
-                  </div>
-                </td>
+      {/* Status filter pills */}
+      <div className="flex flex-wrap gap-2 mb-6">
+        {[
+          { id: "all", label: t("all_time") },
+          { id: "in_stock", label: t("in_stock") },
+          { id: "reserved", label: t("reserved") },
+          { id: "sold", label: t("sold") },
+        ].map(s => (
+          <button
+            key={s.id}
+            data-testid={`inv-filter-${s.id}`}
+            onClick={() => setStatusFilter(s.id)}
+            className={`px-4 py-2 text-xs font-display font-bold uppercase tracking-widest border transition-colors ${
+              statusFilter === s.id ? "border-primary text-primary bg-primary/10" : "border-border text-text-secondary hover:text-white"
+            }`}
+          >
+            {s.label} <span className="ml-1 text-text-secondary">({counts[s.id]})</span>
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <p className="border border-dashed border-border text-text-secondary text-sm text-center py-16">{t("no_vehicles")}</p>
+      ) : view === "grid" ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+          {filtered.map((v) => (
+            <VehicleCard key={v.id} v={v} t={t} onEdit={onEdit} onDelete={onDelete} isSalesperson={isSalesperson} />
+          ))}
+        </div>
+      ) : (
+        <div className="border border-border overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-surface border-b border-border">
+              <tr>
+                <th className="text-left p-3 label-eyebrow w-20"></th>
+                <th className="text-left p-3 label-eyebrow">{t("make")}/{t("model")}</th>
+                <th className="text-left p-3 label-eyebrow">{t("year")}</th>
+                <th className="text-left p-3 label-eyebrow">{t("vin")}</th>
+                {!isSalesperson && <th className="text-left p-3 label-eyebrow">{t("purchase_price")}</th>}
+                <th className="text-left p-3 label-eyebrow">{t("sale_price")}</th>
+                <th className="text-left p-3 label-eyebrow">{t("status")}</th>
+                <th className="text-right p-3 label-eyebrow"></th>
               </tr>
-            ))}
-            {vehicles.length === 0 && <tr><td colSpan={isSalesperson ? 6 : 7} className="p-12 text-center text-text-secondary">{t("no_vehicles")}</td></tr>}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {filtered.map((v) => (
+                <tr key={v.id} data-testid={`row-${v.id}`} className="border-b border-border hover:bg-surface transition-colors">
+                  <td className="p-2">
+                    {v.images?.[0] ? (
+                      <img src={v.images[0]} alt={`${v.make} ${v.model}`} className="w-16 h-12 object-cover" />
+                    ) : (
+                      <div className="w-16 h-12 bg-surface flex items-center justify-center"><Car size={18} className="text-text-secondary" /></div>
+                    )}
+                  </td>
+                  <td className="p-3"><p className="font-display font-bold">{v.make} {v.model}</p><p className="text-xs text-text-secondary">{v.color}</p></td>
+                  <td className="p-3">{v.year}</td>
+                  <td className="p-3 font-mono text-xs">{v.vin || "—"}</td>
+                  {!isSalesperson && <td className="p-3">{formatCurrency(v.purchase_price)}</td>}
+                  <td className="p-3 font-display font-bold">{formatCurrency(v.sale_price)}</td>
+                  <td className="p-3"><StatusPill status={v.status} t={t} /></td>
+                  <td className="p-3 text-right">
+                    <div className="inline-flex gap-1">
+                      <button data-testid={`edit-${v.id}`} onClick={() => onEdit(v)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Edit2 size={14} /></button>
+                      {!isSalesperson && (
+                        <button data-testid={`delete-${v.id}`} onClick={() => onDelete(v.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Trash2 size={14} /></button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VehicleCard({ v, t, onEdit, onDelete, isSalesperson }) {
+  const photoCount = v.images?.length || 0;
+  return (
+    <div data-testid={`card-grid-${v.id}`} className="group border border-border bg-surface overflow-hidden hover:border-primary transition-colors">
+      <button
+        type="button"
+        onClick={() => onEdit(v)}
+        className="block w-full aspect-[16/10] bg-background relative overflow-hidden"
+      >
+        {v.images?.[0] ? (
+          <img src={v.images[0]} alt={`${v.make} ${v.model}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-text-secondary">
+            <Car size={40} />
+            <span className="text-[10px] uppercase tracking-wider">{t("no_photo")}</span>
+          </div>
+        )}
+        <div className="absolute top-2 left-2"><StatusPill status={v.status} t={t} /></div>
+        {photoCount > 1 && (
+          <span className="absolute top-2 right-2 bg-black/70 text-white text-[10px] px-2 py-1 inline-flex items-center gap-1">
+            <ImageIcon size={10} /> {photoCount}
+          </span>
+        )}
+      </button>
+
+      <div className="p-4 space-y-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="font-display font-bold uppercase truncate">{v.make} {v.model}</p>
+            <p className="text-xs text-text-secondary">{v.year}{v.color ? ` · ${v.color}` : ""}</p>
+          </div>
+          <div className="flex gap-1 shrink-0">
+            <button
+              data-testid={`edit-${v.id}`}
+              onClick={(e) => { e.stopPropagation(); onEdit(v); }}
+              className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
+              title={t("edit")}
+            >
+              <Edit2 size={14} />
+            </button>
+            {!isSalesperson && (
+              <button
+                data-testid={`delete-${v.id}`}
+                onClick={(e) => { e.stopPropagation(); onDelete(v.id); }}
+                className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
+                title={t("delete")}
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {v.vin && <p className="font-mono text-[10px] text-text-secondary truncate">VIN {v.vin}</p>}
+
+        <div className="flex items-end justify-between pt-3 border-t border-border">
+          <div>
+            <p className="label-eyebrow text-[9px] mb-1">{t("sale_price")}</p>
+            <p className="font-display font-black text-xl text-primary">{formatCurrency(v.sale_price)}</p>
+          </div>
+          {v.status === "sold" && v.sold_price > 0 && (
+            <div className="text-right">
+              <p className="label-eyebrow text-[9px] mb-1 text-success">{t("sold_price")}</p>
+              <p className="font-display font-bold text-success">{formatCurrency(v.sold_price)}</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
