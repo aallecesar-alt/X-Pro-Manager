@@ -16,6 +16,12 @@ User has a car dealership management app on Lovable (Auto Manager). Wanted impro
 - Signup with multi-tenant dealership creation, Login/Logout
 - JWT 30-day token in localStorage
 - Each dealership isolated by `dealership_id`
+- **Roles** (Feb 2026): `owner` (full access) and `salesperson` (restricted view)
+  - Owner creates salesperson logins via `POST /api/salespeople/{sid}/credentials`
+  - Salesperson sees: inventory (no purchase price), pipeline, delivery, ONLY their own sales
+  - Salesperson cannot see: purchase_price, expenses, total_revenue, total_profit, invested, avg_ticket, settings, other people's sales
+  - Salesperson cannot: add/delete vehicles, import URL, regenerate API token, manage salespeople
+  - When salesperson marks a vehicle as sold, the system auto-assigns them as the seller and snapshots their commission_amount
 
 ### Inventory
 - Vehicle CRUD with: Make, Model, Year, Color, **VIN Number**, Transmission, Fuel
@@ -69,8 +75,8 @@ Per-car features:
 - For integration with `intercarautosales.com` etc.
 
 ## Test credentials
-- Email: `carlos@intercar.com`
-- Password: `senha123`
+- **Owner** — Email: `carlos@intercar.com` · Password: `senha123` (sees everything)
+- **Salesperson** — Email: `joao@intercar.com` · Password: `senha456` (restricted view)
 - Dealership: Inter Car (Honda Civic 2022 in delivery pipeline)
 - See `/app/memory/test_credentials.md`
 
