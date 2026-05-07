@@ -205,7 +205,7 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onEdit, onDelete }) 
             <tr>
               <th className="text-left p-3 label-eyebrow">{t("make")}/{t("model")}</th>
               <th className="text-left p-3 label-eyebrow">{t("year")}</th>
-              <th className="text-left p-3 label-eyebrow">{t("plate")}</th>
+              <th className="text-left p-3 label-eyebrow">{t("vin")}</th>
               <th className="text-left p-3 label-eyebrow">{t("purchase_price")}</th>
               <th className="text-left p-3 label-eyebrow">{t("sale_price")}</th>
               <th className="text-left p-3 label-eyebrow">{t("status")}</th>
@@ -217,7 +217,7 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onEdit, onDelete }) 
               <tr key={v.id} data-testid={`row-${v.id}`} className="border-b border-border hover:bg-surface transition-colors">
                 <td className="p-3"><p className="font-display font-bold">{v.make} {v.model}</p><p className="text-xs text-text-secondary">{v.color}</p></td>
                 <td className="p-3">{v.year}</td>
-                <td className="p-3 font-mono text-xs">{v.plate || "—"}</td>
+                <td className="p-3 font-mono text-xs">{v.vin || "—"}</td>
                 <td className="p-3">{formatCurrency(v.purchase_price)}</td>
                 <td className="p-3 font-display font-bold">{formatCurrency(v.sale_price)}</td>
                 <td className="p-3"><StatusPill status={v.status} t={t} /></td>
@@ -333,8 +333,8 @@ function SettingsTab({ dealership, t, onRefresh }) {
 function VehicleForm({ vehicle, onClose, onSaved, t }) {
   const isEdit = !!vehicle;
   const [form, setForm] = useState(vehicle || {
-    make: "", model: "", year: 2024, color: "", plate: "", vin: "",
-    mileage: 0, transmission: "Automatic", fuel_type: "Gasoline", body_type: "Sedan",
+    make: "", model: "", year: 2024, color: "", vin: "",
+    transmission: "Automatic", fuel_type: "Gasoline", body_type: "Sedan",
     purchase_price: 0, sale_price: 0, expenses: 0, description: "",
     images: [], status: "in_stock", buyer_name: "", buyer_phone: "", payment_method: "", sold_price: 0, bank_name: "",
   });
@@ -342,7 +342,7 @@ function VehicleForm({ vehicle, onClose, onSaved, t }) {
   const [saving, setSaving] = useState(false);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-  const numFields = ["year", "mileage", "purchase_price", "sale_price", "expenses", "sold_price"];
+  const numFields = ["year", "purchase_price", "sale_price", "expenses", "sold_price"];
 
   const save = async (e) => {
     e.preventDefault();
@@ -358,8 +358,6 @@ function VehicleForm({ vehicle, onClose, onSaved, t }) {
     finally { setSaving(false); }
   };
 
-  const profit = (Number(form.sale_price) || 0) - (Number(form.purchase_price) || 0) - (Number(form.expenses) || 0);
-
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-12 px-4">
       <form onSubmit={save} className="bg-background border border-border w-full max-w-3xl p-8 space-y-5">
@@ -373,9 +371,7 @@ function VehicleForm({ vehicle, onClose, onSaved, t }) {
           <Input label={t("model")} value={form.model} set={(v) => set("model", v)} testid="f-model" required />
           <Input label={t("year")} type="number" value={form.year} set={(v) => set("year", v)} testid="f-year" required />
           <Input label={t("color")} value={form.color} set={(v) => set("color", v)} testid="f-color" />
-          <Input label={t("plate")} value={form.plate} set={(v) => set("plate", v)} testid="f-plate" />
           <Input label={t("vin")} value={form.vin} set={(v) => set("vin", v)} testid="f-vin" />
-          <Input label={t("mileage")} type="number" value={form.mileage} set={(v) => set("mileage", v)} testid="f-mileage" />
           <Select label={t("transmission")} value={form.transmission} set={(v) => set("transmission", v)} options={["Automatic", "Manual"]} testid="f-trans" />
           <Select label={t("fuel_type")} value={form.fuel_type} set={(v) => set("fuel_type", v)} options={["Gasoline", "Diesel", "Hybrid", "Electric", "Flex"]} testid="f-fuel" />
         </div>
@@ -384,11 +380,6 @@ function VehicleForm({ vehicle, onClose, onSaved, t }) {
           <Input label={t("purchase_price")} type="number" value={form.purchase_price} set={(v) => set("purchase_price", v)} testid="f-purchase" />
           <Input label={t("expenses")} type="number" value={form.expenses} set={(v) => set("expenses", v)} testid="f-expenses" />
           <Input label={t("sale_price")} type="number" value={form.sale_price} set={(v) => set("sale_price", v)} testid="f-sale" />
-        </div>
-
-        <div className="bg-surface p-4 border border-border flex items-center justify-between">
-          <span className="label-eyebrow">{t("profit_per_vehicle")}</span>
-          <span className={`font-display font-black text-2xl ${profit >= 0 ? "text-success" : "text-primary"}`}>{formatCurrency(profit)}</span>
         </div>
 
         <Select label={t("status")} value={form.status} set={(v) => set("status", v)} options={["in_stock", "reserved", "sold"]} testid="f-status" />
