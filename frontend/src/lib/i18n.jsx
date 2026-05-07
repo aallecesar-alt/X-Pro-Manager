@@ -100,6 +100,9 @@ const TRANSLATIONS = {
     file_too_large: "Arquivo muito grande (máx 8MB)",
     download: "Baixar",
     view: "Ver",
+    step_notes_label: "Notas desta etapa",
+    step_notes_placeholder: "Ex: Cliente pediu troca de pastilha de freio e revisão dos pneus...",
+    save_notes: "Salvar notas",
   },
   en: {
     app_name: "Auto Manager",
@@ -201,6 +204,9 @@ const TRANSLATIONS = {
     file_too_large: "File too large (max 8MB)",
     download: "Download",
     view: "View",
+    step_notes_label: "Notes for this step",
+    step_notes_placeholder: "e.g. Customer asked for brake pad replacement and tire rotation...",
+    save_notes: "Save notes",
   },
   es: {
     app_name: "Auto Manager",
@@ -302,6 +308,9 @@ const TRANSLATIONS = {
     file_too_large: "Archivo demasiado grande (máx 8MB)",
     download: "Descargar",
     view: "Ver",
+    step_notes_label: "Notas de esta etapa",
+    step_notes_placeholder: "Ej: Cliente pidió cambio de pastillas de freno y rotación de neumáticos...",
+    save_notes: "Guardar notas",
   },
 };
 

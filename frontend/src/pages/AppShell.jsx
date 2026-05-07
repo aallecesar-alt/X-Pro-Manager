@@ -508,6 +508,7 @@ function Delivery({ deliveries, t, onReload }) {
                   const completed = n < step;
                   const current = n === step;
                   const fileCount = (v.step_files?.[String(n)] || []).length;
+                  const hasNotes = !!(v.step_notes?.[String(n)]);
                   return (
                     <div key={n} className="flex items-center flex-1 last:flex-none">
                       <button
@@ -519,13 +520,16 @@ function Delivery({ deliveries, t, onReload }) {
                           current ? `${STEP_COLORS[n]} text-white ring-4 ring-primary/30` :
                           "bg-background border-border text-text-secondary hover:border-primary"
                         }`}
-                        title={`${t(`step_${n}`)} · ${t("files")}`}
+                        title={`${t(`step_${n}`)}${fileCount ? ` · ${fileCount} ${t("files").toLowerCase()}` : ""}${hasNotes ? ` · ${t("notes").toLowerCase()}` : ""}`}
                       >
                         {completed ? <Check size={14} /> : n}
                         {fileCount > 0 && (
                           <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center border-2 border-background">
                             {fileCount}
                           </span>
+                        )}
+                        {hasNotes && fileCount === 0 && (
+                          <span className="absolute -top-1.5 -right-1.5 w-3 h-3 rounded-full bg-warning border-2 border-background" />
                         )}
                       </button>
                       {i < STEPS.length - 1 && (
@@ -679,18 +683,37 @@ function DeliveryEditModal({ vehicle, mode, t, onClose, onSaved }) {
 
 function StepFilesModal({ vehicle, step, t, onClose, onChanged }) {
   const [files, setFiles] = useState(vehicle.step_files?.[String(step)] || []);
+  const [notes, setNotes] = useState(vehicle.step_notes?.[String(step)] || "");
+  const [savedNotes, setSavedNotes] = useState(vehicle.step_notes?.[String(step)] || "");
   const [uploading, setUploading] = useState(false);
+  const [savingNotes, setSavingNotes] = useState(false);
   const [previewing, setPreviewing] = useState(null);
 
   const refresh = async () => {
-    // Re-fetch the vehicle to get the latest files (with data_url)
     try {
       const r = await api.get(`/vehicles/${vehicle.id}`);
       setFiles(r.data.step_files?.[String(step)] || []);
+      const n = r.data.step_notes?.[String(step)] || "";
+      setNotes(n);
+      setSavedNotes(n);
     } catch { /* noop */ }
   };
 
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, []);
+
+  const saveNotes = async () => {
+    setSavingNotes(true);
+    try {
+      // Merge with existing step_notes from vehicle (other steps untouched)
+      const existing = { ...(vehicle.step_notes || {}) };
+      existing[String(step)] = notes;
+      await api.put(`/vehicles/${vehicle.id}`, { step_notes: existing });
+      setSavedNotes(notes);
+      toast.success(t("saved"));
+      onChanged();
+    } catch { toast.error(t("error_generic")); }
+    finally { setSavingNotes(false); }
+  };
 
   const handleUpload = async (fileList) => {
     if (!fileList?.length) return;
@@ -744,6 +767,32 @@ function StepFilesModal({ vehicle, step, t, onClose, onChanged }) {
             <p className="text-xs text-text-secondary mt-1">{vehicle.year} {vehicle.make} {vehicle.model} · {vehicle.buyer_name}</p>
           </div>
           <button onClick={onClose}><X size={20} className="text-text-secondary hover:text-primary" /></button>
+        </div>
+
+        {/* Notes section */}
+        <div className="px-6 pt-6">
+          <div className="flex items-center justify-between mb-3">
+            <label className="label-eyebrow text-primary">{t("step_notes_label")}</label>
+            {notes !== savedNotes && (
+              <button
+                type="button"
+                data-testid="save-step-notes"
+                onClick={saveNotes}
+                disabled={savingNotes}
+                className="bg-primary hover:bg-primary-hover disabled:opacity-50 px-4 py-1.5 text-[10px] font-display font-bold uppercase tracking-widest transition-colors inline-flex items-center gap-2"
+              >
+                <Check size={12} /> {savingNotes ? "..." : t("save_notes")}
+              </button>
+            )}
+          </div>
+          <textarea
+            data-testid="step-notes-input"
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder={t("step_notes_placeholder")}
+            className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 py-2 text-sm resize-none"
+          />
         </div>
 
         {/* Upload area */}

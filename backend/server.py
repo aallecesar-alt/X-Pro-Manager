@@ -80,6 +80,8 @@ class VehicleBase(BaseModel):
     # Files attached per step. Keys are step numbers as strings ("1".."8").
     # Each file: { id, name, type, data_url, size, uploaded_at }
     step_files: Dict[str, List[Dict]] = Field(default_factory=dict)
+    # Free-text notes per step. Keys are step numbers as strings ("1".."8").
+    step_notes: Dict[str, str] = Field(default_factory=dict)
 
 
 class Vehicle(VehicleBase):
@@ -116,6 +118,7 @@ class VehicleUpdate(BaseModel):
     delivery_step: Optional[int] = None
     bank_name: Optional[str] = None
     delivery_notes: Optional[str] = None
+    step_notes: Optional[Dict[str, str]] = None
 
 
 # ============================================================
