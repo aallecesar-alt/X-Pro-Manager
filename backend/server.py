@@ -90,10 +90,11 @@ class VehicleBase(BaseModel):
     delivery_notes: str = ""
     delivered_at: Optional[str] = None
     # Files attached per step. Keys are step numbers as strings ("1".."8").
-    # Each file: { id, name, type, data_url, size, uploaded_at }
     step_files: Dict[str, List[Dict]] = Field(default_factory=dict)
-    # Free-text notes per step. Keys are step numbers as strings ("1".."8").
     step_notes: Dict[str, str] = Field(default_factory=dict)
+    # Itemized expense list. Each item:
+    # { id, description, amount, category, date, attachments: [{url, name, public_id}] }
+    expense_items: List[Dict] = Field(default_factory=list)
 
 
 class Vehicle(VehicleBase):
@@ -131,6 +132,7 @@ class VehicleUpdate(BaseModel):
     bank_name: Optional[str] = None
     delivery_notes: Optional[str] = None
     step_notes: Optional[Dict[str, str]] = None
+    expense_items: Optional[List[Dict]] = None
 
 
 # ============================================================
@@ -259,6 +261,9 @@ async def list_vehicles(
 @api_router.post("/vehicles", response_model=Vehicle)
 async def create_vehicle(payload: VehicleCreate, current: dict = Depends(get_current_user)):
     v = Vehicle(dealership_id=current["dealership_id"], **payload.model_dump())
+    # Auto-compute expenses total from items if present
+    if v.expense_items:
+        v.expenses = sum(float(it.get("amount") or 0) for it in v.expense_items)
     await db.vehicles.insert_one(v.model_dump())
     return v
 
@@ -274,6 +279,9 @@ async def get_vehicle(vid: str, current: dict = Depends(get_current_user)):
 @api_router.put("/vehicles/{vid}", response_model=Vehicle)
 async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depends(get_current_user)):
     upd = {k: val for k, val in payload.model_dump().items() if val is not None}
+    # Auto-compute expenses total from itemized list when provided
+    if "expense_items" in upd and isinstance(upd["expense_items"], list):
+        upd["expenses"] = sum(float(it.get("amount") or 0) for it in upd["expense_items"])
     # Auto-set sold_at and start delivery pipeline at step 1 when transitioning to sold
     if upd.get("status") == "sold":
         existing = await db.vehicles.find_one({"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0})

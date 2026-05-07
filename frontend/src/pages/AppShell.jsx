@@ -5,6 +5,7 @@ import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useI18n, LANG_OPTIONS } from "@/lib/i18n.jsx";
 import PhotoUploader from "@/components/PhotoUploader";
+import ExpenseManager from "@/components/ExpenseManager";
 
 const STATUS_COLUMNS = [
   { id: "in_stock", color: "border-blue-500" },
@@ -360,6 +361,7 @@ function VehicleForm({ vehicle, prefill, onClose, onSaved, t }) {
   const [photos, setPhotos] = useState(
     vehicle?.images?.length ? vehicle.images : (prefill?.image ? [prefill.image] : [])
   );
+  const [expenseItems, setExpenseItems] = useState(vehicle?.expense_items || []);
   const [saving, setSaving] = useState(false);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -368,8 +370,10 @@ function VehicleForm({ vehicle, prefill, onClose, onSaved, t }) {
   const save = async (e) => {
     e.preventDefault();
     setSaving(true);
-    const payload = { ...form, images: photos };
+    const payload = { ...form, images: photos, expense_items: expenseItems };
     numFields.forEach((k) => { payload[k] = Number(payload[k]) || 0; });
+    // Compute total expenses from items
+    payload.expenses = expenseItems.reduce((s, it) => s + (Number(it.amount) || 0), 0);
     try {
       if (isEdit) await api.put(`/vehicles/${vehicle.id}`, payload);
       else await api.post("/vehicles", payload);
@@ -397,11 +401,40 @@ function VehicleForm({ vehicle, prefill, onClose, onSaved, t }) {
           <Select label={t("fuel_type")} value={form.fuel_type} set={(v) => set("fuel_type", v)} options={["Gasoline", "Diesel", "Hybrid", "Electric", "Flex"]} testid="f-fuel" />
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-4 border-t border-border">
+        <div className="grid grid-cols-2 md:grid-cols-2 gap-4 pt-4 border-t border-border">
           <Input label={t("purchase_price")} type="number" value={form.purchase_price} set={(v) => set("purchase_price", v)} testid="f-purchase" />
-          <Input label={t("expenses")} type="number" value={form.expenses} set={(v) => set("expenses", v)} testid="f-expenses" />
           <Input label={t("sale_price")} type="number" value={form.sale_price} set={(v) => set("sale_price", v)} testid="f-sale" />
         </div>
+
+        <div className="pt-4 border-t border-border">
+          <ExpenseManager items={expenseItems} onChange={setExpenseItems} t={t} />
+        </div>
+
+        {/* Real profit summary */}
+        {(() => {
+          const totalExp = expenseItems.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+          const profit = (Number(form.sale_price) || 0) - (Number(form.purchase_price) || 0) - totalExp;
+          return (
+            <div className="bg-surface p-4 border border-border space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-text-secondary">{t("sale_price")}</span>
+                <span className="font-display font-bold">{formatCurrency(Number(form.sale_price) || 0)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-text-secondary">− {t("purchase_price")}</span>
+                <span className="font-display font-bold">{formatCurrency(Number(form.purchase_price) || 0)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-text-secondary">− {t("expenses_total")}</span>
+                <span className="font-display font-bold">{formatCurrency(totalExp)}</span>
+              </div>
+              <div className="flex justify-between pt-2 border-t border-border">
+                <span className="label-eyebrow text-primary">{t("real_profit")}</span>
+                <span className={`font-display font-black text-2xl ${profit >= 0 ? "text-success" : "text-primary"}`}>{formatCurrency(profit)}</span>
+              </div>
+            </div>
+          );
+        })()}
 
         <Select label={t("status")} value={form.status} set={(v) => set("status", v)} options={["in_stock", "reserved", "sold"]} testid="f-status" />
 
