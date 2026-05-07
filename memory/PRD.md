@@ -1,46 +1,90 @@
 # Inter Car · Auto Manager — PRD
 
 ## Original Problem Statement
-User has Auto Manager dealership app on Lovable. Wants the same/improved as a management app (not a public site). Will sync with intercarautosales.com via API later.
+User has a car dealership management app on Lovable (Auto Manager). Wanted improvements + integration with their public website `intercarautosales.com`. After clarification: build the same type of management app (NOT a public showcase) here on Emergent, with extra features.
 
 ## Architecture
 - Backend: FastAPI + Motor + MongoDB · JWT auth · multi-tenant per `dealership_id`
 - Frontend: React 19 + Tailwind + Outfit/Manrope · single-page dashboard
-- i18n: PT/EN/ES (in-memory)
+- i18n: PT/EN/ES (in-memory, persisted in localStorage)
 - Theme: Premium dark (#0A0A0A) + signal red (#D92D20)
+- File storage: base64 inside MongoDB (8MB per file limit)
 
 ## Implemented (Jan 2026)
-- ✅ Signup/Login with multi-tenant dealership creation (JWT 30d, localStorage)
-- ✅ Multi-language UI (PT/EN/ES) persisted
-- ✅ Dashboard / Overview: 8 KPIs + monthly performance bar chart
-- ✅ Inventory CRUD: full vehicle form (specs, plate, VIN, prices, expenses, profit calc, photos)
-- ✅ Sales pipeline (Kanban): in_stock → reserved → sold + buyer/payment/bank fields
-- ✅ **Delivery pipeline (NEW)** — 8 post-sale steps:
-   1. Vendido → 2. Dados do cliente → 3. Contrato do banco → 4. Manutenção
-   → 5. Seguro → 6. Título recebido → 7. Registro → 8. Entregue
-   - Auto-creates entry when vehicle marked as sold (delivery_step=1)
-   - Visual stepper with checkmarks + colored circles (red→pink→purple→blue→green)
-   - "Advance step" one-click button (red arrow)
-   - "Edit step" modal (jump to any step + bank name)
-   - "Notes" modal for delivery notes
-   - Auto-sets delivered_at when reaching step 8
-- ✅ Public API endpoint `/api/public/inventory?token=...` for external sites (e.g. intercarautosales.com)
-- ✅ Settings: copy/regenerate API token
+
+### Auth & Account
+- Signup with multi-tenant dealership creation, Login/Logout
+- JWT 30-day token in localStorage
+- Each dealership isolated by `dealership_id`
+
+### Inventory
+- Vehicle CRUD with: Make, Model, Year, Color, **VIN Number**, Transmission, Fuel
+- **Removed fields**: Plate, Mileage (per user request)
+- **Removed**: "Lucro por veículo" preview (per user request)
+- Purchase price / Expenses / Sale price
+- Description, Photos (URLs)
+- **Import from URL** button — scrapes any URL using `og:image`, `og:title`, etc. and pre-fills form (e.g. paste a URL from intercarautosales.com → auto-import photo + title + price)
+
+### Sales pipeline (3-column kanban)
+- in_stock → reserved → sold
+- Buyer name/phone, payment method, bank name, sold_price
+
+### Delivery pipeline (8 steps, one per car)
+1. **Vendido** (auto-set when status=sold)
+2. **Ficha de negociação + Bill of sale**
+3. **Garantia estendida**
+4. **Manutenção**
+5. **Seguro**
+6. **Título recebido**
+7. **Registro**
+8. **Entregue** (auto-stamps `delivered_at`)
+
+Per-car features:
+- Photo of the car shown on the delivery card (128×96)
+- Visual stepper with checkmarks + colored circles (red→pink→purple→blue→green)
+- "Advance step" red arrow button
+- "Edit step" modal (jump to any step + bank name)
+- "Notes" modal (general delivery notes)
+- **Per-step file upload + per-step notes** (clicking on any step circle 1–8):
+  - Notes textarea (e.g. customer-requested repairs in step 4)
+  - Multiple file upload (Bill of sale, contracts, photos) up to 8MB each
+  - Image preview, download, delete
+  - Badge on step circle: red number = file count, yellow dot = has notes
+- **Step 8 (Delivered)** is special:
+  - Modal title becomes "Fotos da entrega" with hint about uploading photos at delivery time
+  - Inline gallery preview on the delivery card showing thumbnails of step-8 photos
+
+### Dashboard
+- 8 KPI cards: total/in-stock/reserved/sold, invested, revenue, profit, avg ticket
+- Monthly performance bar chart (last 6 months)
+
+### Multi-language
+- PT 🇧🇷 / EN 🇺🇸 / ES 🇪🇸 — every label translated
+- Switcher in sidebar + on auth page
+
+### Public API for external sites
+- `GET /api/public/inventory?token=<api_token>`
+- Returns vehicles (status != sold), strips internal financial fields (purchase_price, expenses, buyer info)
+- Token visible in Settings tab, regenerable
+- For integration with `intercarautosales.com` etc.
 
 ## Test credentials
 - Email: `carlos@intercar.com`
 - Password: `senha123`
-- Dealership: Inter Car (1 vehicle: Honda Civic 2022, sold to Carlos via Lendbuzz, in delivery pipeline)
+- Dealership: Inter Car (Honda Civic 2022 in delivery pipeline)
 - See `/app/memory/test_credentials.md`
 
-## Backlog / Next ideas (user mentioned has more)
-- **P1** Photo upload (currently URL-only) → Cloudinary integration
-- **P1** Drag-and-drop on pipelines
-- **P1** Notifications/badge for vehicles needing attention in delivery
-- **P1** Vehicle history/timeline (every step change with timestamp)
-- **P2** Real charts (Recharts) for monthly view
-- **P2** Customer database (search past buyers)
-- **P2** Multi-user per dealership (owner/salesperson roles)
-- **P2** Real Lovable/Supabase ↔ Auto Manager bidirectional sync
-- **P2** Export sales/delivery report (CSV/PDF)
-- **P2** Currency switcher (USD only today)
+## URL
+https://auto-commerce-lab.preview.emergentagent.com
+
+## Backlog (next session)
+- Add photo upload from computer (not just URLs) — Cloudinary
+- Drag-and-drop on pipelines
+- Notifications/alerts for vehicles stuck in a delivery step too long
+- Vehicle history/timeline (every step change with timestamp + user)
+- Real charts (Recharts) for monthly view
+- Customer database (search past buyers)
+- Multi-user per dealership (owner/salesperson roles)
+- Export sales/delivery report (CSV/PDF)
+- Currency switcher (currently USD)
+- Real Lovable/Supabase ↔ Auto Manager bidirectional sync (to/from the original Lovable app)
