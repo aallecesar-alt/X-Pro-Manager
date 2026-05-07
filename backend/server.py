@@ -133,6 +133,8 @@ class VehicleUpdate(BaseModel):
     delivery_notes: Optional[str] = None
     step_notes: Optional[Dict[str, str]] = None
     expense_items: Optional[List[Dict]] = None
+    salesperson_id: Optional[str] = None
+    salesperson_name: Optional[str] = None
 
 
 # ============================================================
@@ -181,6 +183,8 @@ async def startup():
     await db.dealerships.create_index("api_token", unique=True, sparse=True)
     await db.vehicles.create_index("id", unique=True)
     await db.vehicles.create_index("dealership_id")
+    await db.salespeople.create_index("id", unique=True)
+    await db.salespeople.create_index("dealership_id")
 
 
 # ============================================================
@@ -600,6 +604,158 @@ async def stats(current: dict = Depends(get_current_user)):
 async def get_dealership(current: dict = Depends(get_current_user)):
     d = await db.dealerships.find_one({"id": current["dealership_id"]}, {"_id": 0})
     return d
+
+
+# ============================================================
+# SALESPEOPLE
+# ============================================================
+class SalespersonBase(BaseModel):
+    name: str
+    commission_percent: float = 0
+    phone: str = ""
+    email: str = ""
+    active: bool = True
+
+
+class Salesperson(SalespersonBase):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    dealership_id: str
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class SalespersonUpdate(BaseModel):
+    name: Optional[str] = None
+    commission_percent: Optional[float] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    active: Optional[bool] = None
+
+
+@api_router.get("/salespeople", response_model=List[Salesperson])
+async def list_salespeople(current: dict = Depends(get_current_user)):
+    items = await db.salespeople.find(
+        {"dealership_id": current["dealership_id"]}, {"_id": 0}
+    ).sort("name", 1).to_list(500)
+    return items
+
+
+@api_router.post("/salespeople", response_model=Salesperson)
+async def create_salesperson(payload: SalespersonBase, current: dict = Depends(get_current_user)):
+    sp = Salesperson(dealership_id=current["dealership_id"], **payload.model_dump())
+    await db.salespeople.insert_one(sp.model_dump())
+    return sp
+
+
+@api_router.put("/salespeople/{sid}", response_model=Salesperson)
+async def update_salesperson(sid: str, payload: SalespersonUpdate, current: dict = Depends(get_current_user)):
+    upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not upd:
+        raise HTTPException(400, "Nothing to update")
+    res = await db.salespeople.update_one(
+        {"id": sid, "dealership_id": current["dealership_id"]}, {"$set": upd}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Salesperson not found")
+    # Sync salesperson_name on existing sold vehicles if name changed
+    if "name" in upd:
+        await db.vehicles.update_many(
+            {"dealership_id": current["dealership_id"], "salesperson_id": sid},
+            {"$set": {"salesperson_name": upd["name"]}}
+        )
+    return await db.salespeople.find_one({"id": sid}, {"_id": 0})
+
+
+@api_router.delete("/salespeople/{sid}")
+async def delete_salesperson(sid: str, current: dict = Depends(get_current_user)):
+    res = await db.salespeople.delete_one({"id": sid, "dealership_id": current["dealership_id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Salesperson not found")
+    # Vehicles keep snapshot of salesperson_name; only clear the FK
+    await db.vehicles.update_many(
+        {"dealership_id": current["dealership_id"], "salesperson_id": sid},
+        {"$set": {"salesperson_id": ""}}
+    )
+    return {"deleted": True}
+
+
+@api_router.get("/sales-report")
+async def sales_report(
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    current: dict = Depends(get_current_user),
+):
+    """All sold vehicles with salesperson details. Optional year/month filter."""
+    q = {"dealership_id": current["dealership_id"], "status": "sold"}
+    sales = await db.vehicles.find(q, {"_id": 0}).sort("sold_at", -1).to_list(2000)
+
+    def parse_dt(iso: str):
+        if not iso:
+            return None
+        try:
+            return datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+    rows = []
+    for v in sales:
+        dt = parse_dt(v.get("sold_at"))
+        if year and (not dt or dt.year != year):
+            continue
+        if month and (not dt or dt.month != month):
+            continue
+        sale_amt = float(v.get("sold_price") or v.get("sale_price") or 0)
+        cost = float(v.get("purchase_price") or 0) + float(v.get("expenses") or 0)
+        profit = sale_amt - cost
+        rows.append({
+            "vehicle_id": v["id"],
+            "make": v.get("make", ""),
+            "model": v.get("model", ""),
+            "year": v.get("year", 0),
+            "buyer_name": v.get("buyer_name", ""),
+            "sold_at": v.get("sold_at", ""),
+            "day": dt.day if dt else None,
+            "month": dt.month if dt else None,
+            "year_sold": dt.year if dt else None,
+            "sold_price": sale_amt,
+            "profit": profit,
+            "salesperson_id": v.get("salesperson_id", ""),
+            "salesperson_name": v.get("salesperson_name", "") or "—",
+            "image": (v.get("images") or [None])[0] if v.get("images") else None,
+        })
+
+    # Aggregate by salesperson
+    by_sp = {}
+    for r in rows:
+        key = r["salesperson_id"] or "unassigned"
+        bucket = by_sp.setdefault(key, {
+            "salesperson_id": r["salesperson_id"],
+            "salesperson_name": r["salesperson_name"],
+            "count": 0,
+            "total_revenue": 0.0,
+            "total_profit": 0.0,
+            "commission": 0.0,
+        })
+        bucket["count"] += 1
+        bucket["total_revenue"] += r["sold_price"]
+        bucket["total_profit"] += r["profit"]
+
+    # Add commission per salesperson based on their percent
+    salespeople = {sp["id"]: sp for sp in await db.salespeople.find(
+        {"dealership_id": current["dealership_id"]}, {"_id": 0}
+    ).to_list(500)}
+    for sp_id, bucket in by_sp.items():
+        if sp_id in salespeople:
+            pct = float(salespeople[sp_id].get("commission_percent") or 0)
+            bucket["commission"] = bucket["total_revenue"] * (pct / 100)
+            bucket["commission_percent"] = pct
+
+    return {
+        "rows": rows,
+        "by_salesperson": list(by_sp.values()),
+        "total_sales": len(rows),
+        "total_revenue": sum(r["sold_price"] for r in rows),
+        "total_profit": sum(r["profit"] for r in rows),
+    }
 
 
 @api_router.post("/dealership/regenerate-token")

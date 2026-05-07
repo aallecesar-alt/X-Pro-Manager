@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Car, LayoutDashboard, Package, TrendingUp, Truck, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -20,6 +20,7 @@ export default function AppShell() {
   const [stats, setStats] = useState(null);
   const [vehicles, setVehicles] = useState([]);
   const [deliveries, setDeliveries] = useState([]);
+  const [salespeople, setSalespeople] = useState([]);
   const [editing, setEditing] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -29,17 +30,19 @@ export default function AppShell() {
     { id: "inventory", label: t("inventory"), icon: Package },
     { id: "pipeline", label: t("pipeline"), icon: TrendingUp },
     { id: "delivery", label: t("delivery"), icon: Truck },
+    { id: "salespeople", label: t("salespeople"), icon: Users },
     { id: "settings", label: t("settings"), icon: Settings },
   ];
 
   const reload = async () => {
     try {
-      const [s, v, d] = await Promise.all([
+      const [s, v, d, sp] = await Promise.all([
         api.get("/stats"),
         api.get("/vehicles", { params: { search: search || undefined } }),
         api.get("/delivery"),
+        api.get("/salespeople"),
       ]);
-      setStats(s.data); setVehicles(v.data); setDeliveries(d.data);
+      setStats(s.data); setVehicles(v.data); setDeliveries(d.data); setSalespeople(sp.data);
     } catch { toast.error(t("error_generic")); }
   };
 
@@ -121,10 +124,11 @@ export default function AppShell() {
         )}
         {tab === "pipeline" && <Pipeline vehicles={vehicles} t={t} onMove={updateStatus} onEdit={(v) => setEditing(v)} />}
         {tab === "delivery" && <Delivery deliveries={deliveries} t={t} onReload={reload} />}
+        {tab === "salespeople" && <SalespeopleTab salespeople={salespeople} t={t} onReload={reload} />}
         {tab === "settings" && <SettingsTab dealership={dealership} t={t} onRefresh={refreshDealership} />}
 
         {editing && (
-          <VehicleForm t={t} vehicle={editing === "new" || (editing && editing.__prefill) ? null : editing} prefill={editing && editing.__prefill ? editing : null} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />
+          <VehicleForm t={t} vehicle={editing === "new" || (editing && editing.__prefill) ? null : editing} prefill={editing && editing.__prefill ? editing : null} salespeople={salespeople} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />
         )}
 
         {importOpen && (
@@ -356,6 +360,7 @@ function VehicleForm({ vehicle, prefill, onClose, onSaved, t }) {
     transmission: "Automatic", fuel_type: "Gasoline", body_type: "Sedan",
     purchase_price: 0, sale_price: prefill?.price || 0, expenses: 0, description: prefill?.description || "",
     images: [], status: "in_stock", buyer_name: "", buyer_phone: "", payment_method: "", sold_price: 0, bank_name: "",
+    salesperson_id: "", salesperson_name: "",
   };
   const [form, setForm] = useState(initial);
   const [photos, setPhotos] = useState(
@@ -760,6 +765,268 @@ function DeliveryEditModal({ vehicle, mode, t, onClose, onSaved }) {
         <div className="flex justify-end gap-3 pt-4 border-t border-border">
           <button type="button" onClick={onClose} className="px-5 py-2.5 border border-border hover:border-primary text-xs font-display font-bold uppercase tracking-widest transition-colors">{t("cancel")}</button>
           <button type="submit" data-testid="modal-save" disabled={saving} className="bg-primary hover:bg-primary-hover disabled:opacity-50 px-5 py-2.5 text-xs font-display font-bold uppercase tracking-widest transition-colors inline-flex items-center gap-2">
+            <Check size={14} /> {saving ? "..." : t("save")}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function SalespeopleTab({ salespeople, t, onReload }) {
+  const [editingSp, setEditingSp] = useState(null);
+  const [periodFilter, setPeriodFilter] = useState("all");
+  const [report, setReport] = useState({ rows: [], by_salesperson: [], total_sales: 0, total_revenue: 0, total_profit: 0 });
+
+  const loadReport = async () => {
+    const params = {};
+    const now = new Date();
+    if (periodFilter === "this_month") {
+      params.year = now.getFullYear();
+      params.month = now.getMonth() + 1;
+    } else if (periodFilter === "last_month") {
+      const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      params.year = lm.getFullYear();
+      params.month = lm.getMonth() + 1;
+    }
+    try {
+      const r = await api.get("/sales-report", { params });
+      setReport(r.data);
+    } catch { /* noop */ }
+  };
+
+  useEffect(() => { loadReport(); /* eslint-disable-next-line */ }, [periodFilter, salespeople.length]);
+
+  const removeSp = async (id) => {
+    if (!window.confirm(t("confirm_delete"))) return;
+    try {
+      await api.delete(`/salespeople/${id}`);
+      toast.success(t("saved"));
+      onReload();
+    } catch { toast.error(t("error_generic")); }
+  };
+
+  return (
+    <div data-testid="salespeople-tab">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+        <div>
+          <p className="label-eyebrow text-primary mb-2">{t("salespeople")}</p>
+          <h1 className="font-display font-black text-4xl uppercase tracking-tighter">{t("sales_report")}</h1>
+        </div>
+        <button
+          data-testid="add-salesperson"
+          onClick={() => setEditingSp({})}
+          className="bg-primary hover:bg-primary-hover px-5 py-3 font-display font-bold uppercase text-xs tracking-widest inline-flex items-center gap-2"
+        >
+          <Plus size={14} /> {t("add_salesperson")}
+        </button>
+      </div>
+
+      {/* Period filter */}
+      <div className="flex flex-wrap gap-2 mb-6">
+        {[
+          { id: "all", label: t("all_time") },
+          { id: "this_month", label: t("this_month") },
+          { id: "last_month", label: t("last_month") },
+        ].map((p) => (
+          <button
+            key={p.id}
+            data-testid={`filter-${p.id}`}
+            onClick={() => setPeriodFilter(p.id)}
+            className={`px-4 py-2 text-xs font-display font-bold uppercase tracking-widest border transition-colors ${
+              periodFilter === p.id ? "border-primary text-primary" : "border-border text-text-secondary hover:text-white"
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Top-level stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border border border-border mb-8">
+        <div className="bg-background p-5">
+          <p className="label-eyebrow mb-2">{t("sales_count")}</p>
+          <p className="font-display font-black text-2xl">{report.total_sales}</p>
+        </div>
+        <div className="bg-background p-5">
+          <p className="label-eyebrow mb-2">{t("total_revenue")}</p>
+          <p className="font-display font-black text-2xl text-primary">{formatCurrency(report.total_revenue)}</p>
+        </div>
+        <div className="bg-background p-5">
+          <p className="label-eyebrow mb-2">{t("profit")}</p>
+          <p className="font-display font-black text-2xl text-success">{formatCurrency(report.total_profit)}</p>
+        </div>
+        <div className="bg-background p-5">
+          <p className="label-eyebrow mb-2">{t("total_commission")}</p>
+          <p className="font-display font-black text-2xl">
+            {formatCurrency(report.by_salesperson.reduce((s, b) => s + (b.commission || 0), 0))}
+          </p>
+        </div>
+      </div>
+
+      {/* Salespeople list with their performance */}
+      <div className="border border-border mb-10">
+        <div className="bg-surface px-4 py-3 border-b border-border">
+          <p className="label-eyebrow text-primary">{t("by_salesperson")}</p>
+        </div>
+        {salespeople.length === 0 && report.by_salesperson.length === 0 ? (
+          <p className="text-text-secondary text-sm text-center py-12">{t("no_salespeople")}</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="border-b border-border">
+              <tr>
+                <th className="text-left p-3 label-eyebrow">{t("salesperson")}</th>
+                <th className="text-left p-3 label-eyebrow">{t("commission_percent")}</th>
+                <th className="text-right p-3 label-eyebrow">{t("sales_count")}</th>
+                <th className="text-right p-3 label-eyebrow">{t("total_revenue")}</th>
+                <th className="text-right p-3 label-eyebrow">{t("profit")}</th>
+                <th className="text-right p-3 label-eyebrow">{t("total_commission")}</th>
+                <th className="text-right p-3 label-eyebrow"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {salespeople.map((sp) => {
+                const stats = report.by_salesperson.find(b => b.salesperson_id === sp.id) || { count: 0, total_revenue: 0, total_profit: 0, commission: sp.commission_percent ? 0 : 0 };
+                return (
+                  <tr key={sp.id} data-testid={`sp-row-${sp.id}`} className="border-b border-border hover:bg-surface transition-colors">
+                    <td className="p-3">
+                      <p className="font-display font-bold">{sp.name}</p>
+                      <p className="text-xs text-text-secondary">{sp.phone || sp.email || ""}</p>
+                    </td>
+                    <td className="p-3">{sp.commission_percent || 0}%</td>
+                    <td className="p-3 text-right font-display font-bold">{stats.count}</td>
+                    <td className="p-3 text-right font-display font-bold">{formatCurrency(stats.total_revenue)}</td>
+                    <td className="p-3 text-right font-display font-bold text-success">{formatCurrency(stats.total_profit)}</td>
+                    <td className="p-3 text-right font-display font-bold text-primary">{formatCurrency(stats.commission)}</td>
+                    <td className="p-3 text-right">
+                      <div className="inline-flex gap-1">
+                        <button data-testid={`edit-sp-${sp.id}`} onClick={() => setEditingSp(sp)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Edit2 size={14} /></button>
+                        <button data-testid={`del-sp-${sp.id}`} onClick={() => removeSp(sp.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Trash2 size={14} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {/* Unassigned row */}
+              {report.by_salesperson.find(b => !b.salesperson_id) && (() => {
+                const u = report.by_salesperson.find(b => !b.salesperson_id);
+                return (
+                  <tr className="border-b border-border bg-warning/5">
+                    <td className="p-3">
+                      <p className="font-display font-bold text-warning">{t("unassigned")}</p>
+                    </td>
+                    <td className="p-3">—</td>
+                    <td className="p-3 text-right font-display font-bold">{u.count}</td>
+                    <td className="p-3 text-right font-display font-bold">{formatCurrency(u.total_revenue)}</td>
+                    <td className="p-3 text-right font-display font-bold">{formatCurrency(u.total_profit)}</td>
+                    <td className="p-3 text-right">—</td>
+                    <td></td>
+                  </tr>
+                );
+              })()}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Detailed sales spreadsheet */}
+      <div className="border border-border">
+        <div className="bg-surface px-4 py-3 border-b border-border">
+          <p className="label-eyebrow text-primary">{t("detailed_sales")}</p>
+        </div>
+        {report.rows.length === 0 ? (
+          <p className="text-text-secondary text-sm text-center py-12">—</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-b border-border">
+                <tr>
+                  <th className="text-left p-3 label-eyebrow">{t("day_of_month")}</th>
+                  <th className="text-left p-3 label-eyebrow">{t("sale_date")}</th>
+                  <th className="text-left p-3 label-eyebrow">{t("make")}/{t("model")}</th>
+                  <th className="text-left p-3 label-eyebrow">{t("buyer_name")}</th>
+                  <th className="text-left p-3 label-eyebrow">{t("salesperson")}</th>
+                  <th className="text-right p-3 label-eyebrow">{t("sold_price")}</th>
+                  <th className="text-right p-3 label-eyebrow">{t("profit")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.rows.map((r) => (
+                  <tr key={r.vehicle_id} data-testid={`sale-${r.vehicle_id}`} className="border-b border-border hover:bg-surface transition-colors">
+                    <td className="p-3 font-display font-black text-primary text-2xl text-center w-16">{r.day || "—"}</td>
+                    <td className="p-3 text-xs text-text-secondary">{r.sold_at ? new Date(r.sold_at).toLocaleDateString() : "—"}</td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        {r.image && <img src={r.image} alt="" className="w-10 h-8 object-cover" />}
+                        <div>
+                          <p className="font-display font-bold">{r.make} {r.model}</p>
+                          <p className="text-xs text-text-secondary">{r.year}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="p-3">{r.buyer_name || "—"}</td>
+                    <td className="p-3">
+                      {r.salesperson_name && r.salesperson_name !== "—" ? (
+                        <span className="font-display font-bold">{r.salesperson_name}</span>
+                      ) : (
+                        <span className="text-warning text-xs uppercase tracking-wider">{t("unassigned")}</span>
+                      )}
+                    </td>
+                    <td className="p-3 text-right font-display font-bold">{formatCurrency(r.sold_price)}</td>
+                    <td className={`p-3 text-right font-display font-bold ${r.profit >= 0 ? "text-success" : "text-primary"}`}>{formatCurrency(r.profit)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {editingSp && (
+        <SalespersonForm sp={editingSp.id ? editingSp : null} t={t} onClose={() => setEditingSp(null)} onSaved={() => { setEditingSp(null); onReload(); }} />
+      )}
+    </div>
+  );
+}
+
+function SalespersonForm({ sp, t, onClose, onSaved }) {
+  const [form, setForm] = useState(sp || { name: "", commission_percent: 0, phone: "", email: "", active: true });
+  const [saving, setSaving] = useState(false);
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const save = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    const payload = { ...form, commission_percent: Number(form.commission_percent) || 0 };
+    try {
+      if (sp) await api.put(`/salespeople/${sp.id}`, payload);
+      else await api.post("/salespeople", payload);
+      toast.success(t("saved"));
+      onSaved();
+    } catch (err) { toast.error(err.response?.data?.detail || t("error_generic")); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-12 px-4">
+      <form onSubmit={save} className="bg-background border border-border w-full max-w-lg p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-display font-black text-xl uppercase tracking-tight">{sp ? t("edit") : t("add_salesperson")}</h2>
+          <button type="button" onClick={onClose}><X size={20} className="text-text-secondary hover:text-primary" /></button>
+        </div>
+        <Input label={t("salesperson_name")} value={form.name} set={(v) => set("name", v)} required testid="sp-name" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Input label={t("commission_percent")} type="number" value={form.commission_percent} set={(v) => set("commission_percent", v)} testid="sp-commission" />
+          <Input label={t("phone")} value={form.phone} set={(v) => set("phone", v)} testid="sp-phone" />
+        </div>
+        <Input label={t("email")} type="email" value={form.email} set={(v) => set("email", v)} testid="sp-email" />
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input data-testid="sp-active" type="checkbox" checked={form.active !== false} onChange={(e) => set("active", e.target.checked)} className="w-4 h-4 accent-primary" />
+          <span className="label-eyebrow">{t("active")}</span>
+        </label>
+        <div className="flex justify-end gap-3 pt-4 border-t border-border">
+          <button type="button" onClick={onClose} className="px-5 py-2.5 border border-border hover:border-primary text-xs font-display font-bold uppercase tracking-widest transition-colors">{t("cancel")}</button>
+          <button type="submit" data-testid="sp-submit" disabled={saving} className="bg-primary hover:bg-primary-hover disabled:opacity-50 px-5 py-2.5 text-xs font-display font-bold uppercase tracking-widest transition-colors inline-flex items-center gap-2">
             <Check size={14} /> {saving ? "..." : t("save")}
           </button>
         </div>
