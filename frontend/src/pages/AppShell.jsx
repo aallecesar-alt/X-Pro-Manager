@@ -19,6 +19,7 @@ export default function AppShell() {
   const [vehicles, setVehicles] = useState([]);
   const [deliveries, setDeliveries] = useState([]);
   const [editing, setEditing] = useState(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [search, setSearch] = useState("");
 
   const tabs = [
@@ -113,7 +114,7 @@ export default function AppShell() {
         {tab === "inventory" && (
           <Inventory
             vehicles={vehicles} t={t} search={search} setSearch={setSearch}
-            onAdd={() => setEditing("new")} onEdit={(v) => setEditing(v)} onDelete={onDelete}
+            onAdd={() => setEditing("new")} onImport={() => setImportOpen(true)} onEdit={(v) => setEditing(v)} onDelete={onDelete}
           />
         )}
         {tab === "pipeline" && <Pipeline vehicles={vehicles} t={t} onMove={updateStatus} onEdit={(v) => setEditing(v)} />}
@@ -121,7 +122,18 @@ export default function AppShell() {
         {tab === "settings" && <SettingsTab dealership={dealership} t={t} onRefresh={refreshDealership} />}
 
         {editing && (
-          <VehicleForm t={t} vehicle={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />
+          <VehicleForm t={t} vehicle={editing === "new" || (editing && editing.__prefill) ? null : editing} prefill={editing && editing.__prefill ? editing : null} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />
+        )}
+
+        {importOpen && (
+          <ImportUrlModal
+            t={t}
+            onClose={() => setImportOpen(false)}
+            onImported={(data) => {
+              setImportOpen(false);
+              setEditing({ __prefill: true, ...data });
+            }}
+          />
         )}
       </main>
     </div>
@@ -181,7 +193,7 @@ function Overview({ stats, t }) {
   );
 }
 
-function Inventory({ vehicles, t, search, setSearch, onAdd, onEdit, onDelete }) {
+function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, onDelete }) {
   return (
     <div data-testid="inventory-tab">
       <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
@@ -189,9 +201,14 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onEdit, onDelete }) 
           <p className="label-eyebrow text-primary mb-2">{t("inventory")}</p>
           <h1 className="font-display font-black text-4xl uppercase tracking-tighter">{t("inventory")}</h1>
         </div>
-        <button data-testid="add-vehicle" onClick={onAdd} className="bg-primary hover:bg-primary-hover px-5 py-3 font-display font-bold uppercase text-xs tracking-widest inline-flex items-center gap-2">
-          <Plus size={14} /> {t("add_vehicle")}
-        </button>
+        <div className="flex gap-2 flex-wrap">
+          <button data-testid="import-url" onClick={onImport} className="border border-border hover:border-primary hover:text-primary transition-colors px-5 py-3 font-display font-bold uppercase text-xs tracking-widest inline-flex items-center gap-2">
+            <Download size={14} className="rotate-180" /> {t("import_from_url")}
+          </button>
+          <button data-testid="add-vehicle" onClick={onAdd} className="bg-primary hover:bg-primary-hover px-5 py-3 font-display font-bold uppercase text-xs tracking-widest inline-flex items-center gap-2">
+            <Plus size={14} /> {t("add_vehicle")}
+          </button>
+        </div>
       </div>
 
       <div className="border border-border flex items-center px-4 h-12 mb-6">
@@ -330,15 +347,18 @@ function SettingsTab({ dealership, t, onRefresh }) {
   );
 }
 
-function VehicleForm({ vehicle, onClose, onSaved, t }) {
+function VehicleForm({ vehicle, prefill, onClose, onSaved, t }) {
   const isEdit = !!vehicle;
-  const [form, setForm] = useState(vehicle || {
-    make: "", model: "", year: 2024, color: "", vin: "",
+  const initial = vehicle || {
+    make: prefill?.make || "", model: prefill?.model || "", year: prefill?.year || 2024, color: "", vin: "",
     transmission: "Automatic", fuel_type: "Gasoline", body_type: "Sedan",
-    purchase_price: 0, sale_price: 0, expenses: 0, description: "",
+    purchase_price: 0, sale_price: prefill?.price || 0, expenses: 0, description: prefill?.description || "",
     images: [], status: "in_stock", buyer_name: "", buyer_phone: "", payment_method: "", sold_price: 0, bank_name: "",
-  });
-  const [imgsText, setImgsText] = useState((vehicle?.images || []).join("\n"));
+  };
+  const [form, setForm] = useState(initial);
+  const [imgsText, setImgsText] = useState(
+    vehicle?.images?.length ? vehicle.images.join("\n") : (prefill?.image ? prefill.image : "")
+  );
   const [saving, setSaving] = useState(false);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -918,6 +938,100 @@ function StepFilesModal({ vehicle, step, t, onClose, onChanged }) {
           <img src={previewing.data_url} alt={previewing.name} className="max-w-full max-h-full object-contain" />
         </div>
       )}
+    </div>
+  );
+}
+
+function ImportUrlModal({ t, onClose, onImported }) {
+  const [url, setUrl] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [preview, setPreview] = useState(null);
+
+  const fetchUrl = async (e) => {
+    e?.preventDefault();
+    if (!url) return;
+    setLoading(true);
+    setPreview(null);
+    try {
+      const r = await api.post("/vehicles/import-url", { url });
+      const data = r.data.extracted;
+      if (!data.image && !data.title) {
+        toast.error(t("import_failed"));
+      } else {
+        setPreview(data);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.detail || t("import_failed"));
+    } finally { setLoading(false); }
+  };
+
+  const useThis = () => {
+    onImported(preview);
+    toast.success(t("import_success"));
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-12 px-4">
+      <div className="bg-background border border-border w-full max-w-xl">
+        <div className="flex items-center justify-between p-6 border-b border-border">
+          <h2 className="font-display font-bold text-xl uppercase tracking-tight">{t("import_from_url")}</h2>
+          <button onClick={onClose}><X size={20} className="text-text-secondary hover:text-primary" /></button>
+        </div>
+
+        <form onSubmit={fetchUrl} className="p-6 space-y-4">
+          <div>
+            <label className="label-eyebrow block mb-2">URL</label>
+            <input
+              data-testid="import-url-input"
+              type="url"
+              required
+              autoFocus
+              placeholder={t("paste_url")}
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-4 h-11 text-sm"
+            />
+            <p className="text-xs text-text-secondary mt-2">Ex: https://intercarautosales.com/vehicle/2022-honda-civic</p>
+          </div>
+
+          <button
+            type="submit"
+            data-testid="import-url-fetch"
+            disabled={loading || !url}
+            className="w-full bg-primary hover:bg-primary-hover disabled:opacity-50 transition-colors py-3 font-display font-bold uppercase text-sm tracking-widest text-white"
+          >
+            {loading ? t("importing") : t("import")}
+          </button>
+        </form>
+
+        {preview && (
+          <div className="px-6 pb-6">
+            <div className="border border-border bg-surface p-4">
+              <p className="label-eyebrow text-primary mb-3">Preview</p>
+              <div className="flex gap-4">
+                {preview.image ? (
+                  <img src={preview.image} alt="" className="w-32 h-24 object-cover bg-background flex-shrink-0" />
+                ) : (
+                  <div className="w-32 h-24 bg-background flex items-center justify-center"><Car size={28} className="text-text-secondary" /></div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="font-display font-bold text-sm mb-1 truncate">{preview.title || "—"}</p>
+                  {preview.year ? <p className="text-xs text-text-secondary">{preview.year} {preview.make} {preview.model}</p> : null}
+                  {preview.price ? <p className="text-sm font-display font-bold text-primary mt-1">{formatCurrency(preview.price)}</p> : null}
+                </div>
+              </div>
+              <button
+                type="button"
+                data-testid="import-url-use"
+                onClick={useThis}
+                className="w-full mt-4 bg-success hover:opacity-80 transition-opacity py-2.5 font-display font-bold uppercase text-xs tracking-widest text-background"
+              >
+                <Check size={14} className="inline mr-2" /> {t("save")}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

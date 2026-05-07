@@ -337,6 +337,101 @@ async def delete_step_file(vid: str, step: int, file_id: str, current: dict = De
     return {"deleted": True}
 
 
+@api_router.post("/vehicles/import-url")
+async def import_vehicle_from_url(payload: dict, current: dict = Depends(get_current_user)):
+    """Scrape a vehicle listing URL and extract image, title, year, make/model.
+
+    Returns extracted fields for the user to confirm/edit before saving.
+    Does NOT save the vehicle automatically.
+    """
+    url = (payload or {}).get("url", "").strip()
+    if not url or not (url.startswith("http://") or url.startswith("https://")):
+        raise HTTPException(400, "Provide a valid http(s) URL")
+
+    import requests
+    from bs4 import BeautifulSoup
+    import re as _re
+
+    try:
+        r = requests.get(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; AutoManagerImporter/1.0)"},
+            timeout=15,
+            allow_redirects=True,
+        )
+        r.raise_for_status()
+    except Exception as e:
+        raise HTTPException(400, f"Could not fetch URL: {str(e)[:200]}")
+
+    soup = BeautifulSoup(r.text, "lxml")
+
+    def meta(name):
+        for sel in [
+            ("property", name),
+            ("name", name),
+            ("itemprop", name),
+        ]:
+            tag = soup.find("meta", {sel[0]: sel[1]})
+            if tag and tag.get("content"):
+                return tag["content"].strip()
+        return ""
+
+    image = meta("og:image") or meta("twitter:image") or meta("image")
+    title = meta("og:title") or meta("twitter:title") or (soup.title.string.strip() if soup.title and soup.title.string else "")
+    description = meta("og:description") or meta("description") or ""
+
+    # Fallback: first <img> with reasonable size
+    if not image:
+        for img in soup.find_all("img"):
+            src = img.get("src") or img.get("data-src") or ""
+            if src and not src.startswith("data:") and any(x in src.lower() for x in [".jpg", ".jpeg", ".png", ".webp"]):
+                if src.startswith("//"):
+                    src = "https:" + src
+                elif src.startswith("/"):
+                    from urllib.parse import urljoin
+                    src = urljoin(url, src)
+                image = src
+                break
+
+    # Try to extract year + make + model from title (e.g. "2022 Honda Civic LX - Inter Car")
+    year = 0
+    make = ""
+    model = ""
+    if title:
+        m = _re.match(r"\s*(\d{4})\s+([A-Za-z\-]+)\s+(.+?)(?:\s+[-|·•]\s+|$)", title)
+        if m:
+            year = int(m.group(1))
+            make = m.group(2).strip()
+            model = m.group(3).strip()
+        else:
+            # Try just year
+            ym = _re.search(r"\b(19|20)\d{2}\b", title)
+            if ym:
+                year = int(ym.group(0))
+
+    # Try to find a price like $12,345 or $12345 in the page
+    price = 0
+    price_m = _re.search(r"\$\s*([\d,]+(?:\.\d{2})?)", r.text)
+    if price_m:
+        try:
+            price = float(price_m.group(1).replace(",", ""))
+        except Exception:
+            pass
+
+    return {
+        "extracted": {
+            "image": image or "",
+            "title": title,
+            "description": description[:500],
+            "year": year,
+            "make": make,
+            "model": model,
+            "price": price,
+            "source_url": url,
+        }
+    }
+
+
 @api_router.delete("/vehicles/{vid}")
 async def delete_vehicle(vid: str, current: dict = Depends(get_current_user)):
     res = await db.vehicles.delete_one({"id": vid, "dealership_id": current["dealership_id"]})
