@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useI18n, LANG_OPTIONS } from "@/lib/i18n.jsx";
+import PhotoUploader from "@/components/PhotoUploader";
 
 const STATUS_COLUMNS = [
   { id: "in_stock", color: "border-blue-500" },
@@ -356,8 +357,8 @@ function VehicleForm({ vehicle, prefill, onClose, onSaved, t }) {
     images: [], status: "in_stock", buyer_name: "", buyer_phone: "", payment_method: "", sold_price: 0, bank_name: "",
   };
   const [form, setForm] = useState(initial);
-  const [imgsText, setImgsText] = useState(
-    vehicle?.images?.length ? vehicle.images.join("\n") : (prefill?.image ? prefill.image : "")
+  const [photos, setPhotos] = useState(
+    vehicle?.images?.length ? vehicle.images : (prefill?.image ? [prefill.image] : [])
   );
   const [saving, setSaving] = useState(false);
 
@@ -367,7 +368,7 @@ function VehicleForm({ vehicle, prefill, onClose, onSaved, t }) {
   const save = async (e) => {
     e.preventDefault();
     setSaving(true);
-    const payload = { ...form, images: imgsText.split("\n").map((s) => s.trim()).filter(Boolean) };
+    const payload = { ...form, images: photos };
     numFields.forEach((k) => { payload[k] = Number(payload[k]) || 0; });
     try {
       if (isEdit) await api.put(`/vehicles/${vehicle.id}`, payload);
@@ -421,7 +422,7 @@ function VehicleForm({ vehicle, prefill, onClose, onSaved, t }) {
 
         <div>
           <label className="label-eyebrow block mb-2">{t("images")}</label>
-          <textarea data-testid="f-images" rows={2} value={imgsText} onChange={(e) => setImgsText(e.target.value)} placeholder="https://..." className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-4 py-2 text-xs font-mono resize-none" />
+          <PhotoUploader value={photos} onChange={setPhotos} folder="vehicles" t={t} />
         </div>
 
         <div className="flex justify-end gap-3 pt-4 border-t border-border">

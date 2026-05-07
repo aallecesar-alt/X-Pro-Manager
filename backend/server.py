@@ -13,6 +13,10 @@ import jwt
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict
 
+import cloudinary
+import cloudinary.utils
+import cloudinary.uploader
+
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -25,6 +29,14 @@ db = client[os.environ['DB_NAME']]
 
 JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALGORITHM = "HS256"
+
+# Cloudinary config
+cloudinary.config(
+    cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.environ.get("CLOUDINARY_API_KEY"),
+    api_secret=os.environ.get("CLOUDINARY_API_SECRET"),
+    secure=True,
+)
 
 app = FastAPI(title="Inter Car Auto Manager")
 api_router = APIRouter(prefix="/api")
@@ -430,6 +442,49 @@ async def import_vehicle_from_url(payload: dict, current: dict = Depends(get_cur
             "source_url": url,
         }
     }
+
+
+@api_router.get("/cloudinary/signature")
+async def cloudinary_signature(
+    folder: str = "uploads",
+    current: dict = Depends(get_current_user),
+):
+    """Generate a signed upload signature for the frontend.
+
+    Frontend uses signed uploads → API secret never leaves the backend.
+    Allowed folder prefixes: 'vehicles/' or 'delivery/'.
+    """
+    dealership_id = current["dealership_id"]
+    # Allow only namespaced folders by dealership
+    allowed_prefixes = (f"vehicles/{dealership_id}/", f"delivery/{dealership_id}/")
+    if not folder.startswith(allowed_prefixes):
+        # Default to vehicles folder for this dealership
+        folder = f"vehicles/{dealership_id}/"
+
+    timestamp = int(datetime.now(timezone.utc).timestamp())
+    params = {"timestamp": timestamp, "folder": folder}
+    signature = cloudinary.utils.api_sign_request(params, os.environ["CLOUDINARY_API_SECRET"])
+    return {
+        "signature": signature,
+        "timestamp": timestamp,
+        "cloud_name": os.environ["CLOUDINARY_CLOUD_NAME"],
+        "api_key": os.environ["CLOUDINARY_API_KEY"],
+        "folder": folder,
+    }
+
+
+@api_router.delete("/cloudinary/asset")
+async def cloudinary_delete(public_id: str = Query(...), current: dict = Depends(get_current_user)):
+    """Delete an asset from Cloudinary.
+    Backend-only operation. Validates the public_id belongs to this dealership's folder."""
+    dealership_id = current["dealership_id"]
+    if not (public_id.startswith(f"vehicles/{dealership_id}/") or public_id.startswith(f"delivery/{dealership_id}/")):
+        raise HTTPException(403, "Forbidden")
+    try:
+        cloudinary.uploader.destroy(public_id, invalidate=True)
+        return {"deleted": True}
+    except Exception as e:
+        raise HTTPException(500, f"Cloudinary error: {str(e)[:200]}")
 
 
 @api_router.delete("/vehicles/{vid}")
