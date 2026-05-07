@@ -74,6 +74,20 @@ Per-car features:
 - Token visible in Settings tab, regenerable
 - For integration with `intercarautosales.com` etc.
 
+### Financial dashboard (owner only · Feb 2026)
+- New "Financeiro" sidebar tab (hidden from salespeople)
+- **Painel/Overview now shows ONLY counts** — no Receita/Lucro/Investido/Ticket
+- Month/year selector
+- 4 KPI cards: **Lucro dos carros · Despesas operacionais · Comissões pagas · Lucro líquido**
+- Cars sold this month with per-vehicle profit
+- **Operational expenses CRUD** (water, electricity, rent, salaries, etc.)
+  - Categories: rent, water, electricity, internet, phone, salary, marketing, maintenance, taxes, other
+  - Manual monthly entry (values vary, no recurrence)
+  - Optional Cloudinary attachment for receipts
+- 6-month net-profit bar chart
+- Closing formula: `gross_profit − operational_expenses − paid_commissions = net_profit`
+- Endpoints: `GET /api/financial/closing?year=&month=`, `GET /api/financial/monthly?months=6`, `GET/POST/PUT/DELETE /api/expenses`
+
 ## Test credentials
 - **Owner** — Email: `carlos@intercar.com` · Password: `senha123` (sees everything)
 - **Salesperson** — Email: `joao@intercar.com` · Password: `senha456` (restricted view)
