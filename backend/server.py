@@ -217,6 +217,8 @@ async def startup():
     await db.vehicles.create_index("dealership_id")
     await db.salespeople.create_index("id", unique=True)
     await db.salespeople.create_index("dealership_id")
+    await db.operational_expenses.create_index("id", unique=True)
+    await db.operational_expenses.create_index([("dealership_id", 1), ("date", -1)])
 
 
 # ============================================================
@@ -947,6 +949,209 @@ async def regen_token(current: dict = Depends(get_current_user)):
     new_token = secrets.token_urlsafe(24)
     await db.dealerships.update_one({"id": current["dealership_id"]}, {"$set": {"api_token": new_token}})
     return {"api_token": new_token}
+
+
+# ============================================================
+# OPERATIONAL EXPENSES (owner only)
+# ============================================================
+class OperationalExpenseBase(BaseModel):
+    date: str  # YYYY-MM-DD
+    category: str = "other"
+    description: str = ""
+    amount: float = 0
+    attachment_url: str = ""
+    attachment_public_id: str = ""
+
+
+class OperationalExpense(OperationalExpenseBase):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    dealership_id: str
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class OperationalExpenseUpdate(BaseModel):
+    date: Optional[str] = None
+    category: Optional[str] = None
+    description: Optional[str] = None
+    amount: Optional[float] = None
+    attachment_url: Optional[str] = None
+    attachment_public_id: Optional[str] = None
+
+
+def _month_range(year: int, month: int) -> tuple:
+    """Returns (start_date_str, end_date_str_exclusive) in YYYY-MM-DD for the given month."""
+    start = f"{year:04d}-{month:02d}-01"
+    if month == 12:
+        end = f"{year + 1:04d}-01-01"
+    else:
+        end = f"{year:04d}-{month + 1:02d}-01"
+    return start, end
+
+
+@api_router.get("/expenses", response_model=List[OperationalExpense])
+async def list_expenses(
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    current: dict = Depends(get_current_user),
+):
+    require_owner(current)
+    q = {"dealership_id": current["dealership_id"]}
+    if year and month:
+        start, end = _month_range(year, month)
+        q["date"] = {"$gte": start, "$lt": end}
+    items = await db.operational_expenses.find(q, {"_id": 0}).sort("date", -1).to_list(2000)
+    return items
+
+
+@api_router.post("/expenses", response_model=OperationalExpense)
+async def create_expense(payload: OperationalExpenseBase, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    e = OperationalExpense(dealership_id=current["dealership_id"], **payload.model_dump())
+    await db.operational_expenses.insert_one(e.model_dump())
+    return e
+
+
+@api_router.put("/expenses/{eid}", response_model=OperationalExpense)
+async def update_expense(eid: str, payload: OperationalExpenseUpdate, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not upd:
+        raise HTTPException(400, "Nothing to update")
+    res = await db.operational_expenses.update_one(
+        {"id": eid, "dealership_id": current["dealership_id"]}, {"$set": upd}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Expense not found")
+    return await db.operational_expenses.find_one({"id": eid}, {"_id": 0})
+
+
+@api_router.delete("/expenses/{eid}")
+async def delete_expense(eid: str, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    res = await db.operational_expenses.delete_one({"id": eid, "dealership_id": current["dealership_id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Expense not found")
+    return {"deleted": True}
+
+
+# ============================================================
+# FINANCIAL DASHBOARD (owner only)
+# ============================================================
+@api_router.get("/financial/closing")
+async def financial_closing(
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    current: dict = Depends(get_current_user),
+):
+    """Monthly closing: gross profit from cars sold − operational expenses − paid commissions = net profit.
+
+    If year/month not provided, defaults to current month (UTC).
+    """
+    require_owner(current)
+    now = datetime.now(timezone.utc)
+    y = year or now.year
+    m = month or now.month
+    start, end = _month_range(y, m)
+    did = current["dealership_id"]
+
+    # Vehicles sold in the month (use sold_at date)
+    sold_q = {
+        "dealership_id": did,
+        "status": "sold",
+        "sold_at": {"$gte": f"{start}T00:00:00", "$lt": f"{end}T00:00:00"},
+    }
+    sold = await db.vehicles.find(sold_q, {"_id": 0}).to_list(2000)
+    sold_rows = []
+    total_revenue = 0.0
+    total_cost = 0.0
+    paid_commissions = 0.0
+    for v in sold:
+        rev = float(v.get("sold_price") or v.get("sale_price") or 0)
+        cost = float(v.get("purchase_price") or 0) + float(v.get("expenses") or 0)
+        profit = rev - cost
+        total_revenue += rev
+        total_cost += cost
+        if v.get("commission_paid"):
+            paid_commissions += float(v.get("commission_amount") or 0)
+        sold_rows.append({
+            "vehicle_id": v["id"],
+            "make": v.get("make", ""),
+            "model": v.get("model", ""),
+            "year": v.get("year", 0),
+            "buyer_name": v.get("buyer_name", ""),
+            "salesperson_name": v.get("salesperson_name", "") or "—",
+            "sold_at": v.get("sold_at", ""),
+            "sold_price": rev,
+            "cost": cost,
+            "profit": profit,
+            "commission_amount": float(v.get("commission_amount") or 0),
+            "commission_paid": bool(v.get("commission_paid", False)),
+            "image": (v.get("images") or [None])[0] if v.get("images") else None,
+        })
+    gross_profit = total_revenue - total_cost
+
+    # Operational expenses in the month
+    exp_items = await db.operational_expenses.find(
+        {"dealership_id": did, "date": {"$gte": start, "$lt": end}}, {"_id": 0}
+    ).sort("date", -1).to_list(2000)
+    operational_total = sum(float(e.get("amount") or 0) for e in exp_items)
+
+    net_profit = gross_profit - operational_total - paid_commissions
+
+    return {
+        "year": y,
+        "month": m,
+        "vehicles_sold": sold_rows,
+        "vehicles_count": len(sold_rows),
+        "total_revenue": total_revenue,
+        "total_cost": total_cost,
+        "gross_profit": gross_profit,
+        "operational_expenses": exp_items,
+        "operational_total": operational_total,
+        "paid_commissions": paid_commissions,
+        "net_profit": net_profit,
+    }
+
+
+@api_router.get("/financial/monthly")
+async def financial_monthly(months: int = 6, current: dict = Depends(get_current_user)):
+    """Last N months net profit summary for owner chart."""
+    require_owner(current)
+    did = current["dealership_id"]
+    now = datetime.now(timezone.utc)
+    out = []
+    for i in range(months - 1, -1, -1):
+        # Compute target month/year going back i months from current
+        y = now.year
+        m = now.month - i
+        while m <= 0:
+            m += 12
+            y -= 1
+        start, end = _month_range(y, m)
+        sold = await db.vehicles.find(
+            {"dealership_id": did, "status": "sold", "sold_at": {"$gte": f"{start}T00:00:00", "$lt": f"{end}T00:00:00"}},
+            {"_id": 0, "sold_price": 1, "purchase_price": 1, "expenses": 1, "commission_amount": 1, "commission_paid": 1}
+        ).to_list(2000)
+        rev = sum(float(v.get("sold_price") or 0) for v in sold)
+        cost = sum(float(v.get("purchase_price") or 0) + float(v.get("expenses") or 0) for v in sold)
+        gross = rev - cost
+        commissions = sum(float(v.get("commission_amount") or 0) for v in sold if v.get("commission_paid"))
+        opex_items = await db.operational_expenses.find(
+            {"dealership_id": did, "date": {"$gte": start, "$lt": end}}, {"_id": 0, "amount": 1}
+        ).to_list(2000)
+        opex = sum(float(e.get("amount") or 0) for e in opex_items)
+        out.append({
+            "year": y,
+            "month": m,
+            "label": f"{y:04d}-{m:02d}",
+            "revenue": rev,
+            "gross_profit": gross,
+            "operational_expenses": opex,
+            "paid_commissions": commissions,
+            "net_profit": gross - opex - commissions,
+            "vehicles_count": len(sold),
+        })
+    return out
 
 
 # ============================================================

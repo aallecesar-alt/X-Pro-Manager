@@ -1,0 +1,41 @@
+{
+  "summary": "Validated new Financial dashboard + Operational expenses feature. Backend: 15/15 new tests in test_financial.py pass + all 22 prior role-based tests still pass (37/37 total). Covers /api/expenses CRUD, /api/financial/closing (default & filtered month), /api/financial/monthly?months=6, role enforcement (salesperson 403 on every new endpoint), and end-to-end closing math (rent 3500 + sold 30000 vehicle with 20000+1000 cost & 500 paid commission produced gross_profit=9000, operational_total=3500, paid_commissions=500, net_profit=5000 — verified per-row contributions and aggregate sums). Frontend (owner): Painel/Visão Geral now shows ONLY 4 count cards (Total/Em Estoque/Reservado/Vendido) — no Investido/Receita/Lucro/Ticket; monthly bar chart shows '1 vendas' (count only). Sidebar 'Financeiro' tab present between Vendedores and Configurações (data-testid=nav-financial). Financial page renders all 4 KPI cards (kpi-gross, kpi-opex, kpi-commissions, kpi-net) with month/year selectors, sold-cars table, expenses table, 6-month chart (FECHAMENTO DO MÊS · 6M). 'Adicionar despesa' modal opens with exp-date/exp-category/exp-description/exp-amount/exp-attachment/exp-submit fields; expense was successfully created via API. Frontend (salesperson): nav-financial NOT visible (correctly hidden). Cleanup: deleted TEST_PW_EXPENSE I created via Playwright; backend test fixtures auto-clean their data; one demo expense 'Aluguel maio 3500' (created earlier by main agent) intentionally left in place. No issues found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_financial.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/pytest/financial_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "/api/financial/closing & /api/financial/monthly use string-prefix matching against sold_at (e.g. '2026-05-15T00:00:00') — works because sold_at is consistently saved as ISO string but is fragile; if a vehicle is ever saved with a Z-suffixed or +offset timestamp the range filter could miss it. Consider switching to a real date-typed field or normalising the format in the model.",
+    "financial_monthly recomputes per-month totals N times with N+1 DB calls per month — fine for 6 months but consider a single aggregation pipeline if month count grows.",
+    "OperationalExpense.date is stored as a string YYYY-MM-DD with no validation — a malformed value (e.g. '2026/05/15') would silently break month filtering. Add a Pydantic validator (regex ^\\d{4}-\\d{2}-\\d{2}$) or convert to date type.",
+    "OperationalExpense amount has no minimum constraint — negative amounts would be accepted and would inflate net_profit. Consider Field(ge=0).",
+    "Financial.jsx and AppShell.jsx rely on browser-default <select> for month/year and <input type=date> for expense date instead of shadcn calendar/select; consistent across app but worth noting per design guidelines.",
+    "AppShell.jsx is now 1658 lines (was 1676 — basically unchanged in this iteration); still recommend splitting into per-tab components.",
+    "server.py grew to ~1200 lines with the new financial routes; the recommendation to split into modules (auth, vehicles, salespeople, stats, financial, dealership) becomes more pressing."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_financial.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (37/37, of which 15/15 new financial tests)",
+    "frontend": "100% on owner Financeiro tab + salesperson hidden-tab + Painel-no-money checks"
+  },
+  "test_credentials": "Owner: carlos@intercar.com / senha123 ; Salesperson: joao@intercar.com / senha456 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "test_financial.py creates fixtures (TEST_E2E_RENT expense + TEST_E2E vehicle) in the End-to-End class and tears them down via DELETE /api/expenses/{id} and DELETE /api/vehicles/{id} after the class. CRUD test creates a TEST_RENT expense and deletes it inside the same class. Playwright test created TEST_PW_EXPENSE (777.77, 2026-01-15) which I removed manually post-test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Two test files in /app/backend/tests/: backend_test.py (role-based access matrix) and test_financial.py (financial dashboard + expenses). Both use fixtures that auto-clean their own data, so they are safe to re-run repeatedly. Use BASE_URL from REACT_APP_BACKEND_URL — test_financial.py also has a fallback to read /app/frontend/.env if the env var isn't injected by the test runner. The financial-closing aggregation is asserted relationally (sum of rows == aggregate) rather than against fixed values, because there is one demo 'Aluguel maio 3500' expense left in place by the main agent for demo purposes — don't delete it. All new endpoints enforce owner role via require_owner() and are correctly hidden from salesperson UI.",
+  "rca of the issue": "N/A — feature works end-to-end. No bugs found."
+}

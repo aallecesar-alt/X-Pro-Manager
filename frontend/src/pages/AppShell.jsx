@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useI18n, LANG_OPTIONS } from "@/lib/i18n.jsx";
 import PhotoUploader from "@/components/PhotoUploader";
 import ExpenseManager from "@/components/ExpenseManager";
+import Financial from "@/pages/Financial";
 
 const STATUS_COLUMNS = [
   { id: "in_stock", color: "border-blue-500" },
@@ -32,7 +33,10 @@ export default function AppShell() {
     { id: "pipeline", label: t("pipeline"), icon: TrendingUp },
     { id: "delivery", label: t("delivery"), icon: Truck },
     { id: "salespeople", label: t("salespeople"), icon: Users },
-    ...(isSalesperson ? [] : [{ id: "settings", label: t("settings"), icon: Settings }]),
+    ...(isSalesperson ? [] : [
+      { id: "financial", label: t("financial"), icon: DollarSign },
+      { id: "settings", label: t("settings"), icon: Settings },
+    ]),
   ];
 
   const reload = async () => {
@@ -126,6 +130,7 @@ export default function AppShell() {
         {tab === "pipeline" && <Pipeline vehicles={vehicles} t={t} onMove={updateStatus} onEdit={(v) => setEditing(v)} />}
         {tab === "delivery" && <Delivery deliveries={deliveries} t={t} onReload={reload} />}
         {tab === "salespeople" && <SalespeopleTab salespeople={salespeople} t={t} onReload={reload} isSalesperson={isSalesperson} currentSpId={user?.salesperson_id || ""} />}
+        {tab === "financial" && !isSalesperson && <Financial t={t} />}
         {tab === "settings" && !isSalesperson && <SettingsTab dealership={dealership} t={t} onRefresh={refreshDealership} />}
 
         {editing && (
@@ -149,27 +154,15 @@ export default function AppShell() {
 
 function Overview({ stats, t, isSalesperson }) {
   if (!stats) return <p className="text-text-secondary">...</p>;
-  const cards = isSalesperson
-    ? [
-        { label: t("total_vehicles"), value: stats.total_vehicles },
-        { label: t("in_stock"), value: stats.in_stock },
-        { label: t("reserved"), value: stats.reserved },
-        { label: t("sold"), value: stats.sold },
-      ]
-    : [
-        { label: t("total_vehicles"), value: stats.total_vehicles },
-        { label: t("in_stock"), value: stats.in_stock },
-        { label: t("reserved"), value: stats.reserved },
-        { label: t("sold"), value: stats.sold },
-        { label: t("invested"), value: formatCurrency(stats.stock_total_cost), accent: false },
-        { label: t("revenue"), value: formatCurrency(stats.total_revenue), accent: true },
-        { label: t("profit"), value: formatCurrency(stats.total_profit), accent: true },
-        { label: t("avg_ticket"), value: formatCurrency(stats.avg_ticket) },
-      ];
+  // Painel main shows ONLY counts. All money (revenue/profit) lives in the Financeiro tab (owner) and is hidden from salespeople.
+  const cards = [
+    { label: t("total_vehicles"), value: stats.total_vehicles },
+    { label: t("in_stock"), value: stats.in_stock },
+    { label: t("reserved"), value: stats.reserved },
+    { label: t("sold"), value: stats.sold },
+  ];
   const monthly = stats.monthly_sales || [];
-  const maxRev = isSalesperson
-    ? Math.max(...monthly.map(m => m.count || 0), 1)
-    : Math.max(...monthly.map(m => m.revenue || 0), 1);
+  const maxBar = Math.max(...monthly.map(m => m.count || 0), 1);
 
   return (
     <div data-testid="overview-tab">
@@ -180,7 +173,7 @@ function Overview({ stats, t, isSalesperson }) {
         {cards.map((c, i) => (
           <div key={i} data-testid={`stat-${i}`} className="bg-background p-6">
             <p className="label-eyebrow mb-3">{c.label}</p>
-            <p className={`font-display font-black text-2xl ${c.accent ? "text-primary" : "text-white"}`}>{c.value}</p>
+            <p className="font-display font-black text-2xl text-white">{c.value}</p>
           </div>
         ))}
       </div>
@@ -191,27 +184,15 @@ function Overview({ stats, t, isSalesperson }) {
           <p className="text-text-secondary text-sm py-8 text-center">—</p>
         ) : (
           <div className="space-y-3">
-            {monthly.map((m) => {
-              const barValue = isSalesperson ? (m.count || 0) : (m.revenue || 0);
-              return (
-                <div key={m.month} className="flex items-center gap-4">
-                  <span className="font-display font-bold text-sm w-24">{m.month}</span>
-                  <div className="flex-1 bg-surface h-8 relative overflow-hidden">
-                    <div className="absolute inset-y-0 left-0 bg-primary" style={{ width: `${(barValue / maxRev) * 100}%` }} />
-                  </div>
-                  {isSalesperson ? (
-                    <span className="font-display font-bold text-sm w-32 text-right">{m.count} {t("sales_count").toLowerCase()}</span>
-                  ) : (
-                    <>
-                      <span className="font-display font-bold text-sm w-32 text-right">{formatCurrency(m.revenue)}</span>
-                      <span className={`font-display font-bold text-sm w-32 text-right ${m.profit >= 0 ? "text-success" : "text-primary"}`}>
-                        {formatCurrency(m.profit)}
-                      </span>
-                    </>
-                  )}
+            {monthly.map((m) => (
+              <div key={m.month} className="flex items-center gap-4">
+                <span className="font-display font-bold text-sm w-24">{m.month}</span>
+                <div className="flex-1 bg-surface h-8 relative overflow-hidden">
+                  <div className="absolute inset-y-0 left-0 bg-primary" style={{ width: `${((m.count || 0) / maxBar) * 100}%` }} />
                 </div>
-              );
-            })}
+                <span className="font-display font-bold text-sm w-32 text-right">{m.count || 0} {t("sales_count").toLowerCase()}</span>
+              </div>
+            ))}
           </div>
         )}
       </div>
