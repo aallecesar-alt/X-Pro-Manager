@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Car, LayoutDashboard, Package, TrendingUp, Truck, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, FileText } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, Truck, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -427,6 +427,7 @@ function VehicleForm({ vehicle, onClose, onSaved, t }) {
 function Delivery({ deliveries, t, onReload }) {
   const [editing, setEditing] = useState(null); // vehicle being edited (step or notes)
   const [editMode, setEditMode] = useState("step"); // "step" | "notes"
+  const [filesOpen, setFilesOpen] = useState(null); // { vehicle, step }
 
   const STEPS = [1, 2, 3, 4, 5, 6, 7, 8];
   // Color per step (mimics screenshot: red→pink→blue→purple→green)
@@ -515,17 +516,27 @@ function Delivery({ deliveries, t, onReload }) {
                 {STEPS.map((n, i) => {
                   const completed = n < step;
                   const current = n === step;
+                  const fileCount = (v.step_files?.[String(n)] || []).length;
                   return (
                     <div key={n} className="flex items-center flex-1 last:flex-none">
-                      <div
-                        className={`relative w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all ${
+                      <button
+                        type="button"
+                        data-testid={`step-${v.id}-${n}`}
+                        onClick={() => setFilesOpen({ vehicle: v, step: n })}
+                        className={`relative w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all hover:scale-110 cursor-pointer ${
                           completed ? `${STEP_COLORS[n]} text-white` :
                           current ? `${STEP_COLORS[n]} text-white ring-4 ring-primary/30` :
-                          "bg-background border-border text-text-secondary"
+                          "bg-background border-border text-text-secondary hover:border-primary"
                         }`}
+                        title={`${t(`step_${n}`)} · ${t("files")}`}
                       >
                         {completed ? <Check size={14} /> : n}
-                      </div>
+                        {fileCount > 0 && (
+                          <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center border-2 border-background">
+                            {fileCount}
+                          </span>
+                        )}
+                      </button>
                       {i < STEPS.length - 1 && (
                         <div className={`flex-1 h-0.5 ${n < step ? STEP_COLORS[n].split(" ")[0] : "bg-border"}`} />
                       )}
@@ -570,6 +581,16 @@ function Delivery({ deliveries, t, onReload }) {
           t={t}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); onReload(); }}
+        />
+      )}
+
+      {filesOpen && (
+        <StepFilesModal
+          vehicle={filesOpen.vehicle}
+          step={filesOpen.step}
+          t={t}
+          onClose={() => setFilesOpen(null)}
+          onChanged={onReload}
         />
       )}
     </div>
@@ -661,6 +682,161 @@ function DeliveryEditModal({ vehicle, mode, t, onClose, onSaved }) {
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function StepFilesModal({ vehicle, step, t, onClose, onChanged }) {
+  const [files, setFiles] = useState(vehicle.step_files?.[String(step)] || []);
+  const [uploading, setUploading] = useState(false);
+  const [previewing, setPreviewing] = useState(null);
+
+  const refresh = async () => {
+    // Re-fetch the vehicle to get the latest files (with data_url)
+    try {
+      const r = await api.get(`/vehicles/${vehicle.id}`);
+      setFiles(r.data.step_files?.[String(step)] || []);
+    } catch { /* noop */ }
+  };
+
+  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, []);
+
+  const handleUpload = async (fileList) => {
+    if (!fileList?.length) return;
+    setUploading(true);
+    for (const file of fileList) {
+      if (file.size > 8 * 1024 * 1024) {
+        toast.error(t("file_too_large"));
+        continue;
+      }
+      try {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        await api.post(`/vehicles/${vehicle.id}/step-files/${step}`, {
+          name: file.name, type: file.type || "application/octet-stream",
+          data_url: dataUrl, size: file.size,
+        });
+        toast.success(t("saved"));
+      } catch (err) {
+        toast.error(err.response?.data?.detail || t("error_generic"));
+      }
+    }
+    setUploading(false);
+    await refresh();
+    onChanged();
+  };
+
+  const remove = async (fileId) => {
+    if (!window.confirm(t("confirm_delete"))) return;
+    try {
+      await api.delete(`/vehicles/${vehicle.id}/step-files/${step}/${fileId}`);
+      toast.success(t("saved"));
+      await refresh();
+      onChanged();
+    } catch { toast.error(t("error_generic")); }
+  };
+
+  const isImage = (f) => (f.type || "").startsWith("image/");
+  const formatSize = (b) => b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil((b || 0) / 1024)} KB`;
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-12 px-4">
+      <div className="bg-background border border-border w-full max-w-2xl">
+        <div className="flex items-center justify-between p-6 border-b border-border">
+          <div>
+            <p className="label-eyebrow text-primary mb-1">{t("upload_for_step")} {step}</p>
+            <h2 className="font-display font-bold text-xl uppercase tracking-tight">{t(`step_${step}`)}</h2>
+            <p className="text-xs text-text-secondary mt-1">{vehicle.year} {vehicle.make} {vehicle.model} · {vehicle.buyer_name}</p>
+          </div>
+          <button onClick={onClose}><X size={20} className="text-text-secondary hover:text-primary" /></button>
+        </div>
+
+        {/* Upload area */}
+        <div className="p-6">
+          <label
+            data-testid="upload-dropzone"
+            htmlFor={`upload-${step}`}
+            className="block border-2 border-dashed border-border hover:border-primary transition-colors p-8 text-center cursor-pointer"
+          >
+            <Upload size={28} className="mx-auto text-text-secondary mb-3" />
+            <p className="text-sm text-text-secondary">{t("drag_drop")}</p>
+            <p className="text-xs text-text-secondary mt-1">PNG, JPG, PDF · {t("file_too_large").replace("(", "").replace(")", "").toLowerCase()}</p>
+          </label>
+          <input
+            id={`upload-${step}`}
+            data-testid="upload-input"
+            type="file"
+            multiple
+            accept="image/*,application/pdf,.pdf,.doc,.docx"
+            onChange={(e) => handleUpload(Array.from(e.target.files || []))}
+            className="hidden"
+          />
+          {uploading && <p className="text-center text-text-secondary text-sm mt-3">...</p>}
+        </div>
+
+        {/* Files list */}
+        <div className="px-6 pb-6 max-h-96 overflow-y-auto">
+          {files.length === 0 ? (
+            <p className="text-text-secondary text-sm text-center py-8">{t("no_files_yet")}</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {files.map((f) => (
+                <div key={f.id} data-testid={`file-${f.id}`} className="border border-border bg-surface p-3 flex gap-3 items-start">
+                  {isImage(f) && f.data_url ? (
+                    <button
+                      type="button"
+                      onClick={() => setPreviewing(f)}
+                      className="w-16 h-16 bg-background flex-shrink-0 overflow-hidden cursor-pointer"
+                    >
+                      <img src={f.data_url} alt={f.name} className="w-full h-full object-cover" />
+                    </button>
+                  ) : (
+                    <div className="w-16 h-16 bg-background flex-shrink-0 flex items-center justify-center">
+                      <FileIcon size={24} className="text-text-secondary" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate" title={f.name}>{f.name}</p>
+                    <p className="text-xs text-text-secondary">{formatSize(f.size)}</p>
+                    <div className="flex gap-1 mt-2">
+                      <a
+                        href={f.data_url}
+                        download={f.name}
+                        data-testid={`download-${f.id}`}
+                        className="text-[10px] px-2 py-1 border border-border hover:border-primary hover:text-primary uppercase tracking-wider transition-colors inline-flex items-center gap-1"
+                      >
+                        <Download size={11} /> {t("download")}
+                      </a>
+                      <button
+                        data-testid={`del-file-${f.id}`}
+                        onClick={() => remove(f.id)}
+                        className="text-[10px] px-2 py-1 border border-border hover:border-primary hover:text-primary uppercase tracking-wider transition-colors"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-border p-4 flex justify-end">
+          <button onClick={onClose} className="px-5 py-2.5 border border-border hover:border-primary text-xs font-display font-bold uppercase tracking-widest transition-colors">{t("cancel")}</button>
+        </div>
+      </div>
+
+      {previewing && (
+        <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-8" onClick={() => setPreviewing(null)}>
+          <button onClick={() => setPreviewing(null)} className="absolute top-6 right-6 text-white"><X size={28} /></button>
+          <img src={previewing.data_url} alt={previewing.name} className="max-w-full max-h-full object-contain" />
+        </div>
+      )}
     </div>
   );
 }

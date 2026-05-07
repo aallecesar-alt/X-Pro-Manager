@@ -11,7 +11,7 @@ import logging
 import bcrypt
 import jwt
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query
 from starlette.middleware.cors import CORSMiddleware
@@ -77,6 +77,9 @@ class VehicleBase(BaseModel):
     bank_name: str = ""
     delivery_notes: str = ""
     delivered_at: Optional[str] = None
+    # Files attached per step. Keys are step numbers as strings ("1".."8").
+    # Each file: { id, name, type, data_url, size, uploaded_at }
+    step_files: Dict[str, List[Dict]] = Field(default_factory=dict)
 
 
 class Vehicle(VehicleBase):
@@ -283,6 +286,52 @@ async def list_delivery(current: dict = Depends(get_current_user)):
         {"_id": 0}
     ).sort("sold_at", -1).to_list(500)
     return items
+
+
+# ============================================================
+# DELIVERY STEP FILE ATTACHMENTS
+# ============================================================
+class StepFileUpload(BaseModel):
+    name: str
+    type: str  # MIME type
+    data_url: str  # base64 data URL
+    size: int = 0
+
+
+@api_router.post("/vehicles/{vid}/step-files/{step}")
+async def upload_step_file(vid: str, step: int, payload: StepFileUpload, current: dict = Depends(get_current_user)):
+    if step < 1 or step > 8:
+        raise HTTPException(400, "Invalid step")
+    # Reject files larger than 8MB (encoded base64 is ~33% larger than raw)
+    if len(payload.data_url) > 11_000_000:
+        raise HTTPException(413, "File too large (max 8MB)")
+    vehicle = await db.vehicles.find_one({"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0})
+    if not vehicle:
+        raise HTTPException(404, "Vehicle not found")
+    file_doc = {
+        "id": str(uuid.uuid4()),
+        "name": payload.name,
+        "type": payload.type,
+        "data_url": payload.data_url,
+        "size": payload.size,
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.vehicles.update_one(
+        {"id": vid, "dealership_id": current["dealership_id"]},
+        {"$push": {f"step_files.{step}": file_doc}}
+    )
+    return {"file": {k: v for k, v in file_doc.items() if k != "data_url"}}
+
+
+@api_router.delete("/vehicles/{vid}/step-files/{step}/{file_id}")
+async def delete_step_file(vid: str, step: int, file_id: str, current: dict = Depends(get_current_user)):
+    res = await db.vehicles.update_one(
+        {"id": vid, "dealership_id": current["dealership_id"]},
+        {"$pull": {f"step_files.{step}": {"id": file_id}}}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Vehicle not found")
+    return {"deleted": True}
 
 
 @api_router.delete("/vehicles/{vid}")
