@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, Edit2, X, Check, Paperclip, FileText, Image as ImageIcon, RotateCcw } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Check, Paperclip, FileText, Image as ImageIcon, RotateCcw, Lock, Download, FolderArchive } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency } from "@/lib/api";
 
@@ -70,19 +70,23 @@ export default function Financial({ t }) {
   const [lost, setLost] = useState({ rows: [], by_reason: [], total_count: 0, total_lost_revenue: 0 });
   const [editing, setEditing] = useState(null); // {} for new, expense object for edit
   const [detailVid, setDetailVid] = useState(null); // vehicle id to show details for
+  const [closings, setClosings] = useState([]);
+  const [closingMonth, setClosingMonth] = useState(false); // confirmation modal open
 
   const reload = async () => {
     try {
-      const [c, m, s, l] = await Promise.all([
+      const [c, m, s, l, ar] = await Promise.all([
         api.get("/financial/closing", { params: { year, month } }),
         api.get("/financial/monthly", { params: { months: 6 } }),
         api.get("/financial/sold-vehicles"),
         api.get("/lost-sales", { params: { year, month } }),
+        api.get("/financial/closings"),
       ]);
       setClosing(c.data);
       setMonthly(m.data);
       setAllSold(s.data);
       setLost(l.data);
+      setClosings(ar.data || []);
     } catch { toast.error(t("error_generic")); }
   };
 
@@ -130,7 +134,7 @@ export default function Financial({ t }) {
           <p className="label-eyebrow text-primary mb-2">{t("financial")}</p>
           <h1 className="font-display font-black text-4xl uppercase tracking-tighter">{t("financial_dashboard")}</h1>
         </div>
-        <div className="flex gap-2 items-center">
+        <div className="flex flex-wrap gap-2 items-center">
           <select
             data-testid="financial-month"
             value={month}
@@ -147,6 +151,15 @@ export default function Financial({ t }) {
           >
             {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
+          <button
+            type="button"
+            data-testid="open-close-month"
+            onClick={() => setClosingMonth(true)}
+            className="bg-primary hover:bg-primary-hover text-white px-4 h-11 inline-flex items-center gap-2 text-xs font-display font-bold uppercase tracking-widest transition-colors"
+            title={t("close_month_btn")}
+          >
+            <Lock size={13} /> {t("close_month_btn")}
+          </button>
         </div>
       </div>
 
@@ -441,6 +454,98 @@ export default function Financial({ t }) {
           })}
         </div>
       </div>
+
+      {/* Closings archive (folder of all monthly closings) */}
+      <div className="border border-border mt-12 mb-10" data-testid="closings-archive">
+        <div className="bg-surface px-4 py-3 border-b border-border flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <FolderArchive size={16} className="text-primary" />
+            <p className="label-eyebrow">{t("closings_archive_title")}</p>
+          </div>
+          <p className="text-xs text-text-secondary">{closings.length} {closings.length === 1 ? t("closing_one") : t("closing_many")}</p>
+        </div>
+        {closings.length === 0 ? (
+          <p className="text-text-secondary text-sm text-center py-8 italic">{t("closings_archive_empty")}</p>
+        ) : (
+          <div className="divide-y divide-border">
+            {closings.map(c => {
+              const label = `${monthOptions[c.month - 1]?.label} ${c.year}`;
+              const downloadUrl = `${api.defaults.baseURL}/financial/closings/${c.id}/pdf`;
+              const removeOne = async () => {
+                if (!window.confirm(t("closings_confirm_delete"))) return;
+                try {
+                  await api.delete(`/financial/closings/${c.id}`);
+                  toast.success(t("saved"));
+                  reload();
+                } catch { toast.error(t("error_generic")); }
+              };
+              return (
+                <div key={c.id} data-testid={`closing-${c.id}`} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                  <div className="flex-1 min-w-[200px]">
+                    <p className="font-display font-bold uppercase">{label}</p>
+                    <p className="text-[11px] text-text-secondary">
+                      {t("closed_at")} {new Date(c.closed_at).toLocaleString("pt-BR")} · {c.closed_by}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] text-text-secondary uppercase">{t("net_profit")}</p>
+                    <p className={`font-display font-black text-base ${c.net_profit >= 0 ? "text-success" : "text-primary"}`}>
+                      {formatCurrency(c.net_profit)}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] text-text-secondary uppercase">{t("vehicles")}</p>
+                    <p className="font-display font-bold">{c.vehicles_count}</p>
+                  </div>
+                  <div className="inline-flex gap-1">
+                    <a
+                      href={`${downloadUrl}?token=${encodeURIComponent(localStorage.getItem("auth_token") || "")}`}
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        try {
+                          const r = await api.get(`/financial/closings/${c.id}/pdf`, { responseType: "blob" });
+                          const url = URL.createObjectURL(r.data);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = `fechamento-${c.year}-${String(c.month).padStart(2, "0")}.pdf`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        } catch { toast.error(t("error_generic")); }
+                      }}
+                      data-testid={`download-${c.id}`}
+                      className="w-9 h-9 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
+                      title={t("download")}
+                    >
+                      <Download size={13} />
+                    </a>
+                    <button
+                      type="button"
+                      data-testid={`delete-closing-${c.id}`}
+                      onClick={removeOne}
+                      className="w-9 h-9 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
+                      title={t("delete")}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {closingMonth && (
+        <CloseMonthModal
+          year={year}
+          month={month}
+          monthLabel={monthOptions[month - 1]?.label || ""}
+          closing={closing}
+          t={t}
+          onClose={() => setClosingMonth(false)}
+          onDone={() => { setClosingMonth(false); reload(); }}
+        />
+      )}
 
       {editing && (
         <ExpenseForm
@@ -779,6 +884,109 @@ function RevertSaleDialog({ vehicleId, t, onClose, onDone }) {
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+
+function CloseMonthModal({ year, month, monthLabel, closing, t, onClose, onDone }) {
+  const [markPaid, setMarkPaid] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    setSubmitting(true);
+    try {
+      const r = await api.post("/financial/closings", { year, month, mark_commissions_paid: markPaid });
+      toast.success(t("close_month_success"));
+      // Auto-download the freshly generated PDF
+      try {
+        const pdf = await api.get(`/financial/closings/${r.data.id}/pdf`, { responseType: "blob" });
+        const url = URL.createObjectURL(pdf.data);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `fechamento-${year}-${String(month).padStart(2, "0")}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch { /* user can re-download from archive */ }
+      onDone();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || t("error_generic"));
+    } finally { setSubmitting(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-12 px-4" data-testid="close-month-modal">
+      <div className="bg-background border border-border w-full max-w-md p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-display font-black text-xl uppercase tracking-tight">
+            {t("close_month_title")} <span className="text-primary">{monthLabel} {year}</span>
+          </h2>
+          <button onClick={onClose}><X size={20} className="text-text-secondary hover:text-primary" /></button>
+        </div>
+
+        <p className="text-sm text-text-secondary">{t("close_month_intro")}</p>
+
+        {/* Snapshot preview */}
+        <div className="border border-border bg-surface divide-y divide-border">
+          <div className="flex justify-between px-3 py-2 text-sm">
+            <span className="text-text-secondary">{t("vehicles_sold_label")}</span>
+            <span className="font-display font-bold">{closing?.vehicles_count || 0}</span>
+          </div>
+          <div className="flex justify-between px-3 py-2 text-sm">
+            <span className="text-text-secondary">{t("gross_profit")}</span>
+            <span className="font-display font-bold text-success">{formatCurrency(closing?.gross_profit || 0)}</span>
+          </div>
+          <div className="flex justify-between px-3 py-2 text-sm">
+            <span className="text-text-secondary">{t("operational_total")}</span>
+            <span className="font-display font-bold text-warning">−{formatCurrency(closing?.operational_total || 0)}</span>
+          </div>
+          <div className="flex justify-between px-3 py-2 text-sm">
+            <span className="text-text-secondary">{t("paid_commissions")}</span>
+            <span className="font-display font-bold text-warning">−{formatCurrency(closing?.paid_commissions || 0)}</span>
+          </div>
+          <div className="flex justify-between px-3 py-2 text-base bg-primary/10">
+            <span className="font-display font-bold uppercase">{t("net_profit")}</span>
+            <span className={`font-display font-black text-lg ${(closing?.net_profit || 0) >= 0 ? "text-success" : "text-primary"}`}>
+              {formatCurrency(closing?.net_profit || 0)}
+            </span>
+          </div>
+        </div>
+
+        {/* Mark commissions paid checkbox */}
+        <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+          <input
+            type="checkbox"
+            data-testid="mark-commissions-paid"
+            checked={markPaid}
+            onChange={(e) => setMarkPaid(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            <span className="font-display font-bold">{t("mark_commissions_paid_label")}</span>
+            <span className="block text-xs text-text-secondary">{t("mark_commissions_paid_hint")}</span>
+          </span>
+        </label>
+
+        <div className="flex justify-end gap-3 pt-3 border-t border-border">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitting}
+            className="px-5 py-2.5 border border-border hover:border-primary text-xs font-display font-bold uppercase tracking-widest transition-colors"
+          >
+            {t("cancel")}
+          </button>
+          <button
+            type="button"
+            data-testid="confirm-close-month"
+            onClick={submit}
+            disabled={submitting}
+            className="bg-primary hover:bg-primary-hover disabled:opacity-50 px-5 py-2.5 text-xs font-display font-bold uppercase tracking-widest text-white transition-colors inline-flex items-center gap-2"
+          >
+            <Lock size={13} /> {submitting ? "..." : t("close_and_export")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

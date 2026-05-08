@@ -8,6 +8,7 @@ import os
 import uuid
 import secrets
 import logging
+import base64
 import bcrypt
 import jwt
 from datetime import datetime, timezone, timedelta
@@ -17,7 +18,7 @@ import cloudinary
 import cloudinary.utils
 import cloudinary.uploader
 
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query, Response
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr
@@ -2015,6 +2016,253 @@ async def financial_closing(
         "paid_commissions": paid_commissions,
         "net_profit": net_profit,
     }
+
+
+
+# ============================================================
+# MONTHLY CLOSING ARCHIVE — generates a PDF snapshot of the month
+# (KPIs + cars sold + maintenance + operational expenses) and
+# saves it to Cloudinary so the user can re-download anytime.
+# Optional: marks all that month's commissions as paid in one click.
+# ============================================================
+class MonthlyCloseRequest(BaseModel):
+    year: int
+    month: int
+    mark_commissions_paid: bool = False
+
+
+_MONTHS_PT = [
+    "", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+]
+
+
+def _build_closing_pdf(dealership_name: str, snapshot: dict) -> bytes:
+    """Build a printable PDF of the monthly closing. Returns raw bytes."""
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib.enums import TA_LEFT, TA_RIGHT
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=1.5 * cm, rightMargin=1.5 * cm, topMargin=1.5 * cm, bottomMargin=1.5 * cm)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("Title", parent=styles["Heading1"], fontSize=18, textColor=colors.HexColor("#D92D20"), spaceAfter=4)
+    sub_style = ParagraphStyle("Sub", parent=styles["Normal"], fontSize=10, textColor=colors.HexColor("#666666"), spaceAfter=18)
+    h2 = ParagraphStyle("H2", parent=styles["Heading2"], fontSize=12, textColor=colors.HexColor("#222222"), spaceAfter=6, spaceBefore=14)
+    body = styles["Normal"]
+
+    def money(n):
+        try:
+            return f"R$ {float(n):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        except Exception:
+            return "R$ 0,00"
+
+    elements = []
+    elements.append(Paragraph(dealership_name or "—", title_style))
+    elements.append(Paragraph(
+        f"Fechamento mensal · {_MONTHS_PT[snapshot['month']]} de {snapshot['year']}",
+        sub_style,
+    ))
+
+    # KPIs
+    kpi_data = [
+        ["Lucro bruto dos carros", money(snapshot["gross_profit"])],
+        ["Despesas operacionais", money(snapshot["operational_total"])],
+        ["Comissões pagas", money(snapshot["paid_commissions"])],
+        ["LUCRO LÍQUIDO", money(snapshot["net_profit"])],
+    ]
+    kpi_table = Table(kpi_data, colWidths=[10 * cm, 6 * cm])
+    kpi_table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#dddddd")),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#FFF1F0")),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("TEXTCOLOR", (0, -1), (-1, -1), colors.HexColor("#D92D20")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    elements.append(kpi_table)
+
+    # Cars sold
+    elements.append(Paragraph(f"Veículos vendidos ({snapshot['vehicles_count']})", h2))
+    if snapshot["vehicles_sold"]:
+        rows = [["Veículo", "Comprador", "Vendedor", "Vendido por", "Lucro"]]
+        for v in snapshot["vehicles_sold"]:
+            rows.append([
+                f"{v.get('year','')} {v.get('make','')} {v.get('model','')}".strip(),
+                v.get("buyer_name") or "—",
+                v.get("salesperson_name") or "—",
+                money(v.get("sold_price")),
+                money(v.get("profit")),
+            ])
+        t = Table(rows, colWidths=[5.5 * cm, 3.5 * cm, 3 * cm, 2.5 * cm, 2.5 * cm], repeatRows=1)
+        t.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#222222")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("ALIGN", (3, 0), (-1, -1), "RIGHT"),
+            ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#cccccc")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#eeeeee")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        elements.append(t)
+    else:
+        elements.append(Paragraph("Nenhum veículo vendido neste mês.", body))
+
+    # Operational expenses
+    elements.append(Paragraph(f"Despesas operacionais ({len(snapshot['operational_expenses'])})", h2))
+    if snapshot["operational_expenses"]:
+        rows = [["Data", "Categoria", "Descrição", "Valor"]]
+        for e in snapshot["operational_expenses"]:
+            rows.append([
+                e.get("date") or "—",
+                e.get("category") or "—",
+                (e.get("description") or "")[:60],
+                money(e.get("amount")),
+            ])
+        t = Table(rows, colWidths=[2.5 * cm, 3 * cm, 8.5 * cm, 3 * cm], repeatRows=1)
+        t.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#222222")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("ALIGN", (-1, 0), (-1, -1), "RIGHT"),
+            ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#cccccc")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#eeeeee")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        elements.append(t)
+    else:
+        elements.append(Paragraph("Sem despesas operacionais neste mês.", body))
+
+    # Footer
+    elements.append(Spacer(1, 0.8 * cm))
+    elements.append(Paragraph(
+        f"Fechado em {snapshot.get('closed_at','')[:19].replace('T',' ')} por {snapshot.get('closed_by','')}",
+        ParagraphStyle("foot", parent=body, fontSize=8, textColor=colors.HexColor("#999999"), alignment=TA_RIGHT),
+    ))
+
+    doc.build(elements)
+    return buf.getvalue()
+
+
+@api_router.get("/financial/closings")
+async def list_closings(current: dict = Depends(get_current_user)):
+    require_owner(current)
+    rows = await db.monthly_closings.find(
+        {"dealership_id": current["dealership_id"]}, {"_id": 0, "snapshot": 0, "pdf_b64": 0}
+    ).sort([("year", -1), ("month", -1)]).to_list(500)
+    return rows
+
+
+@api_router.post("/financial/closings")
+async def create_closing(payload: MonthlyCloseRequest, current: dict = Depends(get_current_user)):
+    """Generate a PDF snapshot of the given month and archive it.
+
+    If a closing for the same year+month already exists, it is replaced.
+    """
+    require_owner(current)
+    did = current["dealership_id"]
+
+    # Reuse the read-only computation
+    snap = await financial_closing(year=payload.year, month=payload.month, current=current)
+
+    # Optionally mark commissions as paid for that month's sold vehicles
+    marked = 0
+    if payload.mark_commissions_paid and snap["vehicles_sold"]:
+        ids = [v["vehicle_id"] for v in snap["vehicles_sold"] if not v["commission_paid"] and v["commission_amount"] > 0]
+        if ids:
+            res = await db.vehicles.update_many(
+                {"id": {"$in": ids}, "dealership_id": did},
+                {"$set": {"commission_paid": True}, "$push": {"history": {
+                    "type": "commission_paid",
+                    "at": datetime.now(timezone.utc).isoformat(),
+                    "by": current.get("full_name") or current.get("email") or "",
+                    "via": "monthly_closing",
+                }}},
+            )
+            marked = res.modified_count
+        # Recompute snapshot with the new paid commissions for the saved PDF
+        snap = await financial_closing(year=payload.year, month=payload.month, current=current)
+
+    closed_at = datetime.now(timezone.utc).isoformat()
+    closed_by = current.get("full_name") or current.get("email") or ""
+    snap_full = {**snap, "closed_at": closed_at, "closed_by": closed_by}
+
+    # Build PDF (kept as base64 in Mongo so we don't depend on Cloudinary's
+    # PDF delivery being enabled — raw PDFs there are blocked by default).
+    dealership = await db.dealerships.find_one({"id": did}, {"_id": 0, "name": 1})
+    pdf_bytes = _build_closing_pdf((dealership or {}).get("name", "Inter Car"), snap_full)
+    pdf_b64 = base64.b64encode(pdf_bytes).decode("ascii")
+
+    # Replace any prior closing for the same month
+    cid = str(uuid.uuid4())
+    doc = {
+        "id": cid,
+        "dealership_id": did,
+        "year": payload.year,
+        "month": payload.month,
+        "closed_at": closed_at,
+        "closed_by": closed_by,
+        "pdf_size": len(pdf_bytes),
+        "pdf_b64": pdf_b64,
+        "vehicles_count": snap["vehicles_count"],
+        "total_revenue": snap["total_revenue"],
+        "gross_profit": snap["gross_profit"],
+        "operational_total": snap["operational_total"],
+        "paid_commissions": snap["paid_commissions"],
+        "net_profit": snap["net_profit"],
+        "commissions_marked_paid": marked,
+        "snapshot": snap_full,
+    }
+    await db.monthly_closings.delete_many({"dealership_id": did, "year": payload.year, "month": payload.month})
+    await db.monthly_closings.insert_one(doc)
+    out = {k: v for k, v in doc.items() if k not in ("snapshot", "_id", "pdf_b64")}
+    return out
+
+
+@api_router.get("/financial/closings/{cid}/pdf")
+async def download_closing_pdf(cid: str, current: dict = Depends(get_current_user)):
+    """Stream the archived PDF back to the user."""
+    require_owner(current)
+    doc = await db.monthly_closings.find_one(
+        {"id": cid, "dealership_id": current["dealership_id"]}, {"_id": 0, "pdf_b64": 1, "year": 1, "month": 1}
+    )
+    if not doc or not doc.get("pdf_b64"):
+        raise HTTPException(404, "Closing PDF not found")
+    pdf_bytes = base64.b64decode(doc["pdf_b64"])
+    filename = f"fechamento-{doc['year']:04d}-{doc['month']:02d}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@api_router.delete("/financial/closings/{cid}")
+async def delete_closing(cid: str, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    res = await db.monthly_closings.delete_one({"id": cid, "dealership_id": current["dealership_id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Closing not found")
+    return {"deleted": True}
+
 
 
 @api_router.get("/financial/sold-vehicles")
