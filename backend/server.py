@@ -219,6 +219,8 @@ async def startup():
     await db.salespeople.create_index("dealership_id")
     await db.operational_expenses.create_index("id", unique=True)
     await db.operational_expenses.create_index([("dealership_id", 1), ("date", -1)])
+    await db.lost_sales.create_index("id", unique=True)
+    await db.lost_sales.create_index([("dealership_id", 1), ("date", -1)])
 
 
 # ============================================================
@@ -1032,6 +1034,97 @@ async def delete_expense(eid: str, current: dict = Depends(get_current_user)):
     if res.deleted_count == 0:
         raise HTTPException(404, "Expense not found")
     return {"deleted": True}
+
+
+# ============================================================
+# LOST SALES — when a sale fell through and the car returns to inventory
+# ============================================================
+class RevertSaleRequest(BaseModel):
+    reason: str = "other"  # financing_denied | client_changed_mind | mechanical_issue | price_disagreement | found_better_deal | other
+    notes: str = ""
+
+
+@api_router.post("/vehicles/{vid}/revert-sale")
+async def revert_sale(vid: str, payload: RevertSaleRequest, current: dict = Depends(get_current_user)):
+    """Roll back a sold vehicle to in_stock and log a lost_sale audit record."""
+    v = await db.vehicles.find_one({"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0})
+    if not v:
+        raise HTTPException(404, "Vehicle not found")
+    if v.get("status") != "sold":
+        raise HTTPException(400, "Vehicle is not sold")
+
+    # Snapshot the sale details before clearing them
+    log = {
+        "id": str(uuid.uuid4()),
+        "dealership_id": current["dealership_id"],
+        "vehicle_id": vid,
+        "make": v.get("make", ""),
+        "model": v.get("model", ""),
+        "year": v.get("year", 0),
+        "image": (v.get("images") or [None])[0] if v.get("images") else None,
+        "sold_price": float(v.get("sold_price") or 0),
+        "buyer_name": v.get("buyer_name", ""),
+        "salesperson_id": v.get("salesperson_id", ""),
+        "salesperson_name": v.get("salesperson_name", "") or "",
+        "delivery_step_when_lost": int(v.get("delivery_step") or 0),
+        "sold_at": v.get("sold_at", ""),
+        "reason": payload.reason or "other",
+        "notes": payload.notes or "",
+        "lost_at": datetime.now(timezone.utc).isoformat(),
+        "date": datetime.now(timezone.utc).date().isoformat(),
+        "reverted_by": current.get("id", ""),
+        "reverted_by_name": current.get("full_name", "") or current.get("email", ""),
+    }
+    await db.lost_sales.insert_one(log)
+    # Strip mongo's injected _id so the response stays JSON-serializable
+    log.pop("_id", None)
+
+    # Reset the vehicle (preserve purchase_price + expense_items)
+    reset_fields = {
+        "status": "in_stock",
+        "sold_price": 0,
+        "sold_at": None,
+        "delivered_at": None,
+        "delivery_step": 0,
+        "buyer_name": "",
+        "buyer_phone": "",
+        "payment_method": "",
+        "bank_name": "",
+        "salesperson_id": "",
+        "salesperson_name": "",
+        "commission_amount": 0,
+        "commission_paid": False,
+    }
+    await db.vehicles.update_one({"id": vid}, {"$set": reset_fields})
+    log.pop("dealership_id", None)
+    return {"ok": True, "lost_sale": log}
+
+
+@api_router.get("/lost-sales")
+async def list_lost_sales(
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    current: dict = Depends(get_current_user),
+):
+    require_owner(current)
+    q = {"dealership_id": current["dealership_id"]}
+    if year and month:
+        start, end = _month_range(year, month)
+        q["date"] = {"$gte": start, "$lt": end}
+    rows = await db.lost_sales.find(q, {"_id": 0, "dealership_id": 0}).sort("lost_at", -1).to_list(2000)
+    # Group by reason
+    by_reason = {}
+    for r in rows:
+        reason = r.get("reason") or "other"
+        bucket = by_reason.setdefault(reason, {"reason": reason, "count": 0, "lost_revenue": 0.0})
+        bucket["count"] += 1
+        bucket["lost_revenue"] += float(r.get("sold_price") or 0)
+    return {
+        "rows": rows,
+        "by_reason": list(by_reason.values()),
+        "total_count": len(rows),
+        "total_lost_revenue": sum(float(r.get("sold_price") or 0) for r in rows),
+    }
 
 
 # ============================================================

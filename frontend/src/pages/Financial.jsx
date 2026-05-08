@@ -67,19 +67,22 @@ export default function Financial({ t }) {
   const [closing, setClosing] = useState(null);
   const [monthly, setMonthly] = useState([]);
   const [allSold, setAllSold] = useState([]);
+  const [lost, setLost] = useState({ rows: [], by_reason: [], total_count: 0, total_lost_revenue: 0 });
   const [editing, setEditing] = useState(null); // {} for new, expense object for edit
   const [detailVid, setDetailVid] = useState(null); // vehicle id to show details for
 
   const reload = async () => {
     try {
-      const [c, m, s] = await Promise.all([
+      const [c, m, s, l] = await Promise.all([
         api.get("/financial/closing", { params: { year, month } }),
         api.get("/financial/monthly", { params: { months: 6 } }),
         api.get("/financial/sold-vehicles"),
+        api.get("/lost-sales", { params: { year, month } }),
       ]);
       setClosing(c.data);
       setMonthly(m.data);
       setAllSold(s.data);
+      setLost(l.data);
     } catch { toast.error(t("error_generic")); }
   };
 
@@ -289,6 +292,74 @@ export default function Financial({ t }) {
         )}
       </div>
 
+      {/* Lost sales (when client backed out) */}
+      {(lost.total_count > 0 || lost.rows.length > 0) && (
+        <div className="border border-border mb-10">
+          <div className="bg-surface px-4 py-3 border-b border-border flex items-center justify-between flex-wrap gap-2">
+            <p className="label-eyebrow text-warning">{t("lost_sales_title")}</p>
+            <p className="text-xs text-text-secondary">
+              {lost.total_count} {t("sales_count").toLowerCase()} ·
+              <span className="ml-1">{t("lost_revenue")}: <span className="font-display font-bold text-warning">{formatCurrency(lost.total_lost_revenue)}</span></span>
+            </p>
+          </div>
+          {lost.by_reason.length > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-px bg-border border-b border-border">
+              {lost.by_reason.map((b) => (
+                <div key={b.reason} className="bg-background p-3" data-testid={`lost-reason-${b.reason}`}>
+                  <p className="label-eyebrow text-[9px] mb-1 truncate">{t(`reason_${b.reason}`) || b.reason}</p>
+                  <p className="font-display font-black text-lg text-warning">{b.count}</p>
+                  <p className="text-[10px] text-text-secondary">{formatCurrency(b.lost_revenue)}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {lost.rows.length === 0 ? (
+            <p className="text-text-secondary text-sm text-center py-8">—</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border">
+                  <tr>
+                    <th className="text-left p-3 label-eyebrow">{t("sale_date")}</th>
+                    <th className="text-left p-3 label-eyebrow">{t("make")}/{t("model")}</th>
+                    <th className="text-left p-3 label-eyebrow">{t("buyer_name")}</th>
+                    <th className="text-left p-3 label-eyebrow">{t("salesperson")}</th>
+                    <th className="text-left p-3 label-eyebrow">{t("lost_reason")}</th>
+                    <th className="text-right p-3 label-eyebrow">{t("sold_price")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lost.rows.map((r) => (
+                    <tr key={r.id} data-testid={`lost-row-${r.id}`} className="border-b border-border hover:bg-surface transition-colors">
+                      <td className="p-3 text-xs text-text-secondary font-mono">
+                        {r.lost_at ? new Date(r.lost_at).toLocaleDateString() : "—"}
+                      </td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          {r.image && <img src={r.image} alt="" className="w-10 h-8 object-cover" />}
+                          <p className="font-display font-bold">{r.year} {r.make} {r.model}</p>
+                        </div>
+                      </td>
+                      <td className="p-3">{r.buyer_name || "—"}</td>
+                      <td className="p-3">{r.salesperson_name || "—"}</td>
+                      <td className="p-3">
+                        <div>
+                          <span className="text-xs uppercase tracking-wider px-2 py-1 border border-warning/40 text-warning">
+                            {t(`reason_${r.reason}`) || r.reason}
+                          </span>
+                          {r.notes && <p className="text-[11px] text-text-secondary mt-1 italic">"{r.notes}"</p>}
+                        </div>
+                      </td>
+                      <td className="p-3 text-right font-display font-bold text-warning">{formatCurrency(r.sold_price)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Operational expenses */}
       <div className="border border-border mb-10">
         <div className="bg-surface px-4 py-3 border-b border-border flex items-center justify-between">
@@ -491,7 +562,7 @@ function ExpenseForm({ expense, t, onClose, onSaved }) {
 function VehicleExpensesModal({ vehicleId, t, onClose, onChanged }) {
   const [vehicle, setVehicle] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [reverting, setReverting] = useState(false);
+  const [revertOpen, setRevertOpen] = useState(false);
 
   useEffect(() => {
     let cancel = false;
@@ -500,35 +571,6 @@ function VehicleExpensesModal({ vehicleId, t, onClose, onChanged }) {
       .catch(() => { if (!cancel) { toast.error(t("error_generic")); setLoading(false); } });
     return () => { cancel = true; };
   }, [vehicleId, t]);
-
-  const revertSale = async () => {
-    if (!window.confirm(t("confirm_revert_sale"))) return;
-    setReverting(true);
-    try {
-      await api.put(`/vehicles/${vehicleId}`, {
-        status: "in_stock",
-        sold_price: 0,
-        sold_at: null,
-        delivered_at: null,
-        delivery_step: 0,
-        buyer_name: "",
-        buyer_phone: "",
-        payment_method: "",
-        bank_name: "",
-        salesperson_id: "",
-        salesperson_name: "",
-        commission_amount: 0,
-        commission_paid: false,
-      });
-      toast.success(t("returned_to_stock"));
-      onChanged?.();
-      onClose();
-    } catch {
-      toast.error(t("error_generic"));
-    } finally {
-      setReverting(false);
-    }
-  };
 
   const items = vehicle?.expense_items || [];
   const expensesTotal = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
@@ -625,16 +667,98 @@ function VehicleExpensesModal({ vehicleId, t, onClose, onChanged }) {
               <button
                 type="button"
                 data-testid="revert-sale"
-                onClick={revertSale}
-                disabled={reverting}
-                className="border border-warning text-warning hover:bg-warning/10 disabled:opacity-50 px-4 py-2.5 text-xs font-display font-bold uppercase tracking-widest transition-colors inline-flex items-center gap-2"
+                onClick={() => setRevertOpen(true)}
+                className="border border-warning text-warning hover:bg-warning/10 px-4 py-2.5 text-xs font-display font-bold uppercase tracking-widest transition-colors inline-flex items-center gap-2"
               >
-                <RotateCcw size={14} /> {reverting ? "..." : t("revert_to_stock")}
+                <RotateCcw size={14} /> {t("revert_to_stock")}
               </button>
             </div>
           </>
         )}
       </div>
+      {revertOpen && (
+        <RevertSaleDialog
+          vehicleId={vehicleId}
+          t={t}
+          onClose={() => setRevertOpen(false)}
+          onDone={() => { setRevertOpen(false); onChanged?.(); onClose(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+const LOST_REASONS = ["financing_denied", "client_changed_mind", "mechanical_issue", "price_disagreement", "found_better_deal", "other"];
+
+function RevertSaleDialog({ vehicleId, t, onClose, onDone }) {
+  const [reason, setReason] = useState("client_changed_mind");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.post(`/vehicles/${vehicleId}/revert-sale`, { reason, notes });
+      toast.success(t("returned_to_stock"));
+      onDone();
+    } catch {
+      toast.error(t("error_generic"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-[60] flex items-start justify-center overflow-auto py-12 px-4">
+      <form onSubmit={submit} className="bg-background border border-warning w-full max-w-md p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="label-eyebrow text-warning mb-1">{t("revert_to_stock")}</p>
+            <h2 className="font-display font-black text-lg uppercase tracking-tight">{t("lost_sale_title")}</h2>
+          </div>
+          <button type="button" onClick={onClose}><X size={20} className="text-text-secondary hover:text-primary" /></button>
+        </div>
+        <p className="text-xs text-text-secondary leading-relaxed border-l-2 border-warning pl-3">
+          {t("lost_sale_hint")}
+        </p>
+        <div>
+          <label className="label-eyebrow block mb-2">{t("lost_reason")}</label>
+          <div className="space-y-2">
+            {LOST_REASONS.map((r) => (
+              <label key={r} className={`flex items-center gap-2 px-3 py-2.5 border cursor-pointer transition-colors ${reason === r ? "border-warning bg-warning/10" : "border-border hover:border-warning/60"}`}>
+                <input
+                  type="radio"
+                  name="reason"
+                  data-testid={`reason-${r}`}
+                  value={r}
+                  checked={reason === r}
+                  onChange={() => setReason(r)}
+                  className="accent-warning"
+                />
+                <span className="text-sm">{t(`reason_${r}`)}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="label-eyebrow block mb-2">{t("notes")}</label>
+          <textarea
+            data-testid="lost-notes"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={3}
+            className="w-full bg-surface border border-border focus:border-warning focus:outline-none px-3 py-2 text-sm"
+            placeholder={t("lost_notes_placeholder")}
+          />
+        </div>
+        <div className="flex justify-end gap-2 pt-3 border-t border-border">
+          <button type="button" onClick={onClose} className="px-4 py-2.5 border border-border hover:border-primary text-xs font-display font-bold uppercase tracking-widest transition-colors">{t("cancel")}</button>
+          <button type="submit" data-testid="revert-confirm" disabled={saving} className="bg-warning text-black hover:opacity-90 disabled:opacity-50 px-4 py-2.5 text-xs font-display font-bold uppercase tracking-widest transition-colors inline-flex items-center gap-2">
+            <RotateCcw size={14} /> {saving ? "..." : t("confirm")}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

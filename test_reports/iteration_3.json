@@ -1,0 +1,44 @@
+{
+  "summary": "Validated new Lost Sales feature end-to-end. Backend: 5/5 new tests in test_lost_sales.py pass + all 37 prior tests still pass (42/42 total). Covers POST /api/vehicles/{vid}/revert-sale (sold->in_stock with snapshot, 400 on non-sold, 404 on missing), GET /api/lost-sales (rows + by_reason aggregation + total_count + total_lost_revenue, year+month filter, salesperson 403). Verified vehicle reset preserves purchase_price + expense_items and clears sold_price/buyer/salesperson/delivery_step/dates. Frontend (owner): from Financeiro tab, opened a sold-car detail modal, clicked 'Voltar ao estoque' (data-testid=revert-sale), reason dialog appeared with 6 reason radios, picked reason-financing_denied, filled lost-notes, submitted via revert-confirm; Vendas que Cairam KPI lost-reason-financing_denied rendered with correct count + lost_revenue, 4 lost-row-{id} entries displayed. Vehicle returned to inventory in_stock with purchase_price 15000 preserved (verified via API). Found and FIXED one P1 backend bug: revert-sale was returning HTTP 500 because Mongo's _id ObjectId was being injected into the inserted dict and then JSON-encoded — added log.pop('_id', None) immediately after insert. After fix all 5 new tests + the UI flow pass. Cleanup: removed 4 lost_sales rows + 1 test vehicle as requested; lost_sales is now empty and inventory has only the original Acura + Honda Civic.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_lost_sales.py",
+    "/app/backend/tests/test_financial.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/lost_sales_results.xml",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "FIXED in this iteration: POST /vehicles/{vid}/revert-sale returned 500 because the dict passed to db.lost_sales.insert_one(log) gets _id (ObjectId) injected by Motor, and was then returned to the client where FastAPI's jsonable_encoder failed on the ObjectId. Added log.pop('_id', None) right after the insert.",
+    "Consider also using {'_id': 0} projection or a Pydantic response_model on /lost-sales POST to harden against future regressions.",
+    "lost_sales date column is stored as YYYY-MM-DD string (date) AND lost_at as ISO datetime. The month filter uses 'date' which is fine, but mixing two date representations is fragile — consider one canonical field.",
+    "RevertSaleRequest has no validation that reason is one of the documented enum values (financing_denied|client_changed_mind|mechanical_issue|price_disagreement|found_better_deal|other). A free-text reason from a malicious client could bypass the by_reason aggregation buckets. Consider Literal[...] or a Pydantic validator.",
+    "revert-sale endpoint does NOT call require_owner() — a salesperson can revert their own sales. If business intent is owner-only, add require_owner(current). Spec said 'as owner' which is ambiguous; flag for main agent confirmation.",
+    "When clearing sold_at/delivered_at the code sets them to None but the model's typing and other places treat them as ISO strings — verify downstream consumers (sales-report parse_dt, financial closing string-prefix) handle None vs '' identically. They do today (parse_dt returns None for falsy), so no immediate bug.",
+    "Financial.jsx still renders the lost-sales section unconditionally including an empty-state grid; harmless but a small visual nit.",
+    "AppShell.jsx + Financial.jsx + server.py file-size recommendations from prior iteration still stand."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (added log.pop('_id', None) after lost_sales insert)",
+    "/app/backend/tests/test_lost_sales.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (42/42 across all suites; 5/5 new lost-sales tests)",
+    "frontend": "100% on the lost-sales UI flow (revert dialog -> reason picker -> notes -> confirm -> KPI + table render)"
+  },
+  "test_credentials": "Owner: carlos@intercar.com / senha123 ; Salesperson: joao@intercar.com / senha456 (already exists, verified working)",
+  "seed_data_creation": "test_lost_sales.py creates a TEST_LOST vehicle per test and tears it down via DELETE /api/vehicles/{id}. Playwright created and reverted vehicle e4b91983-... (TEST_UI/RevertCar) — DELETED post-test. db.lost_sales.delete_many({}) executed; collection is empty. Inventory now: Acura RDX + Honda Civic only (the two pre-existing vehicles).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Three test files in /app/backend/tests/: backend_test.py, test_financial.py, test_lost_sales.py — all use auto-clean fixtures, safe to re-run. The lost-sales feature is fully verified after the _id pop() fix. If main agent wants to enforce owner-only on revert-sale, add require_owner(current) at top of the endpoint and update the test (currently we test as owner; add a salesperson-403 test if behavior changes). lost_sales collection is empty; demo expense 'Aluguel maio 3500' from prior iteration is still present.",
+  "rca of the issue": "Bug: POST /api/vehicles/{vid}/revert-sale returned HTTP 500 'Internal Server Error'. Backend log showed: TypeError: 'ObjectId' object is not iterable inside fastapi/encoders.py. Root cause: in server.py revert_sale, the 'log' dict was built and then passed to await db.lost_sales.insert_one(log). Motor's insert_one mutates the dict in-place, injecting Mongo's auto-generated _id (a bson ObjectId). The handler then returned {'ok': True, 'lost_sale': log} and FastAPI's jsonable_encoder crashed on the ObjectId. Reproduction: log in as owner, mark a vehicle sold, then POST /api/vehicles/{vid}/revert-sale {reason,notes} -> 500. Mitigation applied: insert log.pop('_id', None) immediately after the insert_one call so the response object only contains JSON-serializable fields. Verified by re-running the e2e test which now returns 200 with the full lost_sale snapshot in the response body."
+}
