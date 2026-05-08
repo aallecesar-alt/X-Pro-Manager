@@ -88,6 +88,19 @@ Per-car features:
 - Closing formula: `gross_profit − operational_expenses − paid_commissions = net_profit`
 - Endpoints: `GET /api/financial/closing?year=&month=`, `GET /api/financial/monthly?months=6`, `GET/POST/PUT/DELETE /api/expenses`
 
+### Team Settings improvements (Feb 2026)
+- **Photo + Name side-by-side** in the Add/Edit Team Member form (Monday-style avatar picker).
+- New **Gerente** (manager) role alongside Vendedor and BDC. Gerente starts with empty permissions — owner grants tab access case-by-case. Visual badge in amber distinguishes managers from salesperson (red) and BDC (cyan).
+- Backend: `POST /api/team` accepts optional `photo_url`/`photo_public_id`; `DELETE /api/team/{uid}` accepts gerente; `ROLE_DEFAULT_PERMISSIONS["gerente"] = []`.
+
+### Stuck-delivery alerts (Feb 2026)
+- Backend tracks `delivery_step_updated_at` on every step change; `GET /api/delivery` returns `days_in_step` + `stuck_alert` (>=45 days, step <8).
+- New endpoint `GET /api/delivery/alerts?days=45` (owner/gerente only — 403 for salesperson/BDC).
+- Frontend (owner + gerente only):
+  - Sidebar badge (red, glowing) next to "Esteira de Entrega" with the count of stuck cars.
+  - Banner at the top of the Delivery tab with "X carros parados há mais de 45 dias" + toggle "Ver só os parados".
+  - Each stuck car card highlighted with red border and chip "⚠ Parado há N dias".
+
 ## Test credentials
 - **Owner** — Email: `carlos@intercar.com` · Password: `senha123` (sees everything)
 - **Salesperson** — Email: `joao@intercar.com` · Password: `senha456` (restricted view)

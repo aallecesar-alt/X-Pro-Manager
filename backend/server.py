@@ -86,6 +86,8 @@ class VehicleBase(BaseModel):
     # Delivery pipeline (1..8). 0 = not in delivery yet.
     # 1 Vendido | 2 Dados cliente | 3 Contrato banco | 4 Manutencao | 5 Seguro | 6 Titulo | 7 Registro | 8 Entregue
     delivery_step: int = 0
+    # Timestamp of the last step change — used to flag vehicles stuck too long on the same step.
+    delivery_step_updated_at: Optional[str] = None
     bank_name: str = ""
     delivery_notes: str = ""
     delivered_at: Optional[str] = None
@@ -432,6 +434,12 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
             # Force delivery_step = 1 on first transition to sold (override any 0/None payload value)
             if (existing.get("delivery_step") or 0) == 0 and (upd.get("delivery_step") or 0) == 0:
                 upd["delivery_step"] = 1
+    # Track every delivery step change so we can alert when cars get stuck.
+    if "delivery_step" in upd:
+        prev_doc = await db.vehicles.find_one({"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0, "delivery_step": 1})
+        prev_step = (prev_doc or {}).get("delivery_step") or 0
+        if prev_step != (upd.get("delivery_step") or 0):
+            upd["delivery_step_updated_at"] = datetime.now(timezone.utc).isoformat()
     # Auto-set delivered_at when reaching step 8
     if upd.get("delivery_step") == 8:
         upd["delivered_at"] = datetime.now(timezone.utc).isoformat()
@@ -454,9 +462,58 @@ async def list_delivery(current: dict = Depends(get_current_user)):
         {"dealership_id": current["dealership_id"], "status": "sold", "delivery_step": {"$gte": 1, "$lte": 8}},
         {"_id": 0}
     ).sort("sold_at", -1).to_list(500)
+    # Attach days_in_step + stuck flag so the frontend can render alerts.
+    now = datetime.now(timezone.utc)
+    for v in items:
+        ref = v.get("delivery_step_updated_at") or v.get("sold_at")
+        days = 0
+        if ref:
+            try:
+                days = max(0, (now - datetime.fromisoformat(ref)).days)
+            except Exception:
+                days = 0
+        v["days_in_step"] = days
+        # Alert only for non-delivered cars stuck >=45 days on current step.
+        v["stuck_alert"] = (v.get("delivery_step") or 0) < 8 and days >= 45
     if is_salesperson(current):
         items = [strip_vehicle_for_salesperson(v) for v in items]
     return items
+
+
+@api_router.get("/delivery/alerts")
+async def list_delivery_alerts(days: int = 45, current: dict = Depends(get_current_user)):
+    """Cars stuck on the same delivery step for N+ days. Owner/gerente only."""
+    role = (current or {}).get("role") or "owner"
+    if role not in ("owner", "gerente"):
+        raise HTTPException(403, "Owner or manager access required")
+    items = await db.vehicles.find(
+        {"dealership_id": current["dealership_id"], "status": "sold", "delivery_step": {"$gte": 1, "$lte": 7}},
+        {"_id": 0}
+    ).to_list(500)
+    now = datetime.now(timezone.utc)
+    out = []
+    for v in items:
+        ref = v.get("delivery_step_updated_at") or v.get("sold_at")
+        d = 0
+        if ref:
+            try:
+                d = max(0, (now - datetime.fromisoformat(ref)).days)
+            except Exception:
+                d = 0
+        if d >= days:
+            out.append({
+                "id": v.get("id"),
+                "make": v.get("make"),
+                "model": v.get("model"),
+                "year": v.get("year"),
+                "image": (v.get("images") or [None])[0],
+                "buyer_name": v.get("buyer_name") or "",
+                "delivery_step": v.get("delivery_step") or 0,
+                "days_in_step": d,
+                "salesperson_name": v.get("salesperson_name") or "",
+            })
+    out.sort(key=lambda x: x["days_in_step"], reverse=True)
+    return out
 
 
 # ============================================================

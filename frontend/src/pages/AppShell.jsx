@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -23,6 +23,8 @@ export default function AppShell() {
   const isSalesperson = user?.role === "salesperson";
   const isBdc = user?.role === "bdc";
   const isOwner = user?.role === "owner";
+  const isManager = user?.role === "gerente";
+  const isStaff = isOwner || isManager;
   const [tab, setTab] = useState("overview");
   const [stats, setStats] = useState(null);
   const [vehicles, setVehicles] = useState([]);
@@ -34,6 +36,7 @@ export default function AppShell() {
 
   const userPerms = user?.permissions || [];
   const canAccess = (tabId) => isOwner || userPerms.includes(tabId);
+  const stuckCount = isStaff ? (deliveries || []).filter(v => v.stuck_alert).length : 0;
   const allTabs = [
     { id: "overview", label: t("dashboard"), icon: LayoutDashboard },
     { id: "inventory", label: t("inventory"), icon: Package },
@@ -114,18 +117,31 @@ export default function AppShell() {
         <UserProfileChip user={user} t={t} onPhotoChanged={refreshUser} />
 
         <nav className="flex-1 p-3 space-y-1">
-          {tabs.map((tb) => (
-            <button
-              key={tb.id}
-              data-testid={`nav-${tb.id}`}
-              onClick={() => setTab(tb.id)}
-              className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-display uppercase tracking-wider font-semibold transition-colors ${
-                tab === tb.id ? "bg-primary text-white" : "text-text-secondary hover:bg-surface hover:text-white"
-              }`}
-            >
-              <tb.icon size={16} /> {tb.label}
-            </button>
-          ))}
+          {tabs.map((tb) => {
+            const showStuckBadge = tb.id === "delivery" && isStaff && stuckCount > 0;
+            return (
+              <button
+                key={tb.id}
+                data-testid={`nav-${tb.id}`}
+                onClick={() => setTab(tb.id)}
+                className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-display uppercase tracking-wider font-semibold transition-colors ${
+                  tab === tb.id ? "bg-primary text-white" : "text-text-secondary hover:bg-surface hover:text-white"
+                }`}
+              >
+                <tb.icon size={16} />
+                <span className="flex-1 text-left">{tb.label}</span>
+                {showStuckBadge && (
+                  <span
+                    data-testid="nav-delivery-stuck-badge"
+                    className="min-w-[20px] h-5 px-1.5 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center shadow-[0_0_10px_rgba(217,45,32,0.6)]"
+                    title={`${stuckCount} ${stuckCount === 1 ? "carro" : "carros"}`}
+                  >
+                    {stuckCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </nav>
 
         <div className="p-3 border-t border-border space-y-3">
@@ -163,7 +179,7 @@ export default function AppShell() {
           />
         )}
         {tab === "pipeline" && canAccess("pipeline") && <Pipeline vehicles={vehicles} t={t} onMove={updateStatus} onEdit={(v) => setEditing(v)} />}
-        {tab === "delivery" && canAccess("delivery") && <Delivery deliveries={deliveries} salespeople={salespeople} t={t} onReload={reload} />}
+        {tab === "delivery" && canAccess("delivery") && <Delivery deliveries={deliveries} salespeople={salespeople} t={t} onReload={reload} isStaff={isStaff} />}
         {tab === "leads" && canAccess("leads") && <LeadsPage t={t} role={user?.role || "owner"} currentSpId={user?.salesperson_id || ""} salespeople={salespeople} />}
         {tab === "salespeople" && canAccess("salespeople") && <SalespeopleTab salespeople={salespeople} t={t} onReload={reload} isSalesperson={isSalesperson} currentSpId={user?.salesperson_id || ""} />}
         {tab === "financial" && canAccess("financial") && <Financial t={t} />}
@@ -1367,10 +1383,11 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
   );
 }
 
-function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onReload }) {
+function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onReload, isStaff = false }) {
   const [editing, setEditing] = useState(null); // vehicle being edited (step or notes)
   const [editMode, setEditMode] = useState("step"); // "step" | "notes"
   const [filesOpen, setFilesOpen] = useState(null); // { vehicle, step }
+  const [alertsOnly, setAlertsOnly] = useState(false);
 
   const STEPS = [1, 2, 3, 4, 5, 6, 7, 8];
   // Color per step (mimics screenshot: red→pink→blue→purple→green)
@@ -1384,6 +1401,9 @@ function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onRe
     7: "bg-blue-900 border-blue-900",
     8: "bg-success border-success",
   };
+
+  const stuckCount = deliveries.filter(v => v.stuck_alert).length;
+  const visibleDeliveries = (isStaff && alertsOnly) ? deliveries.filter(v => v.stuck_alert) : deliveries;
 
   const advance = async (v) => {
     const nextStep = Math.min((v.delivery_step || 1) + 1, 8);
@@ -1412,6 +1432,36 @@ function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onRe
       <p className="label-eyebrow text-primary mb-2">{t("delivery_pipeline_title")}</p>
       <h1 className="font-display font-black text-4xl uppercase tracking-tighter mb-6">{t("delivery")}</h1>
 
+      {/* Stuck alerts banner — owner + gerente only */}
+      {isStaff && stuckCount > 0 && (
+        <div
+          data-testid="stuck-alert-banner"
+          className="border border-primary bg-primary/10 p-4 mb-6 flex items-center gap-4"
+        >
+          <div className="w-10 h-10 rounded-full bg-primary/20 border border-primary flex items-center justify-center shrink-0">
+            <AlertTriangle size={20} className="text-primary" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-display font-black uppercase tracking-tight text-primary">
+              {stuckCount} {stuckCount === 1 ? t("stuck_alert_title_one") : t("stuck_alert_title_many")}
+            </p>
+            <p className="text-xs text-text-secondary mt-0.5">{t("stuck_alert_hint")}</p>
+          </div>
+          <button
+            type="button"
+            data-testid="toggle-stuck-only"
+            onClick={() => setAlertsOnly(v => !v)}
+            className={`px-4 py-2 text-[11px] font-display font-bold uppercase tracking-widest border transition-colors shrink-0 ${
+              alertsOnly
+                ? "bg-primary text-white border-primary"
+                : "border-primary text-primary hover:bg-primary/10"
+            }`}
+          >
+            {alertsOnly ? t("show_all") : t("show_only_stuck")}
+          </button>
+        </div>
+      )}
+
       {/* Step legend */}
       <div className="flex flex-wrap gap-3 mb-8 p-4 border border-border bg-surface">
         {STEPS.map((n) => (
@@ -1423,15 +1473,22 @@ function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onRe
       </div>
 
       <div className="space-y-4">
-        {deliveries.length === 0 && (
-          <p className="text-text-secondary text-center py-16 border border-dashed border-border">{t("no_deliveries")}</p>
+        {visibleDeliveries.length === 0 && (
+          <p className="text-text-secondary text-center py-16 border border-dashed border-border">
+            {alertsOnly ? t("no_stuck_deliveries") : t("no_deliveries")}
+          </p>
         )}
 
-        {deliveries.map((v) => {
+        {visibleDeliveries.map((v) => {
           const step = v.delivery_step || 1;
           const isDelivered = step === 8;
+          const isStuck = isStaff && v.stuck_alert;
           return (
-            <div key={v.id} data-testid={`delivery-${v.id}`} className="border border-border bg-surface p-5">
+            <div
+              key={v.id}
+              data-testid={`delivery-${v.id}`}
+              className={`border bg-surface p-5 ${isStuck ? "border-primary shadow-[0_0_0_1px_theme(colors.primary.DEFAULT)]" : "border-border"}`}
+            >
               <div className="flex flex-wrap items-start gap-5">
                 {/* Photo */}
                 <div className="w-32 h-24 bg-background border border-border overflow-hidden flex-shrink-0 relative">
@@ -1452,6 +1509,15 @@ function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onRe
                   <p className={`text-sm font-display font-bold mt-1 ${isDelivered ? "text-success" : "text-primary"}`}>
                     {t(`step_${step}`)}
                   </p>
+                  {isStuck && (
+                    <span
+                      data-testid={`stuck-chip-${v.id}`}
+                      className="inline-flex items-center gap-1 mt-2 px-2 py-1 border border-primary bg-primary/15 text-primary text-[10px] font-display font-bold uppercase tracking-widest"
+                    >
+                      <AlertTriangle size={11} />
+                      {t("stuck_days_chip").replace("{d}", v.days_in_step)}
+                    </span>
+                  )}
                 </div>
 
                 {/* Step navigation buttons */}
