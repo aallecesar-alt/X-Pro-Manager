@@ -333,6 +333,13 @@ async def get_vehicle(vid: str, current: dict = Depends(get_current_user)):
 @api_router.put("/vehicles/{vid}")
 async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depends(get_current_user)):
     upd = {k: val for k, val in payload.model_dump().items() if val is not None}
+    # Auto-populate salesperson_name when only salesperson_id is provided
+    if upd.get("salesperson_id") and not upd.get("salesperson_name"):
+        sp = await db.salespeople.find_one(
+            {"id": upd["salesperson_id"], "dealership_id": current["dealership_id"]}, {"_id": 0}
+        )
+        if sp:
+            upd["salesperson_name"] = sp.get("name", "")
     # Salesperson restrictions: strip financial fields + forbid changing payment status / commission
     if is_salesperson(current):
         for forbidden in ("purchase_price", "expenses", "expense_items", "commission_amount", "commission_paid"):
@@ -951,6 +958,81 @@ async def regen_token(current: dict = Depends(get_current_user)):
     new_token = secrets.token_urlsafe(24)
     await db.dealerships.update_one({"id": current["dealership_id"]}, {"$set": {"api_token": new_token}})
     return {"api_token": new_token}
+
+
+# ============================================================
+# LEADERBOARD + WEEKLY PROMOTION (visible to all roles)
+# ============================================================
+@api_router.get("/leaderboard")
+async def leaderboard(
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    current: dict = Depends(get_current_user),
+):
+    """Salesperson ranking by car count for the period. Includes revenue for owner only."""
+    now = datetime.now(timezone.utc)
+    y = year or now.year
+    m = month or now.month
+    start, end = _month_range(y, m)
+    did = current["dealership_id"]
+    sps = await db.salespeople.find({"dealership_id": did}, {"_id": 0}).to_list(500)
+    sold = await db.vehicles.find(
+        {"dealership_id": did, "status": "sold", "sold_at": {"$gte": f"{start}T00:00:00", "$lt": f"{end}T00:00:00"}},
+        {"_id": 0}
+    ).to_list(2000)
+    by_sp = {}
+    for v in sold:
+        sp_id = v.get("salesperson_id") or "__unassigned__"
+        bucket = by_sp.setdefault(sp_id, {"salesperson_id": sp_id, "salesperson_name": v.get("salesperson_name", "") or "Unassigned", "count": 0, "revenue": 0.0})
+        bucket["count"] += 1
+        bucket["revenue"] += float(v.get("sold_price") or 0)
+    # Add salespeople with zero sales
+    for sp in sps:
+        if sp["id"] not in by_sp:
+            by_sp[sp["id"]] = {"salesperson_id": sp["id"], "salesperson_name": sp.get("name", ""), "count": 0, "revenue": 0.0}
+    rows = sorted(by_sp.values(), key=lambda r: (-r["count"], -r["revenue"], r["salesperson_name"]))
+    # Strip revenue for salesperson role
+    if is_salesperson(current):
+        rows = [{"salesperson_id": r["salesperson_id"], "salesperson_name": r["salesperson_name"], "count": r["count"]} for r in rows]
+    # Assign ranks (1-based, ties share rank)
+    last_count = None
+    last_rank = 0
+    for i, r in enumerate(rows):
+        if r["count"] != last_count:
+            last_rank = i + 1
+            last_count = r["count"]
+        r["rank"] = last_rank
+    return {"year": y, "month": m, "rows": rows, "total_sold": sum(r["count"] for r in rows)}
+
+
+class PromotionUpdate(BaseModel):
+    title: str = ""
+    description: str = ""
+    image_url: str = ""
+    valid_until: str = ""  # YYYY-MM-DD optional
+
+
+@api_router.get("/promotion")
+async def get_promotion(current: dict = Depends(get_current_user)):
+    """Current weekly promotion for the dealership (visible to all roles)."""
+    d = await db.dealerships.find_one({"id": current["dealership_id"]}, {"_id": 0, "promotion": 1})
+    promo = (d or {}).get("promotion") or {"title": "", "description": "", "image_url": "", "valid_until": ""}
+    return promo
+
+
+@api_router.put("/promotion")
+async def update_promotion(payload: PromotionUpdate, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    promo = {
+        "title": payload.title or "",
+        "description": payload.description or "",
+        "image_url": payload.image_url or "",
+        "valid_until": payload.valid_until or "",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": current.get("full_name") or current.get("email") or "",
+    }
+    await db.dealerships.update_one({"id": current["dealership_id"]}, {"$set": {"promotion": promo}})
+    return promo
 
 
 # ============================================================

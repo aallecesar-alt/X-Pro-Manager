@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -153,49 +153,338 @@ export default function AppShell() {
 }
 
 function Overview({ stats, t, isSalesperson }) {
+  const [leaderboard, setLeaderboard] = useState({ rows: [], total_sold: 0 });
+  const [promotion, setPromotion] = useState(null);
+  const [editingPromo, setEditingPromo] = useState(false);
+
+  useEffect(() => {
+    let cancel = false;
+    Promise.all([api.get("/leaderboard"), api.get("/promotion")])
+      .then(([lb, pm]) => { if (!cancel) { setLeaderboard(lb.data); setPromotion(pm.data); } })
+      .catch(() => {});
+    return () => { cancel = true; };
+  }, []);
+
+  const reloadPromo = async () => {
+    try { const r = await api.get("/promotion"); setPromotion(r.data); } catch { /* noop */ }
+  };
+
   if (!stats) return <p className="text-text-secondary">...</p>;
-  // Painel main shows ONLY counts. All money (revenue/profit) lives in the Financeiro tab (owner) and is hidden from salespeople.
+
   const cards = [
-    { label: t("total_vehicles"), value: stats.total_vehicles },
-    { label: t("in_stock"), value: stats.in_stock },
-    { label: t("reserved"), value: stats.reserved },
-    { label: t("sold"), value: stats.sold },
+    { label: t("total_vehicles"), value: stats.total_vehicles, icon: Car },
+    { label: t("in_stock"), value: stats.in_stock, icon: Package },
+    { label: t("reserved"), value: stats.reserved, icon: Clock },
+    { label: t("sold"), value: stats.sold, icon: CheckCircle2 },
   ];
-  const monthly = stats.monthly_sales || [];
+
+  // Build the last 6 months bucket so the chart always shows 6 bars
+  const sourceMonthly = stats.monthly_sales || [];
+  const monthMap = new Map(sourceMonthly.map(m => [m.month, m]));
+  const monthly = [];
+  const today = new Date();
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    monthly.push(monthMap.get(key) || { month: key, count: 0 });
+  }
   const maxBar = Math.max(...monthly.map(m => m.count || 0), 1);
+  const monthLabel = today.toLocaleString(undefined, { month: "long", year: "numeric" });
 
   return (
     <div data-testid="overview-tab">
-      <p className="label-eyebrow text-primary mb-2">{t("dashboard")}</p>
-      <h1 className="font-display font-black text-4xl uppercase tracking-tighter mb-10">{t("overview")}</h1>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border border border-border mb-10">
-        {cards.map((c, i) => (
-          <div key={i} data-testid={`stat-${i}`} className="bg-background p-6">
-            <p className="label-eyebrow mb-3">{c.label}</p>
-            <p className="font-display font-black text-2xl text-white">{c.value}</p>
-          </div>
-        ))}
+      {/* Hero */}
+      <div className="mb-10">
+        <p className="label-eyebrow text-primary mb-2">{t("dashboard")} · {monthLabel}</p>
+        <h1 className="font-display font-black text-4xl uppercase tracking-tighter">{t("overview")}</h1>
       </div>
 
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border border border-border mb-10">
+        {cards.map((c, i) => {
+          const Icon = c.icon;
+          return (
+            <div key={i} data-testid={`stat-${i}`} className="bg-background p-6 relative overflow-hidden group">
+              <Icon size={64} className="absolute -bottom-4 -right-4 text-text-secondary/5 group-hover:text-primary/10 transition-colors" />
+              <p className="label-eyebrow mb-3 relative">{c.label}</p>
+              <p className="font-display font-black text-3xl text-white relative">{c.value}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-border border border-border mb-10">
+        {/* Leaderboard */}
+        <div className="bg-background p-6 lg:col-span-2">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <Trophy size={18} className="text-primary" />
+              <p className="label-eyebrow text-primary">{t("leaderboard_title")}</p>
+            </div>
+            <span className="text-xs text-text-secondary">{leaderboard.total_sold} {t("sales_count").toLowerCase()}</span>
+          </div>
+          {leaderboard.rows.length === 0 || leaderboard.total_sold === 0 ? (
+            <p className="text-text-secondary text-sm text-center py-12 border border-dashed border-border">
+              {t("leaderboard_empty")}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {leaderboard.rows.slice(0, 10).map((r, i) => {
+                const max = leaderboard.rows[0]?.count || 1;
+                const pct = max > 0 ? (r.count / max) * 100 : 0;
+                const medalColor = r.rank === 1 ? "text-yellow-400" : r.rank === 2 ? "text-gray-300" : r.rank === 3 ? "text-amber-700" : "text-text-secondary";
+                const isPodium = r.rank <= 3;
+                return (
+                  <div
+                    key={r.salesperson_id || i}
+                    data-testid={`lb-row-${r.salesperson_id || "unassigned"}`}
+                    className={`flex items-center gap-3 p-3 border transition-colors ${isPodium ? "border-primary/30 bg-primary/5" : "border-border"}`}
+                  >
+                    <div className="w-10 flex items-center justify-center shrink-0">
+                      {isPodium ? (
+                        <Medal size={22} className={medalColor} />
+                      ) : (
+                        <span className="font-display font-black text-text-secondary">#{r.rank}</span>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <p className="font-display font-bold uppercase truncate text-sm">{r.salesperson_name}</p>
+                        <p className="font-display font-black text-lg shrink-0">{r.count}</p>
+                      </div>
+                      <div className="bg-surface h-1.5 relative overflow-hidden">
+                        <div className={`absolute inset-y-0 left-0 ${isPodium ? "bg-primary" : "bg-text-secondary/40"} transition-all`} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Weekly Promotion */}
+        <div className="bg-background p-6 relative overflow-hidden">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <Sparkles size={16} className="text-primary" />
+              <p className="label-eyebrow text-primary">{t("weekly_promo_title")}</p>
+            </div>
+            {!isSalesperson && (
+              <button
+                data-testid="edit-promotion"
+                onClick={() => setEditingPromo(true)}
+                className="w-7 h-7 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
+                title={t("edit")}
+              >
+                <Edit2 size={12} />
+              </button>
+            )}
+          </div>
+          {!promotion?.title && !promotion?.description && !promotion?.image_url ? (
+            <div className="text-center py-8">
+              <Sparkles size={28} className="mx-auto text-text-secondary mb-3" />
+              <p className="text-text-secondary text-sm">{t("no_promotion")}</p>
+              {!isSalesperson && (
+                <button
+                  data-testid="add-promotion-cta"
+                  onClick={() => setEditingPromo(true)}
+                  className="mt-4 text-xs uppercase tracking-widest font-display font-bold text-primary hover:underline"
+                >
+                  {t("create_promotion")}
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3" data-testid="promotion-card">
+              {promotion.image_url && (
+                <div className="aspect-video bg-surface overflow-hidden">
+                  <img src={promotion.image_url} alt={promotion.title} className="w-full h-full object-cover" />
+                </div>
+              )}
+              {promotion.title && <p className="font-display font-black text-lg uppercase tracking-tight text-primary">{promotion.title}</p>}
+              {promotion.description && <p className="text-sm text-white/90 leading-relaxed whitespace-pre-line">{promotion.description}</p>}
+              {promotion.valid_until && (
+                <p className="text-xs text-text-secondary inline-flex items-center gap-1 pt-2 border-t border-border">
+                  <Calendar size={11} /> {t("valid_until")}: {promotion.valid_until}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Monthly chart */}
       <div className="border border-border p-6">
-        <p className="label-eyebrow text-primary mb-6">{t("monthly_performance")}</p>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2">
+            <TrendingUp size={16} className="text-primary" />
+            <p className="label-eyebrow text-primary">{t("monthly_performance")}</p>
+          </div>
+          <p className="text-xs text-text-secondary">6 {t("months_short")}</p>
+        </div>
         {monthly.length === 0 ? (
           <p className="text-text-secondary text-sm py-8 text-center">—</p>
         ) : (
-          <div className="space-y-3">
-            {monthly.map((m) => (
-              <div key={m.month} className="flex items-center gap-4">
-                <span className="font-display font-bold text-sm w-24">{m.month}</span>
-                <div className="flex-1 bg-surface h-8 relative overflow-hidden">
-                  <div className="absolute inset-y-0 left-0 bg-primary" style={{ width: `${((m.count || 0) / maxBar) * 100}%` }} />
+          <div className="flex items-end gap-3 h-40 px-2">
+            {monthly.map((m) => {
+              const h = Math.max(((m.count || 0) / maxBar) * 100, 2);
+              return (
+                <div key={m.month} className="flex-1 flex flex-col items-center gap-2 h-full">
+                  <div className="flex-1 w-full flex items-end relative group">
+                    <div
+                      className="w-full bg-gradient-to-t from-primary to-primary/60 transition-all hover:from-primary/80 hover:to-primary"
+                      style={{ height: `${h}%` }}
+                    />
+                    <span className="absolute -top-5 left-1/2 -translate-x-1/2 font-display font-bold text-xs">
+                      {m.count || 0}
+                    </span>
+                  </div>
+                  <span className="font-display font-bold text-[10px] uppercase tracking-wider text-text-secondary">{m.month.slice(5)}/{m.month.slice(2, 4)}</span>
                 </div>
-                <span className="font-display font-bold text-sm w-32 text-right">{m.count || 0} {t("sales_count").toLowerCase()}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
+
+      {editingPromo && !isSalesperson && (
+        <PromotionForm
+          promotion={promotion}
+          t={t}
+          onClose={() => setEditingPromo(false)}
+          onSaved={() => { setEditingPromo(false); reloadPromo(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function PromotionForm({ promotion, t, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    title: promotion?.title || "",
+    description: promotion?.description || "",
+    image_url: promotion?.image_url || "",
+    valid_until: promotion?.valid_until || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const onImage = async (file) => {
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { toast.error(t("file_too_large")); return; }
+    try {
+      const sig = (await api.get("/cloudinary/signature", { params: { folder: "promotions/" } })).data;
+      const fd = new FormData();
+      fd.append("file", file); fd.append("api_key", sig.api_key); fd.append("timestamp", sig.timestamp);
+      fd.append("signature", sig.signature); fd.append("folder", sig.folder);
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${sig.cloud_name}/image/upload`, { method: "POST", body: fd });
+      const json = await res.json();
+      if (!json.secure_url) throw new Error("upload failed");
+      set("image_url", json.secure_url);
+      toast.success(t("saved"));
+    } catch (err) { toast.error(err.message || t("error_generic")); }
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.put("/promotion", form);
+      toast.success(t("saved"));
+      onSaved();
+    } catch { toast.error(t("error_generic")); }
+    finally { setSaving(false); }
+  };
+
+  const clearAll = async () => {
+    if (!window.confirm(t("confirm_delete"))) return;
+    try {
+      await api.put("/promotion", { title: "", description: "", image_url: "", valid_until: "" });
+      toast.success(t("saved"));
+      onSaved();
+    } catch { toast.error(t("error_generic")); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-12 px-4">
+      <form onSubmit={submit} className="bg-background border border-border w-full max-w-lg p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="label-eyebrow text-primary mb-1">{t("weekly_promo_title")}</p>
+            <h2 className="font-display font-black text-xl uppercase tracking-tight">{promotion?.title ? t("edit") : t("create_promotion")}</h2>
+          </div>
+          <button type="button" onClick={onClose}><X size={20} className="text-text-secondary hover:text-primary" /></button>
+        </div>
+
+        <div>
+          <label className="label-eyebrow block mb-2">{t("promo_image")}</label>
+          {form.image_url ? (
+            <div className="relative aspect-video bg-surface overflow-hidden border border-border">
+              <img src={form.image_url} alt="" className="w-full h-full object-cover" />
+              <button
+                type="button"
+                onClick={() => set("image_url", "")}
+                className="absolute top-2 right-2 w-8 h-8 bg-black/70 text-white hover:bg-primary flex items-center justify-center"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ) : (
+            <label data-testid="promo-image-label" className="cursor-pointer border border-dashed border-border hover:border-primary aspect-video flex flex-col items-center justify-center gap-2 text-text-secondary hover:text-primary transition-colors">
+              <Upload size={20} />
+              <span className="text-xs uppercase tracking-wider">{t("upload_image")}</span>
+              <input data-testid="promo-image" type="file" accept="image/*" onChange={(e) => onImage(e.target.files?.[0])} className="hidden" />
+            </label>
+          )}
+        </div>
+
+        <div>
+          <label className="label-eyebrow block mb-2">{t("title")}</label>
+          <input
+            data-testid="promo-title"
+            value={form.title}
+            onChange={(e) => set("title", e.target.value)}
+            placeholder={t("promo_title_placeholder")}
+            className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm"
+          />
+        </div>
+        <div>
+          <label className="label-eyebrow block mb-2">{t("description")}</label>
+          <textarea
+            data-testid="promo-desc"
+            value={form.description}
+            onChange={(e) => set("description", e.target.value)}
+            rows={4}
+            placeholder={t("promo_desc_placeholder")}
+            className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="label-eyebrow block mb-2">{t("valid_until")} <span className="text-text-secondary normal-case">({t("optional")})</span></label>
+          <input
+            data-testid="promo-until"
+            type="date"
+            value={form.valid_until}
+            onChange={(e) => set("valid_until", e.target.value)}
+            className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm"
+          />
+        </div>
+
+        <div className="flex justify-between gap-3 pt-4 border-t border-border">
+          {(promotion?.title || promotion?.description || promotion?.image_url) ? (
+            <button type="button" data-testid="promo-clear" onClick={clearAll} className="text-xs font-display font-bold uppercase tracking-widest text-text-secondary hover:text-primary inline-flex items-center gap-2">
+              <Trash2 size={12} /> {t("delete")}
+            </button>
+          ) : <span />}
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="px-5 py-2.5 border border-border hover:border-primary text-xs font-display font-bold uppercase tracking-widest transition-colors">{t("cancel")}</button>
+            <button type="submit" data-testid="promo-submit" disabled={saving} className="bg-primary hover:bg-primary-hover disabled:opacity-50 px-5 py-2.5 text-xs font-display font-bold uppercase tracking-widest transition-colors inline-flex items-center gap-2">
+              <Check size={14} /> {saving ? "..." : t("save")}
+            </button>
+          </div>
+        </div>
+      </form>
     </div>
   );
 }
