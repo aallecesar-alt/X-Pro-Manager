@@ -7,12 +7,22 @@ the DB. This sweeper runs at the very end of EVERY pytest invocation and wipes
 anything matching common test markers.
 """
 import os
+import uuid
+import bcrypt
+from datetime import datetime, timezone
 import pytest
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+
+
+# Throwaway test salesperson auto-provisioned at session start, deleted at end.
+# Never visible in the team list outside the test run.
+TEST_SALES_EMAIL = "joao@intercar.com"
+TEST_SALES_PASS = "senha456"
+TEST_SALES_NAME = "Joao Silva"
 
 
 def _wipe_test_residue(db):
@@ -53,12 +63,66 @@ def _wipe_test_residue(db):
     }
 
 
+def _ensure_test_salesperson(db):
+    """Create a throwaway salesperson login used across the test suite.
+
+    Tied to the same dealership as the seeded owner. Idempotent.
+    Returns the salesperson_id so callers can reference it.
+    """
+    owner = db.users.find_one({"email": "carlos@intercar.com"})
+    if not owner:
+        return None
+    dealership_id = owner["dealership_id"]
+    sp = db.salespeople.find_one({"name": TEST_SALES_NAME, "dealership_id": dealership_id})
+    if not sp:
+        sp_doc = {
+            "id": str(uuid.uuid4()),
+            "name": TEST_SALES_NAME,
+            "email": TEST_SALES_EMAIL,
+            "phone": "",
+            "commission_amount": 500.0,
+            "dealership_id": dealership_id,
+            "active": True,
+            "photo_url": "",
+            "photo_public_id": "",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        db.salespeople.insert_one(sp_doc)
+        sp = sp_doc
+    pwd_hash = bcrypt.hashpw(TEST_SALES_PASS.encode(), bcrypt.gensalt()).decode()
+    db.users.update_one(
+        {"email": TEST_SALES_EMAIL},
+        {"$set": {
+            "id": str(uuid.uuid4()),
+            "email": TEST_SALES_EMAIL,
+            "password_hash": pwd_hash,
+            "full_name": TEST_SALES_NAME,
+            "dealership_id": dealership_id,
+            "role": "salesperson",
+            "salesperson_id": sp["id"],
+            "permissions": None,  # use role defaults
+            "photo_url": "",
+            "photo_public_id": "",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+    return sp["id"]
+
+
+def _drop_test_salesperson(db):
+    """Remove the throwaway salesperson login + linked salesperson record."""
+    db.users.delete_one({"email": TEST_SALES_EMAIL})
+    db.salespeople.delete_many({"name": TEST_SALES_NAME, "email": TEST_SALES_EMAIL})
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _global_test_cleanup():
     """Runs once at the START of every session AND once at the END.
 
-    Start: catch leftovers from previous interrupted runs.
-    End: catch anything our per-file fixtures missed.
+    Start: catch leftovers from previous interrupted runs + provision the
+    throwaway salesperson login the test suite relies on.
+    End: catch anything our per-file fixtures missed + remove the test salesperson.
     """
     mongo_url = os.environ.get("MONGO_URL")
     db_name = os.environ.get("DB_NAME")
@@ -73,6 +137,7 @@ def _global_test_cleanup():
     pre = _wipe_test_residue(db)
     if any(pre.values()):
         print(f"\n[conftest] Pre-test cleanup wiped: {pre}")
+    _ensure_test_salesperson(db)
 
     yield
 
@@ -80,4 +145,5 @@ def _global_test_cleanup():
     post = _wipe_test_residue(db)
     if any(post.values()):
         print(f"\n[conftest] Post-test cleanup wiped: {post}")
+    _drop_test_salesperson(db)
     client.close()
