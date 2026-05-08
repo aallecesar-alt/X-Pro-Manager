@@ -296,7 +296,6 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, on
                 <th className="text-left p-3 label-eyebrow">{t("make")}/{t("model")}</th>
                 <th className="text-left p-3 label-eyebrow">{t("year")}</th>
                 <th className="text-left p-3 label-eyebrow">{t("vin")}</th>
-                {!isSalesperson && <th className="text-left p-3 label-eyebrow">{t("purchase_price")}</th>}
                 <th className="text-left p-3 label-eyebrow">{t("sale_price")}</th>
                 <th className="text-left p-3 label-eyebrow">{t("status")}</th>
                 <th className="text-right p-3 label-eyebrow"></th>
@@ -315,7 +314,6 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, on
                   <td className="p-3"><p className="font-display font-bold">{v.make} {v.model}</p><p className="text-xs text-text-secondary">{v.color}</p></td>
                   <td className="p-3">{v.year}</td>
                   <td className="p-3 font-mono text-xs">{v.vin || "—"}</td>
-                  {!isSalesperson && <td className="p-3">{formatCurrency(v.purchase_price)}</td>}
                   <td className="p-3 font-display font-bold">{formatCurrency(v.sale_price)}</td>
                   <td className="p-3"><StatusPill status={v.status} t={t} /></td>
                   <td className="p-3 text-right">
@@ -565,9 +563,6 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-2 gap-4 pt-4 border-t border-border">
-          {!isSalesperson && (
-            <Input label={t("purchase_price")} type="number" value={form.purchase_price} set={(v) => set("purchase_price", v)} testid="f-purchase" />
-          )}
           <Input label={t("sale_price")} type="number" value={form.sale_price} set={(v) => set("sale_price", v)} testid="f-sale" />
         </div>
 
@@ -576,32 +571,6 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
             <ExpenseManager items={expenseItems} onChange={setExpenseItems} t={t} />
           </div>
         )}
-
-        {/* Real profit summary — only for owner */}
-        {!isSalesperson && (() => {
-          const totalExp = expenseItems.reduce((s, it) => s + (Number(it.amount) || 0), 0);
-          const profit = (Number(form.sale_price) || 0) - (Number(form.purchase_price) || 0) - totalExp;
-          return (
-            <div className="bg-surface p-4 border border-border space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-text-secondary">{t("sale_price")}</span>
-                <span className="font-display font-bold">{formatCurrency(Number(form.sale_price) || 0)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-text-secondary">− {t("purchase_price")}</span>
-                <span className="font-display font-bold">{formatCurrency(Number(form.purchase_price) || 0)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-text-secondary">− {t("expenses_total")}</span>
-                <span className="font-display font-bold">{formatCurrency(totalExp)}</span>
-              </div>
-              <div className="flex justify-between pt-2 border-t border-border">
-                <span className="label-eyebrow text-primary">{t("real_profit")}</span>
-                <span className={`font-display font-black text-2xl ${profit >= 0 ? "text-success" : "text-primary"}`}>{formatCurrency(profit)}</span>
-              </div>
-            </div>
-          );
-        })()}
 
         <Select label={t("status")} value={form.status} set={(v) => set("status", v)} options={["in_stock", "reserved", "sold"]} testid="f-status" />
 

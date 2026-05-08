@@ -1067,7 +1067,9 @@ async def financial_closing(
     paid_commissions = 0.0
     for v in sold:
         rev = float(v.get("sold_price") or v.get("sale_price") or 0)
-        cost = float(v.get("purchase_price") or 0) + float(v.get("expenses") or 0)
+        purchase = float(v.get("purchase_price") or 0)
+        exp = float(v.get("expenses") or 0)
+        cost = purchase + exp
         profit = rev - cost
         total_revenue += rev
         total_cost += cost
@@ -1082,6 +1084,8 @@ async def financial_closing(
             "salesperson_name": v.get("salesperson_name", "") or "—",
             "sold_at": v.get("sold_at", ""),
             "sold_price": rev,
+            "purchase_price": purchase,
+            "expenses": exp,
             "cost": cost,
             "profit": profit,
             "commission_amount": float(v.get("commission_amount") or 0),
@@ -1111,6 +1115,36 @@ async def financial_closing(
         "paid_commissions": paid_commissions,
         "net_profit": net_profit,
     }
+
+
+@api_router.get("/financial/sold-vehicles")
+async def financial_sold_all(current: dict = Depends(get_current_user)):
+    """All-time sold vehicles with purchase_price and sale_price for owner editing."""
+    require_owner(current)
+    sold = await db.vehicles.find(
+        {"dealership_id": current["dealership_id"], "status": "sold"},
+        {"_id": 0}
+    ).sort("sold_at", -1).to_list(2000)
+    rows = []
+    for v in sold:
+        rev = float(v.get("sold_price") or v.get("sale_price") or 0)
+        purchase = float(v.get("purchase_price") or 0)
+        exp = float(v.get("expenses") or 0)
+        rows.append({
+            "vehicle_id": v["id"],
+            "make": v.get("make", ""),
+            "model": v.get("model", ""),
+            "year": v.get("year", 0),
+            "buyer_name": v.get("buyer_name", ""),
+            "salesperson_name": v.get("salesperson_name", "") or "—",
+            "sold_at": v.get("sold_at", ""),
+            "sold_price": rev,
+            "purchase_price": purchase,
+            "expenses": exp,
+            "profit": rev - purchase - exp,
+            "image": (v.get("images") or [None])[0] if v.get("images") else None,
+        })
+    return rows
 
 
 @api_router.get("/financial/monthly")

@@ -21,26 +21,81 @@ function Input({ label, value, set, type = "text", testid, required }) {
   );
 }
 
+function EditablePrice({ value, onSave, testid }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(value ?? 0));
+
+  const commit = () => {
+    setEditing(false);
+    if (Number(draft) !== Number(value)) onSave(draft);
+  };
+
+  if (editing) {
+    return (
+      <input
+        data-testid={testid}
+        type="number"
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); commit(); }
+          if (e.key === "Escape") { setDraft(String(value ?? 0)); setEditing(false); }
+        }}
+        className="w-32 bg-surface border border-primary focus:outline-none px-2 h-9 text-sm font-display font-bold text-right"
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      data-testid={testid}
+      onClick={() => { setDraft(String(value ?? 0)); setEditing(true); }}
+      className="font-display font-bold hover:text-primary transition-colors border-b border-dashed border-text-secondary/40 hover:border-primary"
+      title="Click to edit"
+    >
+      {formatCurrency(Number(value) || 0)}
+    </button>
+  );
+}
+
 export default function Financial({ t }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [closing, setClosing] = useState(null);
   const [monthly, setMonthly] = useState([]);
+  const [allSold, setAllSold] = useState([]);
   const [editing, setEditing] = useState(null); // {} for new, expense object for edit
 
   const reload = async () => {
     try {
-      const [c, m] = await Promise.all([
+      const [c, m, s] = await Promise.all([
         api.get("/financial/closing", { params: { year, month } }),
         api.get("/financial/monthly", { params: { months: 6 } }),
+        api.get("/financial/sold-vehicles"),
       ]);
       setClosing(c.data);
       setMonthly(m.data);
+      setAllSold(s.data);
     } catch { toast.error(t("error_generic")); }
   };
 
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [year, month]);
+
+  const updatePurchasePrice = async (vehicleId, value) => {
+    const v = Number(value);
+    if (Number.isNaN(v) || v < 0) {
+      toast.error(t("error_generic"));
+      return;
+    }
+    try {
+      await api.put(`/vehicles/${vehicleId}`, { purchase_price: v });
+      toast.success(t("saved"));
+      reload();
+    } catch { toast.error(t("error_generic")); }
+  };
 
   const removeExpense = async (id) => {
     if (!window.confirm(t("confirm_delete"))) return;
@@ -135,8 +190,9 @@ export default function Financial({ t }) {
                   <th className="text-left p-3 label-eyebrow">{t("make")}/{t("model")}</th>
                   <th className="text-left p-3 label-eyebrow">{t("buyer_name")}</th>
                   <th className="text-left p-3 label-eyebrow">{t("salesperson")}</th>
-                  <th className="text-right p-3 label-eyebrow">{t("sold_price")}</th>
+                  <th className="text-right p-3 label-eyebrow">{t("purchase_price")}</th>
                   <th className="text-right p-3 label-eyebrow">{t("expenses_total")}</th>
+                  <th className="text-right p-3 label-eyebrow">{t("sold_price")}</th>
                   <th className="text-right p-3 label-eyebrow">{t("real_profit")}</th>
                 </tr>
               </thead>
@@ -153,8 +209,62 @@ export default function Financial({ t }) {
                     </td>
                     <td className="p-3">{v.buyer_name || "—"}</td>
                     <td className="p-3">{v.salesperson_name || "—"}</td>
+                    <td className="p-3 text-right">
+                      <EditablePrice value={v.purchase_price} onSave={(val) => updatePurchasePrice(v.vehicle_id, val)} testid={`edit-purchase-${v.vehicle_id}`} />
+                    </td>
+                    <td className="p-3 text-right text-text-secondary">{formatCurrency(v.expenses)}</td>
                     <td className="p-3 text-right font-display font-bold">{formatCurrency(v.sold_price)}</td>
-                    <td className="p-3 text-right text-text-secondary">{formatCurrency(v.cost)}</td>
+                    <td className={`p-3 text-right font-display font-bold ${v.profit >= 0 ? "text-success" : "text-primary"}`}>
+                      {formatCurrency(v.profit)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* All sold cars (all-time) */}
+      <div className="border border-border mb-10">
+        <div className="bg-surface px-4 py-3 border-b border-border flex items-center justify-between">
+          <p className="label-eyebrow text-primary">{t("all_sold_cars")}</p>
+          <p className="text-xs text-text-secondary">{allSold.length} {t("sales_count").toLowerCase()}</p>
+        </div>
+        {allSold.length === 0 ? (
+          <p className="text-text-secondary text-sm text-center py-12">—</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-b border-border">
+                <tr>
+                  <th className="text-left p-3 label-eyebrow">{t("sale_date")}</th>
+                  <th className="text-left p-3 label-eyebrow">{t("make")}/{t("model")}</th>
+                  <th className="text-left p-3 label-eyebrow">{t("buyer_name")}</th>
+                  <th className="text-right p-3 label-eyebrow">{t("purchase_price")}</th>
+                  <th className="text-right p-3 label-eyebrow">{t("sold_price")}</th>
+                  <th className="text-right p-3 label-eyebrow">{t("real_profit")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allSold.map((v) => (
+                  <tr key={v.vehicle_id} data-testid={`fin-all-${v.vehicle_id}`} className="border-b border-border hover:bg-surface transition-colors">
+                    <td className="p-3 text-xs text-text-secondary font-mono">
+                      {v.sold_at ? new Date(v.sold_at).toLocaleDateString() : "—"}
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        {v.image && <img src={v.image} alt="" className="w-10 h-8 object-cover" />}
+                        <div>
+                          <p className="font-display font-bold">{v.year} {v.make} {v.model}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="p-3">{v.buyer_name || "—"}</td>
+                    <td className="p-3 text-right">
+                      <EditablePrice value={v.purchase_price} onSave={(val) => updatePurchasePrice(v.vehicle_id, val)} testid={`edit-purchase-all-${v.vehicle_id}`} />
+                    </td>
+                    <td className="p-3 text-right font-display font-bold">{formatCurrency(v.sold_price)}</td>
                     <td className={`p-3 text-right font-display font-bold ${v.profit >= 0 ? "text-success" : "text-primary"}`}>
                       {formatCurrency(v.profit)}
                     </td>
