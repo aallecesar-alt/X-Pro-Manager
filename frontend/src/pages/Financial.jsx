@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, Edit2, X, Check, Paperclip, FileText, Image as ImageIcon } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Check, Paperclip, FileText, Image as ImageIcon, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency } from "@/lib/api";
 
@@ -385,6 +385,7 @@ export default function Financial({ t }) {
           vehicleId={detailVid}
           t={t}
           onClose={() => setDetailVid(null)}
+          onChanged={reload}
         />
       )}
     </div>
@@ -487,9 +488,10 @@ function ExpenseForm({ expense, t, onClose, onSaved }) {
   );
 }
 
-function VehicleExpensesModal({ vehicleId, t, onClose }) {
+function VehicleExpensesModal({ vehicleId, t, onClose, onChanged }) {
   const [vehicle, setVehicle] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [reverting, setReverting] = useState(false);
 
   useEffect(() => {
     let cancel = false;
@@ -498,6 +500,35 @@ function VehicleExpensesModal({ vehicleId, t, onClose }) {
       .catch(() => { if (!cancel) { toast.error(t("error_generic")); setLoading(false); } });
     return () => { cancel = true; };
   }, [vehicleId, t]);
+
+  const revertSale = async () => {
+    if (!window.confirm(t("confirm_revert_sale"))) return;
+    setReverting(true);
+    try {
+      await api.put(`/vehicles/${vehicleId}`, {
+        status: "in_stock",
+        sold_price: 0,
+        sold_at: null,
+        delivered_at: null,
+        delivery_step: 0,
+        buyer_name: "",
+        buyer_phone: "",
+        payment_method: "",
+        bank_name: "",
+        salesperson_id: "",
+        salesperson_name: "",
+        commission_amount: 0,
+        commission_paid: false,
+      });
+      toast.success(t("returned_to_stock"));
+      onChanged?.();
+      onClose();
+    } catch {
+      toast.error(t("error_generic"));
+    } finally {
+      setReverting(false);
+    }
+  };
 
   const items = vehicle?.expense_items || [];
   const expensesTotal = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
@@ -584,6 +615,22 @@ function VehicleExpensesModal({ vehicleId, t, onClose }) {
                   })}
                 </div>
               )}
+            </div>
+
+            {/* Footer actions */}
+            <div className="flex flex-wrap items-center justify-between gap-3 p-6 border-t border-border bg-surface/30">
+              <p className="text-xs text-text-secondary leading-relaxed flex-1 min-w-[200px]">
+                {t("revert_sale_hint")}
+              </p>
+              <button
+                type="button"
+                data-testid="revert-sale"
+                onClick={revertSale}
+                disabled={reverting}
+                className="border border-warning text-warning hover:bg-warning/10 disabled:opacity-50 px-4 py-2.5 text-xs font-display font-bold uppercase tracking-widest transition-colors inline-flex items-center gap-2"
+              >
+                <RotateCcw size={14} /> {reverting ? "..." : t("revert_to_stock")}
+              </button>
             </div>
           </>
         )}
