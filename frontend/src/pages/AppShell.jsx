@@ -8,6 +8,7 @@ import PhotoUploader from "@/components/PhotoUploader";
 import ExpenseManager from "@/components/ExpenseManager";
 import Financial from "@/pages/Financial";
 import LeadsPage from "@/pages/LeadsPage";
+import Maintenance from "@/pages/Maintenance";
 import Avatar from "@/components/Avatar";
 import { uploadProfilePhoto } from "@/lib/uploadPhoto";
 
@@ -45,6 +46,7 @@ export default function AppShell() {
     { id: "leads", label: t("leads_title"), icon: Headphones },
     { id: "salespeople", label: t("salespeople"), icon: Users },
     { id: "financial", label: t("financial"), icon: DollarSign },
+    { id: "maintenance", label: t("maintenance_tab"), icon: Wrench },
     { id: "settings", label: t("settings"), icon: Settings, ownerOnly: true },
   ];
   const tabs = allTabs.filter(tb => tb.ownerOnly ? isOwner : canAccess(tb.id));
@@ -183,6 +185,7 @@ export default function AppShell() {
         {tab === "leads" && canAccess("leads") && <LeadsPage t={t} role={user?.role || "owner"} currentSpId={user?.salesperson_id || ""} salespeople={salespeople} />}
         {tab === "salespeople" && canAccess("salespeople") && <SalespeopleTab salespeople={salespeople} t={t} onReload={reload} isSalesperson={isSalesperson} currentSpId={user?.salesperson_id || ""} />}
         {tab === "financial" && canAccess("financial") && <Financial t={t} />}
+        {tab === "maintenance" && canAccess("maintenance") && <Maintenance t={t} />}
         {tab === "settings" && isOwner && <SettingsTab dealership={dealership} t={t} onRefresh={refreshDealership} />}
 
         {editing && (
@@ -900,6 +903,7 @@ const PERMISSION_LABELS = {
   leads: { key: "leads_title", icon: "📞" },
   salespeople: { key: "salespeople", icon: "🏆" },
   financial: { key: "financial", icon: "💰" },
+  maintenance: { key: "maintenance_tab", icon: "🔧" },
 };
 
 function TeamMemberAvatarUploader({ member, t, onChanged, disabled = false }) {

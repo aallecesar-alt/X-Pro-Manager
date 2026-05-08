@@ -192,7 +192,7 @@ async def get_current_user(request: Request) -> dict:
 # All tab permissions in the system. Owner always has full access.
 ALL_TAB_PERMISSIONS = [
     "overview", "inventory", "pipeline", "delivery",
-    "leads", "salespeople", "financial",
+    "leads", "salespeople", "financial", "maintenance",
 ]
 ROLE_DEFAULT_PERMISSIONS = {
     "owner": ALL_TAB_PERMISSIONS,
@@ -200,8 +200,8 @@ ROLE_DEFAULT_PERMISSIONS = {
     "salesperson": ["overview", "inventory", "pipeline", "delivery", "leads", "salespeople"],
     # Gerente (manager) starts with no default access — owner grants case-by-case.
     "gerente": [],
-    # Geral (yard / parts / maintenance staff) — owner picks the tabs each one sees.
-    "geral": [],
+    # Geral (yard / parts / maintenance staff) — defaults to maintenance only.
+    "geral": ["maintenance"],
 }
 
 
@@ -516,6 +516,132 @@ async def list_delivery_alerts(days: int = 45, current: dict = Depends(get_curre
             })
     out.sort(key=lambda x: x["days_in_step"], reverse=True)
     return out
+
+
+# ============================================================
+# MAINTENANCE (yard / parts / general staff)
+# Each maintenance service is stored as an expense_item on the vehicle with
+# category="maintenance". The total flows directly into the vehicle's expenses
+# field — so the Financial dashboard already accounts for it without duplicates.
+# ============================================================
+class MaintenanceItemPayload(BaseModel):
+    description: str
+    amount: float = 0
+    date: Optional[str] = None
+    parts: List[str] = Field(default_factory=list)
+    attachments: List[Dict] = Field(default_factory=list)
+
+
+def _maintenance_view(v: dict) -> dict:
+    """Stripped vehicle dict for maintenance UI (no purchase_price / sale_price)."""
+    maint = [it for it in (v.get("expense_items") or []) if it.get("category") == "maintenance"]
+    return {
+        "id": v["id"],
+        "make": v.get("make", ""),
+        "model": v.get("model", ""),
+        "year": v.get("year"),
+        "color": v.get("color", ""),
+        "vin": v.get("vin", ""),
+        "image": (v.get("images") or [None])[0],
+        "status": v.get("status", "in_stock"),
+        "delivery_step": v.get("delivery_step", 0) or 0,
+        "buyer_name": v.get("buyer_name", "") if v.get("status") == "sold" else "",
+        "maintenance_total": sum(float(it.get("amount") or 0) for it in maint),
+        "maintenance_count": len(maint),
+        "maintenance_items": sorted(
+            maint, key=lambda x: x.get("date") or x.get("created_at") or "", reverse=True
+        ),
+    }
+
+
+async def _save_expense_items(vid: str, dealership_id: str, items: list):
+    new_total = sum(float(it.get("amount") or 0) for it in items)
+    await db.vehicles.update_one(
+        {"id": vid, "dealership_id": dealership_id},
+        {"$set": {"expense_items": items, "expenses": new_total}},
+    )
+
+
+@api_router.get("/maintenance")
+async def list_maintenance(current: dict = Depends(get_current_user)):
+    """List all vehicles with maintenance summary + items. Stripped of cost fields."""
+    require_tab(current, "maintenance")
+    items = await db.vehicles.find(
+        {"dealership_id": current["dealership_id"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(1000)
+    return [_maintenance_view(v) for v in items]
+
+
+@api_router.post("/maintenance/vehicles/{vid}/items")
+async def add_maintenance_item(vid: str, payload: MaintenanceItemPayload, current: dict = Depends(get_current_user)):
+    require_tab(current, "maintenance")
+    v = await db.vehicles.find_one(
+        {"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not v:
+        raise HTTPException(404, "Vehicle not found")
+    item = {
+        "id": str(uuid.uuid4()),
+        "description": payload.description,
+        "amount": float(payload.amount or 0),
+        "category": "maintenance",
+        "date": payload.date or datetime.now(timezone.utc).date().isoformat(),
+        "parts": payload.parts or [],
+        "attachments": payload.attachments or [],
+        "created_by_name": current.get("full_name") or current.get("email") or "",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    items = list(v.get("expense_items") or [])
+    items.append(item)
+    await _save_expense_items(vid, current["dealership_id"], items)
+    return item
+
+
+@api_router.put("/maintenance/vehicles/{vid}/items/{item_id}")
+async def update_maintenance_item(vid: str, item_id: str, payload: MaintenanceItemPayload, current: dict = Depends(get_current_user)):
+    require_tab(current, "maintenance")
+    v = await db.vehicles.find_one(
+        {"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not v:
+        raise HTTPException(404, "Vehicle not found")
+    items = list(v.get("expense_items") or [])
+    found = None
+    for it in items:
+        if it.get("id") == item_id and it.get("category") == "maintenance":
+            it["description"] = payload.description
+            it["amount"] = float(payload.amount or 0)
+            it["date"] = payload.date or it.get("date")
+            it["parts"] = payload.parts or []
+            it["attachments"] = payload.attachments or []
+            it["updated_at"] = datetime.now(timezone.utc).isoformat()
+            it["updated_by_name"] = current.get("full_name") or current.get("email") or ""
+            found = it
+            break
+    if not found:
+        raise HTTPException(404, "Maintenance item not found")
+    await _save_expense_items(vid, current["dealership_id"], items)
+    return found
+
+
+@api_router.delete("/maintenance/vehicles/{vid}/items/{item_id}")
+async def delete_maintenance_item(vid: str, item_id: str, current: dict = Depends(get_current_user)):
+    require_tab(current, "maintenance")
+    v = await db.vehicles.find_one(
+        {"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not v:
+        raise HTTPException(404, "Vehicle not found")
+    before = len(v.get("expense_items") or [])
+    items = [
+        it for it in (v.get("expense_items") or [])
+        if not (it.get("id") == item_id and it.get("category") == "maintenance")
+    ]
+    if len(items) == before:
+        raise HTTPException(404, "Maintenance item not found")
+    await _save_expense_items(vid, current["dealership_id"], items)
+    return {"deleted": True}
+
 
 
 # ============================================================
