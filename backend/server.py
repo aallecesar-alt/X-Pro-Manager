@@ -1164,11 +1164,14 @@ async def financial_closing(
         purchase = float(v.get("purchase_price") or 0)
         exp = float(v.get("expenses") or 0)
         cost = purchase + exp
-        profit = rev - cost
+        commission_amt = float(v.get("commission_amount") or 0)
+        commission_paid_flag = bool(v.get("commission_paid", False))
+        commission_deduction = commission_amt if commission_paid_flag else 0.0
+        profit = rev - cost - commission_deduction
         total_revenue += rev
         total_cost += cost
-        if v.get("commission_paid"):
-            paid_commissions += float(v.get("commission_amount") or 0)
+        if commission_paid_flag:
+            paid_commissions += commission_amt
         sold_rows.append({
             "vehicle_id": v["id"],
             "make": v.get("make", ""),
@@ -1181,9 +1184,9 @@ async def financial_closing(
             "purchase_price": purchase,
             "expenses": exp,
             "cost": cost,
+            "commission_amount": commission_amt,
+            "commission_paid": commission_paid_flag,
             "profit": profit,
-            "commission_amount": float(v.get("commission_amount") or 0),
-            "commission_paid": bool(v.get("commission_paid", False)),
             "image": (v.get("images") or [None])[0] if v.get("images") else None,
         })
     gross_profit = total_revenue - total_cost
@@ -1224,6 +1227,9 @@ async def financial_sold_all(current: dict = Depends(get_current_user)):
         rev = float(v.get("sold_price") or v.get("sale_price") or 0)
         purchase = float(v.get("purchase_price") or 0)
         exp = float(v.get("expenses") or 0)
+        commission_amt = float(v.get("commission_amount") or 0)
+        commission_paid_flag = bool(v.get("commission_paid", False))
+        commission_deduction = commission_amt if commission_paid_flag else 0.0
         rows.append({
             "vehicle_id": v["id"],
             "make": v.get("make", ""),
@@ -1235,7 +1241,9 @@ async def financial_sold_all(current: dict = Depends(get_current_user)):
             "sold_price": rev,
             "purchase_price": purchase,
             "expenses": exp,
-            "profit": rev - purchase - exp,
+            "commission_amount": commission_amt,
+            "commission_paid": commission_paid_flag,
+            "profit": rev - purchase - exp - commission_deduction,
             "image": (v.get("images") or [None])[0] if v.get("images") else None,
         })
     return rows

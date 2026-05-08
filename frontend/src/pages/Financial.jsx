@@ -576,7 +576,8 @@ function VehicleExpensesModal({ vehicleId, t, onClose, onChanged }) {
   const expensesTotal = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
   const sold = Number(vehicle?.sold_price) || 0;
   const purchase = Number(vehicle?.purchase_price) || 0;
-  const profit = sold - purchase - expensesTotal;
+  const commissionPaid = vehicle?.commission_paid ? Number(vehicle?.commission_amount) || 0 : 0;
+  const profit = sold - purchase - expensesTotal - commissionPaid;
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-12 px-4">
@@ -610,6 +611,12 @@ function VehicleExpensesModal({ vehicleId, t, onClose, onChanged }) {
                 <span className="text-text-secondary">− {t("expenses_total")}</span>
                 <span className="font-display font-bold">{formatCurrency(expensesTotal)}</span>
               </div>
+              {commissionPaid > 0 && (
+                <div className="flex justify-between text-sm" data-testid="modal-commission-line">
+                  <span className="text-text-secondary">− {t("paid_commissions")} ({vehicle?.salesperson_name || "—"})</span>
+                  <span className="font-display font-bold">{formatCurrency(commissionPaid)}</span>
+                </div>
+              )}
               <div className="flex justify-between pt-3 border-t border-border">
                 <span className="label-eyebrow text-primary">{t("real_profit")}</span>
                 <span className={`font-display font-black text-2xl ${profit >= 0 ? "text-success" : "text-primary"}`}>
@@ -621,14 +628,27 @@ function VehicleExpensesModal({ vehicleId, t, onClose, onChanged }) {
             {/* Itemized expenses */}
             <div className="p-6">
               <p className="label-eyebrow text-primary mb-4">
-                {t("expenses_total")} · {items.length}
+                {t("expenses_total")} · {items.length + (commissionPaid > 0 ? 1 : 0)}
               </p>
-              {items.length === 0 ? (
+              {items.length === 0 && commissionPaid === 0 ? (
                 <p className="text-text-secondary text-sm text-center py-8 border border-dashed border-border">
                   {t("no_expenses")}
                 </p>
               ) : (
                 <div className="border border-border">
+                  {commissionPaid > 0 && (
+                    <div data-testid="vex-commission" className="flex items-center justify-between gap-3 p-3 border-b border-border bg-success/5">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-display font-bold text-sm truncate">{t("paid_commissions")}</p>
+                        <p className="text-xs text-text-secondary">
+                          {vehicle?.salesperson_name || "—"}{vehicle?.delivered_at ? ` · ${new Date(vehicle.delivered_at).toLocaleDateString()}` : ""}
+                        </p>
+                      </div>
+                      <span className="font-display font-bold text-warning shrink-0 w-28 text-right">
+                        −{formatCurrency(commissionPaid)}
+                      </span>
+                    </div>
+                  )}
                   {items.map((it, i) => {
                     const att = (it.attachments && it.attachments[0]) || null;
                     return (

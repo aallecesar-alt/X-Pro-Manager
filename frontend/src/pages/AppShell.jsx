@@ -928,6 +928,46 @@ function DeliveryEditModal({ vehicle, mode, t, onClose, onSaved }) {
   );
 }
 
+function InlineMoneyEdit({ value, onSave, testid }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(value ?? 0));
+
+  const commit = () => {
+    setEditing(false);
+    if (Number(draft) !== Number(value)) onSave(draft);
+  };
+
+  if (editing) {
+    return (
+      <input
+        data-testid={testid}
+        type="number"
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); commit(); }
+          if (e.key === "Escape") { setDraft(String(value ?? 0)); setEditing(false); }
+        }}
+        className="w-24 bg-surface border border-primary focus:outline-none px-2 h-8 text-sm font-display font-bold text-right"
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      data-testid={testid}
+      onClick={() => { setDraft(String(value ?? 0)); setEditing(true); }}
+      className="font-display font-bold hover:text-primary transition-colors border-b border-dashed border-text-secondary/40 hover:border-primary inline-flex items-center gap-1"
+      title="Click to edit"
+    >
+      <DollarSign size={11} className="opacity-60" />
+      {formatCurrency(Number(value) || 0)}
+    </button>
+  );
+}
+
 function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }) {
   const [editingSp, setEditingSp] = useState(null);
   const [credsFor, setCredsFor] = useState(null); // salesperson object whose credentials are being edited
@@ -977,6 +1017,18 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
     if (isSalesperson) return; // read-only for salespeople
     try {
       await api.put(`/vehicles/${vehicle_id}`, { commission_paid: !currentlyPaid });
+      toast.success(t("saved"));
+      loadReport();
+      onReload();
+    } catch { toast.error(t("error_generic")); }
+  };
+
+  const updateCommissionAmount = async (vehicle_id, value) => {
+    if (isSalesperson) return;
+    const n = Number(value);
+    if (Number.isNaN(n) || n < 0) { toast.error(t("error_generic")); return; }
+    try {
+      await api.put(`/vehicles/${vehicle_id}`, { commission_amount: n });
       toast.success(t("saved"));
       loadReport();
       onReload();
@@ -1282,7 +1334,17 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
                             </td>
                           )}
                           <td className="p-3 text-right font-display font-bold">{formatCurrency(r.sold_price)}</td>
-                          <td className="p-3 text-right font-display font-bold">{formatCurrency(r.commission_amount || 0)}</td>
+                          <td className="p-3 text-right">
+                            {isSalesperson ? (
+                              <span className="font-display font-bold">{formatCurrency(r.commission_amount || 0)}</span>
+                            ) : (
+                              <InlineMoneyEdit
+                                value={r.commission_amount || 0}
+                                onSave={(val) => updateCommissionAmount(r.vehicle_id, val)}
+                                testid={`commission-edit-${r.vehicle_id}`}
+                              />
+                            )}
+                          </td>
                           <td className="p-3 text-center">
                             <button
                               type="button"
