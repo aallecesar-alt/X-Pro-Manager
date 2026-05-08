@@ -37,8 +37,16 @@ export function AuthProvider({ children }) {
     setDealership(data);
   };
 
+  const refreshUser = async () => {
+    try {
+      const { data } = await api.get("/auth/me");
+      setUser(data.user);
+      setDealership(data.dealership);
+    } catch { /* noop */ }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, dealership, login, signup, logout, refreshDealership }}>
+    <AuthContext.Provider value={{ user, dealership, login, signup, logout, refreshDealership, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

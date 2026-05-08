@@ -8,6 +8,8 @@ import PhotoUploader from "@/components/PhotoUploader";
 import ExpenseManager from "@/components/ExpenseManager";
 import Financial from "@/pages/Financial";
 import LeadsPage from "@/pages/LeadsPage";
+import Avatar from "@/components/Avatar";
+import { uploadProfilePhoto } from "@/lib/uploadPhoto";
 
 const STATUS_COLUMNS = [
   { id: "in_stock", color: "border-blue-500" },
@@ -17,7 +19,7 @@ const STATUS_COLUMNS = [
 
 export default function AppShell() {
   const { t, lang, setLang } = useI18n();
-  const { user, dealership, logout, refreshDealership } = useAuth();
+  const { user, dealership, logout, refreshDealership, refreshUser } = useAuth();
   const isSalesperson = user?.role === "salesperson";
   const isBdc = user?.role === "bdc";
   const isOwner = user?.role === "owner";
@@ -108,6 +110,9 @@ export default function AppShell() {
           </div>
         </div>
 
+        {/* Logged-in user profile chip with editable avatar */}
+        <UserProfileChip user={user} t={t} onPhotoChanged={refreshUser} />
+
         <nav className="flex-1 p-3 space-y-1">
           {tabs.map((tb) => (
             <button
@@ -158,7 +163,7 @@ export default function AppShell() {
           />
         )}
         {tab === "pipeline" && canAccess("pipeline") && <Pipeline vehicles={vehicles} t={t} onMove={updateStatus} onEdit={(v) => setEditing(v)} />}
-        {tab === "delivery" && canAccess("delivery") && <Delivery deliveries={deliveries} t={t} onReload={reload} />}
+        {tab === "delivery" && canAccess("delivery") && <Delivery deliveries={deliveries} salespeople={salespeople} t={t} onReload={reload} />}
         {tab === "leads" && canAccess("leads") && <LeadsPage t={t} role={user?.role || "owner"} currentSpId={user?.salesperson_id || ""} salespeople={salespeople} />}
         {tab === "salespeople" && canAccess("salespeople") && <SalespeopleTab salespeople={salespeople} t={t} onReload={reload} isSalesperson={isSalesperson} currentSpId={user?.salesperson_id || ""} />}
         {tab === "financial" && canAccess("financial") && <Financial t={t} />}
@@ -182,6 +187,41 @@ export default function AppShell() {
     </div>
   );
 }
+
+function UserProfileChip({ user, t, onPhotoChanged }) {
+  const [uploading, setUploading] = useState(false);
+  if (!user) return null;
+  const onPick = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const { photo_url, photo_public_id } = await uploadProfilePhoto(file);
+      await api.put("/me/photo", { photo_url, photo_public_id });
+      toast.success(t("saved"));
+      onPhotoChanged && onPhotoChanged();
+    } catch (err) {
+      toast.error(err.message || t("error_generic"));
+    } finally { setUploading(false); }
+  };
+  const roleLabel = user.role === "owner" ? t("owner_role") : user.role === "bdc" ? "BDC" : t("salesperson");
+  return (
+    <div className="px-4 py-3 border-b border-border flex items-center gap-3">
+      <label className="relative cursor-pointer group" title={t("change_photo")}>
+        <Avatar src={user.photo_url} name={user.full_name || user.email} size="lg" testid="sidebar-avatar" />
+        <div className="absolute inset-0 rounded-full bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+          {uploading ? <span className="text-[10px] text-white">...</span> : <Upload size={14} className="text-white" />}
+        </div>
+        <input data-testid="sidebar-photo-input" type="file" accept="image/*" className="hidden" onChange={(e) => onPick(e.target.files?.[0])} disabled={uploading} />
+      </label>
+      <div className="min-w-0 flex-1">
+        <p className="font-display font-bold text-sm truncate">{user.full_name || user.email}</p>
+        <p className="text-[10px] uppercase tracking-wider text-text-secondary">{roleLabel}</p>
+      </div>
+    </div>
+  );
+}
+
+
 
 function Overview({ stats, t, isSalesperson, isBdc }) {
   const [leaderboard, setLeaderboard] = useState({ rows: [], total_sold: 0 });
@@ -276,13 +316,14 @@ function Overview({ stats, t, isSalesperson, isBdc }) {
                     data-testid={`lb-row-${r.salesperson_id || "unassigned"}`}
                     className={`flex items-center gap-3 p-3 border transition-colors ${isPodium ? "border-primary/30 bg-primary/5" : "border-border"}`}
                   >
-                    <div className="w-10 flex items-center justify-center shrink-0">
+                    <div className="w-8 flex items-center justify-center shrink-0">
                       {isPodium ? (
                         <Medal size={22} className={medalColor} />
                       ) : (
                         <span className="font-display font-black text-text-secondary">#{r.rank}</span>
                       )}
                     </div>
+                    <Avatar src={r.photo_url} name={r.salesperson_name} size="md" ring={r.rank === 1} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2 mb-1.5">
                         <p className="font-display font-bold uppercase truncate text-sm">{r.salesperson_name}</p>
@@ -837,6 +878,31 @@ const PERMISSION_LABELS = {
   financial: { key: "financial", icon: "💰" },
 };
 
+function TeamMemberAvatarUploader({ member, t, onChanged }) {
+  const [uploading, setUploading] = useState(false);
+  const onPick = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const { photo_url, photo_public_id } = await uploadProfilePhoto(file);
+      await api.put(`/team/${member.id}/photo`, { photo_url, photo_public_id });
+      toast.success(t("saved"));
+      onChanged && onChanged();
+    } catch (err) {
+      toast.error(err.message || t("error_generic"));
+    } finally { setUploading(false); }
+  };
+  return (
+    <label className="relative cursor-pointer group shrink-0" title={t("change_photo")}>
+      <Avatar src={member.photo_url} name={member.full_name} size="lg" testid={`team-avatar-${member.id}`} />
+      <div className="absolute inset-0 rounded-full bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+        {uploading ? <span className="text-[10px] text-white">...</span> : <Upload size={14} className="text-white" />}
+      </div>
+      <input data-testid={`team-photo-input-${member.id}`} type="file" accept="image/*" className="hidden" onChange={(e) => onPick(e.target.files?.[0])} disabled={uploading} />
+    </label>
+  );
+}
+
 function TeamSection({ t }) {
   const [team, setTeam] = useState({ members: [], all_permissions: [], role_defaults: {} });
   const [salespeople, setSalespeople] = useState([]);
@@ -897,15 +963,18 @@ function TeamSection({ t }) {
             return (
               <div key={m.id} data-testid={`team-row-${m.id}`} className={`border border-border p-4 ${isSaving ? "opacity-50" : ""}`}>
                 <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-display font-bold uppercase">{m.full_name}</p>
-                      <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 border ${m.role === "bdc" ? "border-cyan-500 text-cyan-400 bg-cyan-500/10" : "border-primary text-primary bg-primary/10"}`}>
-                        {m.role === "bdc" ? "BDC" : t("salesperson")}
-                      </span>
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <TeamMemberAvatarUploader member={m} t={t} onChanged={reload} />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-display font-bold uppercase">{m.full_name}</p>
+                        <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 border ${m.role === "bdc" ? "border-cyan-500 text-cyan-400 bg-cyan-500/10" : "border-primary text-primary bg-primary/10"}`}>
+                          {m.role === "bdc" ? "BDC" : t("salesperson")}
+                        </span>
+                      </div>
+                      <p className="text-xs text-text-secondary font-mono">{m.email}</p>
+                      {m.salesperson_name && <p className="text-xs text-text-secondary mt-1">→ {m.salesperson_name}</p>}
                     </div>
-                    <p className="text-xs text-text-secondary font-mono">{m.email}</p>
-                    {m.salesperson_name && <p className="text-xs text-text-secondary mt-1">→ {m.salesperson_name}</p>}
                   </div>
                   <div className="inline-flex gap-1">
                     <button onClick={() => setEditingMember(m)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors" title={t("edit")}>
@@ -1258,7 +1327,7 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
   );
 }
 
-function Delivery({ deliveries, t, onReload }) {
+function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onReload }) {
   const [editing, setEditing] = useState(null); // vehicle being edited (step or notes)
   const [editMode, setEditMode] = useState("step"); // "step" | "notes"
   const [filesOpen, setFilesOpen] = useState(null); // { vehicle, step }
@@ -1409,7 +1478,17 @@ function Delivery({ deliveries, t, onReload }) {
               </div>
 
               {/* Meta info pills */}
-              <div className="flex flex-wrap gap-2 mb-4">
+              <div className="flex flex-wrap gap-2 mb-4 items-center">
+                {v.salesperson_name && (
+                  <div className="inline-flex items-center gap-2 border border-border px-2 py-1 text-xs">
+                    {(() => {
+                      const sp = (deliveriesSalespeople || []).find(s => s.id === v.salesperson_id);
+                      return <Avatar src={sp?.photo_url} name={v.salesperson_name} size="xs" />;
+                    })()}
+                    <span className="text-text-secondary uppercase tracking-wider text-[10px]">{t("salesperson")}:</span>
+                    <span className="font-display font-bold">{v.salesperson_name}</span>
+                  </div>
+                )}
                 {v.buyer_name && <Pill label={t("buyer_name")} value={v.buyer_name} />}
                 {v.bank_name && <Pill label={t("bank")} value={v.bank_name} />}
                 {v.payment_method && <Pill label={t("payment_method")} value={v.payment_method} />}
@@ -1608,10 +1687,13 @@ function InlineSalespersonSelect({ value, salespeople, onChange, t, testid }) {
       type="button"
       data-testid={testid}
       onClick={() => setEditing(true)}
-      className={`inline-flex items-center gap-1.5 hover:text-primary transition-colors border-b border-dashed border-text-secondary/40 hover:border-primary text-left ${current ? "font-display font-bold" : "text-warning text-xs uppercase tracking-wider"}`}
+      className="inline-flex items-center gap-2 hover:text-primary transition-colors text-left group"
       title={t("change_salesperson")}
     >
-      {current ? current.name : t("unassigned")}
+      {current && <Avatar src={current.photo_url} name={current.name} size="sm" />}
+      <span className={`border-b border-dashed border-text-secondary/40 group-hover:border-primary ${current ? "font-display font-bold" : "text-warning text-xs uppercase tracking-wider"}`}>
+        {current ? current.name : t("unassigned")}
+      </span>
       <Edit2 size={10} className="opacity-50" />
     </button>
   );
@@ -1844,8 +1926,13 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
                     className={`border-b border-border cursor-pointer transition-colors ${selectedSp === sp.id ? "bg-primary/10" : "hover:bg-surface"}`}
                   >
                     <td className="p-3">
-                      <p className="font-display font-bold">{sp.name}</p>
-                      <p className="text-xs text-text-secondary">{sp.phone || sp.email || ""}</p>
+                      <div className="flex items-center gap-3">
+                        <Avatar src={sp.photo_url} name={sp.name} size="md" />
+                        <div className="min-w-0">
+                          <p className="font-display font-bold">{sp.name}</p>
+                          <p className="text-xs text-text-secondary">{sp.phone || sp.email || ""}</p>
+                        </div>
+                      </div>
                     </td>
                     <td className="p-3 font-display font-bold">{formatCurrency(sp.commission_amount || 0)}</td>
                     <td className="p-3 text-right font-display font-bold">{stats.count}</td>

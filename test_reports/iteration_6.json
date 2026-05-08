@@ -1,0 +1,74 @@
+{
+  "summary": "Backend-only validation of team-member Photo Management feature. Created /app/backend/tests/test_photos.py with 15 focused tests across 5 classes (TestAuthIncludesPhoto, TestUpdateMyPhoto, TestSetTeamPhoto, TestListEndpointsIncludePhoto, TestE2EOwnerUploadsForJoao). First run: 5 real failures revealed 2 distinct backend bugs (both FIXED). After fixes: 15/15 new tests pass; full regression across 5 test files = 95/95 PASS in 113s. Coverage: PUT /me/photo for owner/salesperson/bdc; salesperson self-update mirrors to salespeople collection; PUT /team/{uid}/photo owner-only (403 for salesperson/bdc), 404 for owners and unknown uids, 200 for salesperson/bdc targets with mirror propagation; GET /team, /auth/me, /auth/login all include photo_url; GET /salespeople includes photo_url (was stripped before fix); GET /leaderboard rows include photo_url; E2E: owner uploads for Joao -> visible in /salespeople AND /leaderboard row, and cleanup propagates empty string back. Photos reverted to '' at module teardown; DB state verified clean post-run.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/salespeople",
+        "issue": "FIXED. Response was stripping photo_url from every salesperson despite the DB persisting it correctly. Root cause: /app/backend/server.py line 772 — the Salesperson Pydantic model (used as response_model=List[Salesperson]) did NOT declare photo_url or photo_public_id fields, so Pydantic v2 silently dropped them during serialization. Meanwhile _set_user_photo() was correctly writing to the salespeople doc (verified by direct MongoDB query). This broke (1) any salesperson avatar in the frontend's /salespeople-backed views (Vendedores tab, delivery assignee chip, CRM/Leads salesperson avatar), and (2) breaks the documented data contract 'GET /api/salespeople includes photo_url field'. Fix applied: added `photo_url: str = \"\"` and `photo_public_id: str = \"\"` to the Salesperson model. Now response correctly returns them. This is why the leaderboard test initially passed (leaderboard response is hand-built dict, not Pydantic-gated) while the /salespeople, mirror, and e2e tests all failed together.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "PUT /api/team/{uid}/photo",
+        "issue": "FIXED. Expected 404 for owner-role users, but got 200 for the seeded owner (carlos@intercar.com). Root cause: server.py line 1077 check `if not user or user.get(\"role\") == \"owner\"`. The seeded carlos user doc has NO `role` field at all (get_current_user defaults to 'owner' via setdefault, but the raw DB doc only has id/email/full_name/dealership_id/created_at/photo_* — no role). So `user.get('role')` returned None, bypassed the guard, and let the owner photo be edited through the team endpoint (should only be editable via /me/photo). Fix applied: treat missing role as 'owner' — `role = (user or {}).get(\"role\") or \"owner\"; if not user or role == \"owner\": raise 404`. Note: this also means any other legacy code path doing role comparisons against `owner` on a raw DB doc may exhibit the same bug — recommend a `normalized_role(user)` helper or a one-time migration to persist role='owner' on all legacy owner docs.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "PUT /api/me/photo & PUT /api/team/{uid}/photo",
+        "issue": "No validation that photo_url is an actual URL or non-hostile string. An attacker can PUT any string (including javascript:, data:, or 10MB payload). Backend note correctly says 'API only stores the URL string, doesn't validate or fetch it', but consider Pydantic HttpUrl or a length cap (e.g., max 500 chars) + optional cloudinary-domain whitelist."
+      },
+      {
+        "endpoint": "PUT /api/team/{uid}/photo",
+        "issue": "Returns 200 with only `{ok: True, photo_url: ...}` — does not return the updated user object. Frontend must re-fetch /team to show the new avatar. Consider returning the full updated team member to enable optimistic UI."
+      },
+      {
+        "endpoint": "_set_user_photo helper (server.py:1051)",
+        "issue": "Does no existence check on the user before issuing the update. If `user_id` does not exist, the update_one silently succeeds with matched_count=0 and the endpoint still returns 200. PUT /me/photo is protected (current user always exists), but it's a small footgun if this helper gets reused elsewhere. Consider: `res = await db.users.update_one(...); if res.matched_count == 0: raise HTTPException(404)`."
+      },
+      {
+        "endpoint": "GET /api/leaderboard",
+        "issue": "photo_url resolution uses the salespeople collection (correct), but when a sale is attributed to a salesperson who no longer exists in the salespeople collection (edge case — owner deleted salesperson), the bucket falls back to photo_url='' correctly. Verified working."
+      },
+      {
+        "endpoint": "Salesperson Pydantic model",
+        "issue": "Same class-omission pattern (fields exist in DB but not declared in response_model) could recur for any future per-salesperson attribute. Recommend a single `Salesperson` model that mirrors the DB schema exactly, OR switch /salespeople to return raw dicts (like /team does) so new fields auto-propagate."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_photos.py",
+    "/app/test_reports/pytest/photos.xml",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "VERIFY my 2 fixes at /app/backend/server.py: (a) lines 772-776 — Salesperson model now includes photo_url + photo_public_id; (b) lines 1076-1080 — set_team_photo now treats missing role as 'owner' so legacy owner docs are protected from /team/{uid}/photo edits.",
+    "(Optional but recommended) Run a one-time migration to persist role='owner' on all legacy owner user docs (e.g., carlos@intercar.com) — prevents the same missing-role gotcha from biting other endpoints in the future.",
+    "(Optional) Add a small validation on photo_url (max length, optional HTTPS check) on both PUT /me/photo and PUT /team/{uid}/photo.",
+    "(Optional) Have _set_user_photo raise 404 if matched_count==0 to avoid silent no-op writes."
+  ],
+  "critical_code_review_comments": [
+    "BUG (FIXED): Salesperson Pydantic response_model stripped photo_url on GET /salespeople even though _set_user_photo mirrors it correctly in DB. Classic 'DB has field, model doesn't, response silently drops it' — particularly nasty because leaderboard worked (hand-built dict), making it look like partial coverage.",
+    "BUG (FIXED): PUT /team/{uid}/photo's owner-guard relied on the DB doc having an explicit role='owner'. Seeded carlos user has no role field at all, so the guard was a no-op on legacy accounts. Fix normalizes missing role -> 'owner'.",
+    "The _set_user_photo helper mirrors to salespeople only when role=='salesperson' AND salesperson_id truthy — correct. But it does NOT unset when salesperson_id changes (e.g., reassigning a user to a different salesperson record); left photo on the old salesperson record. Edge case, not in scope.",
+    "PhotoPayload accepts arbitrary strings for both photo_url and photo_public_id. No max length -> theoretical DoS via 10MB payload. Consider `photo_url: constr(max_length=500)`.",
+    "Leaderboard photo_url resolution (server.py line 1276) correctly overwrites with latest salespeople.photo_url even if the cached bucket had a stale value — good.",
+    "/api/auth/login includes photo_url via user.get('photo_url', '') — good defensive default. /api/auth/me relies on the raw DB doc; works today because seeded users were backfilled with empty photo_url, but for any legacy user without the field it would be absent. Consider an `.setdefault('photo_url', '')` in get_current_user for full consistency (same pattern as role/salesperson_id/permissions on lines 178-180).",
+    "Frontend files (Avatar.jsx, uploadPhoto.js, AppShell.jsx, LeadsPage.jsx) were NOT tested — backend-only iteration as requested."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (2 fixes: Salesperson model adds photo_url + photo_public_id; set_team_photo owner-guard handles missing role)",
+    "/app/backend/tests/test_photos.py (NEW — 15 tests, ~330 lines)"
+  ],
+  "success_rate": {
+    "backend": "100% (15/15 new photo tests; 95/95 across all 5 backend test files)",
+    "frontend": "not tested (backend-only iteration as requested)"
+  },
+  "test_credentials": "Owner: carlos@intercar.com / senha123 ; Salesperson: joao@intercar.com / senha456 ; BDC: bdc@intercar.com / bdc1234 — all verified working and include user.photo_url in both /auth/login and /auth/me responses.",
+  "seed_data_creation": "No new seed data. All 15 tests operate on the 3 seeded users (carlos, joao, bdc) and 1 seeded salesperson (Joao Silva). Module-scoped autouse fixture _revert_photos_at_end wipes photo_url/photo_public_id back to '' on every team member + owner at teardown. Post-run DB verified clean: all 4 photo fields empty, leads=1256 (unchanged), vehicles=2 (unchanged), salespeople=1 (unchanged).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Six test files in /app/backend/tests/: backend_test.py, test_financial.py, test_lost_sales.py, test_leaderboard_promotion.py, test_team_management.py, test_photos.py. Full session run: 95 passed in ~114s. Two small but impactful backend bugs fixed in server.py during this iteration — verify both are still in place before next run: (1) Salesperson model has photo_url + photo_public_id declared (line ~772-776); (2) set_team_photo normalizes missing role to 'owner' (line ~1076). Carlos owner user in DB still has no `role` field — consider a migration. test_financial::test_closing_math flake noted in iter 4 did NOT recur in this run (still all green).",
+  "rca of the issue": "Two bugs, both subtle: (1) GET /api/salespeople was silently dropping photo_url because the Pydantic Salesperson model (used as response_model=List[Salesperson]) did not declare the field; Pydantic v2 strips undeclared fields during response serialization regardless of what's in the source dict. The DB was correct, the helper _set_user_photo was correctly mirroring, but the response contract was broken — which would cause every salesperson avatar in the frontend fed by /salespeople to fall back to initials even after upload. Fix: added photo_url + photo_public_id to the Salesperson Pydantic model. (2) PUT /api/team/{uid}/photo on the seeded owner (carlos) returned 200 instead of the spec'd 404 because the owner-guard used raw user.get('role') which returned None (carlos doc has NO role field; get_current_user sets a default at runtime but the /team/{uid}/photo endpoint queries the DB directly with a role projection). Fix: normalize (user or {}).get('role') or 'owner' so legacy docs are treated as owners. Reproduction: login as owner, PUT /api/team/{owner_uid}/photo → before fix returns 200 and sets carlos' photo via the team endpoint (bypassing the intent that only /me/photo edits the owner's photo); after fix returns 404. Long-term mitigation: backfill role='owner' on all legacy owner user docs and/or introduce a `normalized_role(user)` helper used by every role-comparing call site."
+}

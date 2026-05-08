@@ -324,6 +324,7 @@ async def login(payload: LoginRequest):
             "role": user.get("role", "owner"),
             "salesperson_id": user.get("salesperson_id", ""),
             "permissions": perms,
+            "photo_url": user.get("photo_url", ""),
         },
         "dealership": dealership,
     }
@@ -772,6 +773,8 @@ class Salesperson(SalespersonBase):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     dealership_id: str
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    photo_url: str = ""
+    photo_public_id: str = ""
 
 
 class SalespersonUpdate(BaseModel):
@@ -1041,6 +1044,47 @@ async def delete_team_member(uid: str, current: dict = Depends(get_current_user)
     return {"deleted": True}
 
 
+# ---------- Photo management for team members ----------
+class PhotoPayload(BaseModel):
+    photo_url: str = ""
+    photo_public_id: str = ""
+
+
+async def _set_user_photo(user_id: str, dealership_id: str, photo_url: str, photo_public_id: str):
+    """Sets photo on user doc AND mirrors to salespeople collection if linked."""
+    await db.users.update_one(
+        {"id": user_id, "dealership_id": dealership_id},
+        {"$set": {"photo_url": photo_url, "photo_public_id": photo_public_id}},
+    )
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "salesperson_id": 1, "role": 1})
+    if user and user.get("role") == "salesperson" and user.get("salesperson_id"):
+        await db.salespeople.update_one(
+            {"id": user["salesperson_id"], "dealership_id": dealership_id},
+            {"$set": {"photo_url": photo_url, "photo_public_id": photo_public_id}},
+        )
+
+
+@api_router.put("/me/photo")
+async def update_my_photo(payload: PhotoPayload, current: dict = Depends(get_current_user)):
+    """Any logged-in user can update their own photo."""
+    await _set_user_photo(current["id"], current["dealership_id"], payload.photo_url, payload.photo_public_id)
+    return {"ok": True, "photo_url": payload.photo_url}
+
+
+@api_router.put("/team/{uid}/photo")
+async def set_team_photo(uid: str, payload: PhotoPayload, current: dict = Depends(get_current_user)):
+    """Owner sets photo for any team member (salesperson or BDC)."""
+    require_owner(current)
+    user = await db.users.find_one({"id": uid, "dealership_id": current["dealership_id"]}, {"_id": 0, "id": 1, "role": 1})
+    # Role may be missing on legacy owner accounts (get_current_user defaults to 'owner');
+    # treat missing role the same as 'owner' to protect them from /team/{uid}/photo edits.
+    role = (user or {}).get("role") or "owner"
+    if not user or role == "owner":
+        raise HTTPException(404, "Team member not found")
+    await _set_user_photo(uid, current["dealership_id"], payload.photo_url, payload.photo_public_id)
+    return {"ok": True, "photo_url": payload.photo_url}
+
+
 @api_router.post("/salespeople", response_model=Salesperson)
 async def create_salesperson(payload: SalespersonBase, current: dict = Depends(get_current_user)):
     require_owner(current)
@@ -1224,17 +1268,21 @@ async def leaderboard(
         sp_id = v.get("salesperson_id")
         if not sp_id:
             continue  # Don't show unassigned sales in leaderboard
-        bucket = by_sp.setdefault(sp_id, {"salesperson_id": sp_id, "salesperson_name": v.get("salesperson_name", "") or "", "count": 0, "revenue": 0.0})
+        bucket = by_sp.setdefault(sp_id, {"salesperson_id": sp_id, "salesperson_name": v.get("salesperson_name", "") or "", "count": 0, "revenue": 0.0, "photo_url": ""})
         bucket["count"] += 1
         bucket["revenue"] += float(v.get("sold_price") or 0)
-    # Add salespeople with zero sales
+    # Add salespeople with zero sales (and attach photo_url for everyone)
+    sp_by_id = {sp["id"]: sp for sp in sps}
     for sp in sps:
         if sp["id"] not in by_sp:
-            by_sp[sp["id"]] = {"salesperson_id": sp["id"], "salesperson_name": sp.get("name", ""), "count": 0, "revenue": 0.0}
+            by_sp[sp["id"]] = {"salesperson_id": sp["id"], "salesperson_name": sp.get("name", ""), "count": 0, "revenue": 0.0, "photo_url": sp.get("photo_url", "") or ""}
+    for sp_id_key, bucket in by_sp.items():
+        if sp_id_key in sp_by_id:
+            bucket["photo_url"] = sp_by_id[sp_id_key].get("photo_url", "") or ""
     rows = sorted(by_sp.values(), key=lambda r: (-r["count"], -r["revenue"], r["salesperson_name"]))
-    # Strip revenue for salesperson role
+    # Strip revenue for salesperson role (keep photo_url so they see avatars)
     if is_salesperson(current):
-        rows = [{"salesperson_id": r["salesperson_id"], "salesperson_name": r["salesperson_name"], "count": r["count"]} for r in rows]
+        rows = [{"salesperson_id": r["salesperson_id"], "salesperson_name": r["salesperson_name"], "count": r["count"], "photo_url": r.get("photo_url", "")} for r in rows]
     # Assign ranks (1-based, ties share rank)
     last_count = None
     last_rank = 0
