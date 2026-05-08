@@ -30,38 +30,47 @@ export default function AppShell() {
   const [importOpen, setImportOpen] = useState(false);
   const [search, setSearch] = useState("");
 
-  // BDC has a focused workflow: dashboard + leads only
-  const tabs = isBdc ? [
-    { id: "overview", label: t("dashboard"), icon: LayoutDashboard },
-    { id: "leads", label: t("leads_title"), icon: Headphones },
-  ] : [
+  const userPerms = user?.permissions || [];
+  const canAccess = (tabId) => isOwner || userPerms.includes(tabId);
+  const allTabs = [
     { id: "overview", label: t("dashboard"), icon: LayoutDashboard },
     { id: "inventory", label: t("inventory"), icon: Package },
     { id: "pipeline", label: t("pipeline"), icon: TrendingUp },
     { id: "delivery", label: t("delivery"), icon: Truck },
     { id: "leads", label: t("leads_title"), icon: Headphones },
     { id: "salespeople", label: t("salespeople"), icon: Users },
-    ...(isSalesperson ? [] : [
-      { id: "financial", label: t("financial"), icon: DollarSign },
-      { id: "settings", label: t("settings"), icon: Settings },
-    ]),
+    { id: "financial", label: t("financial"), icon: DollarSign },
+    { id: "settings", label: t("settings"), icon: Settings, ownerOnly: true },
   ];
+  const tabs = allTabs.filter(tb => tb.ownerOnly ? isOwner : canAccess(tb.id));
+
+  // Auto-pick a valid initial tab once we know what the user can access
+  useEffect(() => {
+    if (!user) return;
+    const tabIds = tabs.map(tb => tb.id);
+    if (tabIds.length && !tabIds.includes(tab)) setTab(tabIds[0]);
+    // eslint-disable-next-line
+  }, [user, userPerms.join(",")]);
 
   const reload = async () => {
     try {
-      if (isBdc) {
-        // BDC only needs salespeople for the lead form
-        const sp = await api.get("/salespeople");
-        setSalespeople(sp.data);
-        return;
-      }
-      const [s, v, d, sp] = await Promise.all([
-        api.get("/stats"),
-        api.get("/vehicles", { params: { search: search || undefined } }),
-        api.get("/delivery"),
-        api.get("/salespeople"),
-      ]);
-      setStats(s.data); setVehicles(v.data); setDeliveries(d.data); setSalespeople(sp.data);
+      // Build requests dynamically based on what user can access
+      const calls = [];
+      const labels = [];
+      if (canAccess("overview")) { calls.push(api.get("/stats")); labels.push("stats"); }
+      if (canAccess("inventory")) { calls.push(api.get("/vehicles", { params: { search: search || undefined } })); labels.push("vehicles"); }
+      if (canAccess("delivery")) { calls.push(api.get("/delivery")); labels.push("deliveries"); }
+      // Salespeople list is needed for leads form too
+      if (canAccess("salespeople") || canAccess("leads")) { calls.push(api.get("/salespeople")); labels.push("salespeople"); }
+      const results = await Promise.allSettled(calls);
+      results.forEach((r, i) => {
+        if (r.status === "fulfilled") {
+          if (labels[i] === "stats") setStats(r.value.data);
+          else if (labels[i] === "vehicles") setVehicles(r.value.data);
+          else if (labels[i] === "deliveries") setDeliveries(r.value.data);
+          else if (labels[i] === "salespeople") setSalespeople(r.value.data);
+        }
+      });
     } catch { toast.error(t("error_generic")); }
   };
 
@@ -141,18 +150,18 @@ export default function AppShell() {
 
       {/* MAIN */}
       <main className="flex-1 p-8 overflow-auto">
-        {tab === "overview" && <Overview stats={stats} t={t} isSalesperson={isSalesperson} isBdc={isBdc} />}
-        {tab === "inventory" && !isBdc && (
+        {tab === "overview" && canAccess("overview") && <Overview stats={stats} t={t} isSalesperson={isSalesperson} isBdc={isBdc} />}
+        {tab === "inventory" && canAccess("inventory") && (
           <Inventory
             vehicles={vehicles} t={t} search={search} setSearch={setSearch} isSalesperson={isSalesperson}
             onAdd={() => setEditing("new")} onImport={() => setImportOpen(true)} onEdit={(v) => setEditing(v)} onDelete={onDelete}
           />
         )}
-        {tab === "pipeline" && !isBdc && <Pipeline vehicles={vehicles} t={t} onMove={updateStatus} onEdit={(v) => setEditing(v)} />}
-        {tab === "delivery" && !isBdc && <Delivery deliveries={deliveries} t={t} onReload={reload} />}
-        {tab === "leads" && <LeadsPage t={t} role={user?.role || "owner"} currentSpId={user?.salesperson_id || ""} salespeople={salespeople} />}
-        {tab === "salespeople" && !isBdc && <SalespeopleTab salespeople={salespeople} t={t} onReload={reload} isSalesperson={isSalesperson} currentSpId={user?.salesperson_id || ""} />}
-        {tab === "financial" && isOwner && <Financial t={t} />}
+        {tab === "pipeline" && canAccess("pipeline") && <Pipeline vehicles={vehicles} t={t} onMove={updateStatus} onEdit={(v) => setEditing(v)} />}
+        {tab === "delivery" && canAccess("delivery") && <Delivery deliveries={deliveries} t={t} onReload={reload} />}
+        {tab === "leads" && canAccess("leads") && <LeadsPage t={t} role={user?.role || "owner"} currentSpId={user?.salesperson_id || ""} salespeople={salespeople} />}
+        {tab === "salespeople" && canAccess("salespeople") && <SalespeopleTab salespeople={salespeople} t={t} onReload={reload} isSalesperson={isSalesperson} currentSpId={user?.salesperson_id || ""} />}
+        {tab === "financial" && canAccess("financial") && <Financial t={t} />}
         {tab === "settings" && isOwner && <SettingsTab dealership={dealership} t={t} onRefresh={refreshDealership} />}
 
         {editing && (
@@ -191,14 +200,14 @@ function Overview({ stats, t, isSalesperson, isBdc }) {
     try { const r = await api.get("/promotion"); setPromotion(r.data); } catch { /* noop */ }
   };
 
-  if (!stats && !isBdc) return <p className="text-text-secondary">...</p>;
-
-  const cards = isBdc ? [] : [
+  // Show count cards only when we have stats (user has /stats access via inventory permission OR is owner)
+  const hasStats = !!stats;
+  const cards = hasStats ? [
     { label: t("total_vehicles"), value: stats.total_vehicles, icon: Car },
     { label: t("in_stock"), value: stats.in_stock, icon: Package },
     { label: t("reserved"), value: stats.reserved, icon: Clock },
     { label: t("sold"), value: stats.sold, icon: CheckCircle2 },
-  ];
+  ] : [];
 
   // Build the last 6 months bucket so the chart always shows 6 bars
   const sourceMonthly = (stats && stats.monthly_sales) || [];
@@ -224,8 +233,8 @@ function Overview({ stats, t, isSalesperson, isBdc }) {
         </div>
       </div>
 
-      {/* KPI cards (hidden for BDC role - they live in Leads tab) */}
-      {!isBdc && (
+      {/* KPI cards (hidden when user has no stats access — e.g. BDC) */}
+      {hasStats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border border border-border mb-10">
           {cards.map((c, i) => {
             const Icon = c.icon;
@@ -351,8 +360,8 @@ function Overview({ stats, t, isSalesperson, isBdc }) {
         </div>
       </div>
 
-      {/* Monthly chart (hidden for BDC) */}
-      {!isBdc && (
+      {/* Monthly chart (hidden when user has no stats access) */}
+      {hasStats && (
         <div className="border border-border p-6">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-2">
@@ -812,108 +821,309 @@ function SettingsTab({ dealership, t, onRefresh }) {
         </button>
       </div>
 
-      {/* BDC users management */}
-      <BdcUsersSection t={t} />
+      {/* Team management (salespeople + BDC + permissions) */}
+      <TeamSection t={t} />
     </div>
   );
 }
 
-function BdcUsersSection({ t }) {
-  const [users, setUsers] = useState([]);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ full_name: "", email: "", password: "" });
-  const [saving, setSaving] = useState(false);
+const PERMISSION_LABELS = {
+  overview: { key: "dashboard", icon: "🏠" },
+  inventory: { key: "inventory", icon: "📦" },
+  pipeline: { key: "pipeline", icon: "🚗" },
+  delivery: { key: "delivery", icon: "🚚" },
+  leads: { key: "leads_title", icon: "📞" },
+  salespeople: { key: "salespeople", icon: "🏆" },
+  financial: { key: "financial", icon: "💰" },
+};
+
+function TeamSection({ t }) {
+  const [team, setTeam] = useState({ members: [], all_permissions: [], role_defaults: {} });
+  const [salespeople, setSalespeople] = useState([]);
+  const [editingMember, setEditingMember] = useState(null); // {} new, member edit
+  const [savingPerms, setSavingPerms] = useState(null); // memberId being saved
 
   const reload = async () => {
-    try { const r = await api.get("/bdc-users"); setUsers(r.data); }
-    catch { /* noop */ }
+    try {
+      const [tm, sp] = await Promise.all([api.get("/team"), api.get("/salespeople")]);
+      setTeam(tm.data);
+      setSalespeople(sp.data);
+    } catch { /* noop */ }
   };
   useEffect(() => { reload(); }, []);
 
-  const create = async (e) => {
-    e.preventDefault();
-    setSaving(true);
+  const togglePerm = async (member, permKey) => {
+    const current = member.effective_permissions || [];
+    const next = current.includes(permKey) ? current.filter(p => p !== permKey) : [...current, permKey];
+    setSavingPerms(member.id);
     try {
-      await api.post("/bdc-users", form);
-      toast.success(t("saved"));
-      setForm({ full_name: "", email: "", password: "" });
-      setShowForm(false);
+      await api.put(`/team/${member.id}`, { permissions: next });
       reload();
     } catch (err) {
       toast.error(err.response?.data?.detail || t("error_generic"));
-    } finally { setSaving(false); }
+    } finally { setSavingPerms(null); }
   };
 
   const remove = async (id) => {
     if (!window.confirm(t("confirm_delete"))) return;
-    try { await api.delete(`/bdc-users/${id}`); toast.success(t("saved")); reload(); }
+    try { await api.delete(`/team/${id}`); toast.success(t("saved")); reload(); }
     catch { toast.error(t("error_generic")); }
   };
 
   return (
     <div className="border border-border p-6 mt-6">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div>
-          <p className="label-eyebrow text-primary mb-1">{t("bdc_users_title")}</p>
-          <p className="text-text-secondary text-sm">{t("bdc_users_hint")}</p>
+          <p className="label-eyebrow text-primary mb-1">{t("team_title")}</p>
+          <p className="text-text-secondary text-sm">{t("team_hint")}</p>
         </div>
         <button
-          data-testid="add-bdc"
+          data-testid="add-team"
           type="button"
-          onClick={() => setShowForm(true)}
+          onClick={() => setEditingMember({})}
           className="bg-primary hover:bg-primary-hover px-4 py-2.5 font-display font-bold uppercase text-xs tracking-widest inline-flex items-center gap-2"
         >
-          <UserPlus size={14} /> {t("add_bdc")}
+          <UserPlus size={14} /> {t("add_team_member")}
         </button>
       </div>
 
-      {users.length === 0 ? (
-        <p className="text-text-secondary text-sm border border-dashed border-border py-8 text-center">{t("no_bdc_users")}</p>
+      {team.members.length === 0 ? (
+        <p className="text-text-secondary text-sm border border-dashed border-border py-8 text-center">{t("no_team_members")}</p>
       ) : (
-        <div className="space-y-2">
-          {users.map(u => (
-            <div key={u.id} data-testid={`bdc-row-${u.id}`} className="flex items-center justify-between border border-border p-3">
-              <div>
-                <p className="font-display font-bold">{u.full_name}</p>
-                <p className="text-xs text-text-secondary font-mono">{u.email}</p>
+        <div className="space-y-3">
+          {team.members.map(m => {
+            const perms = m.effective_permissions || [];
+            const isSaving = savingPerms === m.id;
+            return (
+              <div key={m.id} data-testid={`team-row-${m.id}`} className={`border border-border p-4 ${isSaving ? "opacity-50" : ""}`}>
+                <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-display font-bold uppercase">{m.full_name}</p>
+                      <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 border ${m.role === "bdc" ? "border-cyan-500 text-cyan-400 bg-cyan-500/10" : "border-primary text-primary bg-primary/10"}`}>
+                        {m.role === "bdc" ? "BDC" : t("salesperson")}
+                      </span>
+                    </div>
+                    <p className="text-xs text-text-secondary font-mono">{m.email}</p>
+                    {m.salesperson_name && <p className="text-xs text-text-secondary mt-1">→ {m.salesperson_name}</p>}
+                  </div>
+                  <div className="inline-flex gap-1">
+                    <button onClick={() => setEditingMember(m)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors" title={t("edit")}>
+                      <Edit2 size={13} />
+                    </button>
+                    <button onClick={() => remove(m.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors" title={t("delete")}>
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="border-t border-border pt-3">
+                  <p className="label-eyebrow text-[10px] mb-2">{t("permissions_label")}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {team.all_permissions.map(p => {
+                      const meta = PERMISSION_LABELS[p] || { key: p, icon: "·" };
+                      const enabled = perms.includes(p);
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          data-testid={`perm-${m.id}-${p}`}
+                          onClick={() => togglePerm(m, p)}
+                          disabled={isSaving}
+                          className={`px-2.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider border transition-colors inline-flex items-center gap-1.5 ${
+                            enabled
+                              ? "border-success text-success bg-success/10"
+                              : "border-border text-text-secondary hover:border-primary"
+                          }`}
+                        >
+                          <span className="text-base leading-none">{meta.icon}</span>
+                          {t(meta.key)}
+                          {enabled && <Check size={11} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-              <button onClick={() => remove(u.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors" title={t("delete")}>
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
-      {showForm && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-12 px-4">
-          <form onSubmit={create} className="bg-background border border-border w-full max-w-md p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-display font-black text-xl uppercase tracking-tight">{t("add_bdc")}</h2>
-              <button type="button" onClick={() => setShowForm(false)}><X size={20} className="text-text-secondary hover:text-primary" /></button>
-            </div>
-            <p className="text-xs text-text-secondary leading-relaxed border-l-2 border-primary pl-3">{t("bdc_users_hint")}</p>
-            <div>
-              <label className="label-eyebrow block mb-2">{t("full_name")}</label>
-              <input data-testid="bdc-name" required value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm" />
-            </div>
-            <div>
-              <label className="label-eyebrow block mb-2">{t("email")}</label>
-              <input data-testid="bdc-email" required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm" />
-            </div>
-            <div>
-              <label className="label-eyebrow block mb-2">{t("password")}</label>
-              <input data-testid="bdc-password" required type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm" />
-            </div>
-            <div className="flex justify-end gap-3 pt-3 border-t border-border">
-              <button type="button" onClick={() => setShowForm(false)} className="px-5 py-2.5 border border-border hover:border-primary text-xs font-display font-bold uppercase tracking-widest transition-colors">{t("cancel")}</button>
-              <button type="submit" data-testid="bdc-submit" disabled={saving} className="bg-primary hover:bg-primary-hover disabled:opacity-50 px-5 py-2.5 text-xs font-display font-bold uppercase tracking-widest transition-colors">
-                {saving ? "..." : t("save")}
-              </button>
-            </div>
-          </form>
-        </div>
+      {editingMember && (
+        <TeamMemberForm
+          member={editingMember.id ? editingMember : null}
+          allPermissions={team.all_permissions}
+          roleDefaults={team.role_defaults}
+          salespeople={salespeople}
+          existingTeam={team.members}
+          t={t}
+          onClose={() => setEditingMember(null)}
+          onSaved={() => { setEditingMember(null); reload(); }}
+        />
       )}
+    </div>
+  );
+}
+
+function TeamMemberForm({ member, allPermissions, roleDefaults, salespeople, existingTeam, t, onClose, onSaved }) {
+  const isEdit = !!member;
+  const [form, setForm] = useState({
+    full_name: member?.full_name || "",
+    email: member?.email || "",
+    password: "",
+    role: member?.role || "salesperson",
+    salesperson_id: member?.salesperson_id || "",
+    permissions: member?.effective_permissions || roleDefaults?.salesperson || [],
+  });
+  const [saving, setSaving] = useState(false);
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const toggle = (perm) => {
+    setForm(f => {
+      const has = f.permissions.includes(perm);
+      return { ...f, permissions: has ? f.permissions.filter(p => p !== perm) : [...f.permissions, perm] };
+    });
+  };
+
+  // Salespeople not yet linked to a login (for the dropdown)
+  const linkedIds = new Set(existingTeam.filter(m => m.role === "salesperson" && m.id !== member?.id).map(m => m.salesperson_id));
+  const availableSalespeople = salespeople.filter(s => !linkedIds.has(s.id) && s.active !== false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (form.role === "salesperson" && !form.salesperson_id && !isEdit) {
+      toast.error(t("must_pick_salesperson"));
+      return;
+    }
+    setSaving(true);
+    try {
+      if (isEdit) {
+        const upd = {
+          full_name: form.full_name,
+          email: form.email,
+          permissions: form.permissions,
+        };
+        if (form.password) upd.password = form.password;
+        await api.put(`/team/${member.id}`, upd);
+      } else {
+        await api.post("/team", form);
+      }
+      toast.success(t("saved"));
+      onSaved();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || t("error_generic"));
+    } finally { setSaving(false); }
+  };
+
+  // Apply role defaults when user changes role (only when creating)
+  const applyRoleDefaults = (newRole) => {
+    set("role", newRole);
+    if (!isEdit) set("permissions", roleDefaults[newRole] || []);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-12 px-4">
+      <form onSubmit={submit} className="bg-background border border-border w-full max-w-lg p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-display font-black text-xl uppercase tracking-tight">
+            {isEdit ? t("edit_team_member") : t("add_team_member")}
+          </h2>
+          <button type="button" onClick={onClose}><X size={20} className="text-text-secondary hover:text-primary" /></button>
+        </div>
+
+        {!isEdit && (
+          <div>
+            <label className="label-eyebrow block mb-2">{t("role")}</label>
+            <div className="grid grid-cols-2 gap-2">
+              {["salesperson", "bdc"].map(r => (
+                <button
+                  key={r}
+                  type="button"
+                  data-testid={`role-${r}`}
+                  onClick={() => applyRoleDefaults(r)}
+                  className={`px-4 py-3 text-xs font-display font-bold uppercase tracking-widest border transition-colors ${
+                    form.role === r ? "border-primary text-primary bg-primary/10" : "border-border text-text-secondary hover:border-primary/60"
+                  }`}
+                >
+                  {r === "bdc" ? "BDC" : t("salesperson")}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!isEdit && form.role === "salesperson" && (
+          <div>
+            <label className="label-eyebrow block mb-2">{t("link_salesperson")}</label>
+            <select
+              data-testid="tm-link-sp"
+              required
+              value={form.salesperson_id}
+              onChange={(e) => set("salesperson_id", e.target.value)}
+              className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm"
+            >
+              <option value="">— {t("select_salesperson")} —</option>
+              {availableSalespeople.map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+            {availableSalespeople.length === 0 && (
+              <p className="text-xs text-warning mt-2">{t("no_available_salesperson")}</p>
+            )}
+          </div>
+        )}
+
+        <div>
+          <label className="label-eyebrow block mb-2">{t("full_name")}</label>
+          <input data-testid="tm-name" required value={form.full_name} onChange={(e) => set("full_name", e.target.value)} className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm" />
+        </div>
+        <div>
+          <label className="label-eyebrow block mb-2">{t("email")}</label>
+          <input data-testid="tm-email" required type="email" value={form.email} onChange={(e) => set("email", e.target.value)} className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm" />
+        </div>
+        <div>
+          <label className="label-eyebrow block mb-2">
+            {t("password")} {isEdit && <span className="text-text-secondary normal-case">({t("leave_blank_to_keep")})</span>}
+          </label>
+          <input data-testid="tm-password" type="password" required={!isEdit} value={form.password} onChange={(e) => set("password", e.target.value)} className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm" />
+        </div>
+
+        <div>
+          <p className="label-eyebrow mb-2">{t("permissions_label")}</p>
+          <p className="text-xs text-text-secondary mb-3">{t("permissions_hint")}</p>
+          <div className="grid grid-cols-2 gap-2">
+            {allPermissions.map(p => {
+              const meta = PERMISSION_LABELS[p] || { key: p, icon: "·" };
+              const enabled = form.permissions.includes(p);
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  data-testid={`tm-perm-${p}`}
+                  onClick={() => toggle(p)}
+                  className={`flex items-center gap-2 px-3 py-2.5 border transition-colors text-sm ${
+                    enabled
+                      ? "border-success text-success bg-success/10"
+                      : "border-border text-text-secondary hover:border-primary/60"
+                  }`}
+                >
+                  <span className="text-lg leading-none">{meta.icon}</span>
+                  <span className="font-display font-bold uppercase text-xs tracking-wider flex-1 text-left">{t(meta.key)}</span>
+                  {enabled ? <Check size={14} /> : <span className="w-3.5 h-3.5 border border-current rounded-sm" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-3 border-t border-border">
+          <button type="button" onClick={onClose} className="px-5 py-2.5 border border-border hover:border-primary text-xs font-display font-bold uppercase tracking-widest transition-colors">{t("cancel")}</button>
+          <button type="submit" data-testid="tm-submit" disabled={saving} className="bg-primary hover:bg-primary-hover disabled:opacity-50 px-5 py-2.5 text-xs font-display font-bold uppercase tracking-widest transition-colors">
+            {saving ? "..." : t("save")}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

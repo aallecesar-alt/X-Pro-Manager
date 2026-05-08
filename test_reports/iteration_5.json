@@ -1,0 +1,72 @@
+{
+  "summary": "Backend-only validation of the Unified Team Management & per-tab permissions feature. Created /app/backend/tests/test_team_management.py with 26 focused tests across 6 classes (TestAuthIncludesPermissions, TestListTeam, TestCreateTeamMember, TestUpdateTeamMember, TestDeleteTeamMember, TestPermissionEnforcement, TestDefaultPermissions). All 26 NEW tests pass; full regression across 4 test files = 58/58 PASS in 29.63s. Coverage: GET /api/team owner-only with members + all_permissions + role_defaults shape, salesperson/BDC both 403; POST /api/team validations (role check, salesperson_id required, salesperson record must exist, one-login-per-salesperson, duplicate email, BDC needs no link); PUT /api/team/{uid} updates full_name/email/permissions, password optional (verified by re-login with old + new password), invalid permission keys silently filtered out; DELETE /api/team/{uid} owner-only with persistence verification; permission enforcement: salesperson with [overview] is 403 on /vehicles + /leads + /delivery, BDC with [overview, leads] is 200 on /leads but 403 on /vehicles, /salespeople accessible when either 'salespeople' or 'leads' tab is granted (and 403 when neither); /auth/login + /auth/me both include user.permissions field with effective list; owner role bypasses checks (verified by hitting /vehicles, /leads, /delivery, /salespeople — all 200). Default permissions verified: salesperson default = {overview, inventory, pipeline, delivery, leads, salespeople} (NO financial), bdc default = {overview, leads}. Found and FIXED ONE CRITICAL BACKEND BUG along the way (see backend_issues.critical).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/team",
+        "issue": "FIXED. Endpoint returned 500 'ObjectId is not iterable / vars() argument must have __dict__'. Root cause: after `await db.users.insert_one(user)`, motor mutates the `user` dict in place to inject MongoDB `_id` (ObjectId). The response builder then did `out = {k: v for k, v in user.items() if k != 'password_hash'}` which still leaked `_id`, breaking FastAPI JSON encoding. Fix applied at /app/backend/server.py line ~995: changed the dict-comprehension to also exclude '_id'. Without this fix, the entire team-creation flow (frontend Adicionar pessoa modal) is unusable — all 13 POST-dependent tests were failing with 500. After fix, all 26 tests pass.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "PUT /api/team/{uid}",
+        "issue": "Empty/no-op update returns 400 'Nothing to update'. Slightly user-hostile if frontend sends an empty save (e.g., owner opens modal and clicks Save without changes). Consider returning 200 with the unchanged user instead, or return 204."
+      },
+      {
+        "endpoint": "PUT /api/team/{uid}",
+        "issue": "permissions=null (None) is silently treated as 'no change' (because Optional[List[str]] with None is filtered out before update). Per the request note this is known and acceptable, but worth a docstring — owners cannot 'reset to defaults' via API; they must send the full default array. Consider adding an explicit `reset_permissions: bool` flag or treating an empty list [] as 'reset to defaults'."
+      },
+      {
+        "endpoint": "POST /api/team",
+        "issue": "Same dict-mutation pattern from `motor.insert_one` is present in other endpoints in server.py (e.g., signup at line ~287 uses a Pydantic model so it's safe, but any future endpoint that builds a raw dict and inserts will hit this. Recommend a small helper `def safe_user_dict(u): return {k:v for k,v in u.items() if k not in ('_id','password_hash')}` for consistency."
+      },
+      {
+        "endpoint": "POST /api/team",
+        "issue": "No password length / strength validation. A 1-char password is accepted. Consider Pydantic constr(min_length=6)."
+      },
+      {
+        "endpoint": "POST /api/team",
+        "issue": "When role=salesperson and salesperson_id is provided but linked to a different dealership, the lookup correctly scopes by dealership_id and returns 400 — good. However, the error message 'Salesperson record not found' is identical to the case where the id is just typoed; not a security issue, just UX."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_team_management.py",
+    "/app/test_reports/pytest/team_management.xml"
+  ],
+  "action_items": [
+    "VERIFY my fix at /app/backend/server.py line ~995 (POST /api/team response builder now also excludes '_id'). Test added: TestCreateTeamMember::test_create_bdc_no_salesperson_id_required + 5 others all hit this path.",
+    "(Optional) Apply the same `_id` exclusion pattern as a helper across server.py to prevent future regressions when new dict-based insert paths are added.",
+    "(Optional) Add password min_length validation on TeamMemberCreate / TeamMemberUpdate.",
+    "(Optional) Allow PUT /api/team/{uid} with empty body to be a no-op 200 instead of 400, OR define an explicit way to reset permissions to role defaults (e.g., empty list)."
+  ],
+  "critical_code_review_comments": [
+    "BUG (FIXED): /api/team POST leaked Mongo ObjectId in response — classic dict-mutation-after-insert_one issue. Fixed at line 996.",
+    "PUT /api/team/{uid} silently filters invalid permission keys (e.g., ['overview','foo'] becomes ['overview']). Tested — works as spec'd, but consider returning 400 for unknown keys to surface client typos, OR return both the saved + ignored keys in the response so frontend can warn the user.",
+    "list_team correctly projects {_id:0, password_hash:0} so it's safe — the bug was localized to POST.",
+    "user_can_access correctly hard-codes owner=True even when permissions=[] (verified by test_owner_with_empty_permissions_still_full_access via existing owner perms; designed correctly).",
+    "/api/salespeople gates with `salespeople OR leads` which matches the spec but is non-obvious. Add a comment in the docstring: leads form needs salespeople dropdown -> grants read access.",
+    "The seeded BDC user (bdc@intercar.com) has permissions persisted as ['overview','leads'] explicitly (not None). Cosmetic — equals default — but means deleting a permission via UI would NOT 'fall back to default'. Consider that in the UI: maybe show 'Custom' vs 'Defaults' badge.",
+    "Effective_permissions returns the custom list verbatim if set, including [] which would lock the user out of every tab including overview. Owner UI should disallow saving a totally empty permission set for non-owners."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (1-line fix at create_team_member: exclude '_id' from response)",
+    "/app/backend/tests/test_team_management.py (NEW — 26 tests, ~470 lines)"
+  ],
+  "success_rate": {
+    "backend": "100% (26/26 new team-management tests; 58/58 across all 4 backend test files)",
+    "frontend": "not tested (backend-only iteration as requested)"
+  },
+  "test_credentials": "Owner: carlos@intercar.com / senha123 ; Salesperson: joao@intercar.com / senha456 ; BDC: bdc@intercar.com / bdc1234 — all verified working and include user.permissions in /auth/login response.",
+  "seed_data_creation": "All test data is auto-created and auto-cleaned by session-scoped autouse fixture in test_team_management.py. Tests create TEST_TEAM_* users + TEST_TEAM_SP_* salespeople, all deleted at session end. After the run + a manual sweep, only the 2 seeded users (BDC Operadora + Joao Silva) remain. Lead count preserved at 1256 (verified via curl). Inventory unchanged. Salespeople collection unchanged (only TEST_TEAM_SP_* added/removed). Per the request note: BDC has permissions=['overview','leads'] (which equals default — was already this way before tests; main agent can null it out manually if desired). Joao still has permissions=None.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Five test files in /app/backend/tests/: backend_test.py, test_financial.py, test_lost_sales.py, test_leaderboard_promotion.py, test_team_management.py — all use session-scoped autouse cleanup. Re-running the whole suite is safe. The test_financial::test_closing_math pre-existing flake noted in iteration_4 was NOT re-investigated (out of scope). One backend bug FIXED in server.py POST /api/team — confirm the fix is still in place before next iteration. The frontend Adicionar pessoa modal & TeamSection were NOT tested (request was backend-only).",
+  "rca of the issue": "POST /api/team returned 500 on every successful create-path call. Reproduction: any valid POST /api/team payload as owner. RCA: in /app/backend/server.py the create_team_member handler builds a plain dict `user` then calls `await db.users.insert_one(user)`. Motor's PyMongo-compatible insert_one mutates the input dict in place to add `_id` (a `bson.ObjectId` instance, NOT a string). The next line `out = {k: v for k, v in user.items() if k != 'password_hash'}` still includes the `_id` key, and FastAPI's jsonable_encoder cannot serialize ObjectId — fails with 'TypeError: vars() argument must have __dict__ attribute' which surfaces as 500. Mitigation (applied): change the comprehension to also exclude `_id`: `out = {k: v for k, v in user.items() if k not in ('password_hash', '_id')}`. Verified by re-running the 26-test suite — all green. Long-term: introduce a helper `safe_user_dict()` and use it for every insert-then-respond pattern, or use Pydantic response models that explicitly declare allowed fields."
+}

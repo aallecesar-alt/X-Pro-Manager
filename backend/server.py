@@ -177,11 +177,44 @@ async def get_current_user(request: Request) -> dict:
         # Default role for accounts created before role was introduced
         user.setdefault("role", "owner")
         user.setdefault("salesperson_id", "")
+        user.setdefault("permissions", None)  # None means: use role defaults
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(401, "Token expired")
     except jwt.InvalidTokenError:
         raise HTTPException(401, "Invalid token")
+
+
+# All tab permissions in the system. Owner always has full access.
+ALL_TAB_PERMISSIONS = [
+    "overview", "inventory", "pipeline", "delivery",
+    "leads", "salespeople", "financial",
+]
+ROLE_DEFAULT_PERMISSIONS = {
+    "owner": ALL_TAB_PERMISSIONS,
+    "bdc": ["overview", "leads"],
+    "salesperson": ["overview", "inventory", "pipeline", "delivery", "leads", "salespeople"],
+}
+
+
+def effective_permissions(user: dict) -> list:
+    """Returns the list of tabs the user can access. Custom permissions override role defaults."""
+    role = user.get("role", "owner")
+    custom = user.get("permissions")
+    if isinstance(custom, list):
+        return custom
+    return ROLE_DEFAULT_PERMISSIONS.get(role, ["overview"])
+
+
+def user_can_access(user: dict, tab: str) -> bool:
+    if user.get("role") == "owner":
+        return True
+    return tab in effective_permissions(user)
+
+
+def require_tab(user: dict, tab: str):
+    if not user_can_access(user, tab):
+        raise HTTPException(403, f"No access to {tab}")
 
 
 def is_salesperson(user: dict) -> bool:
@@ -280,6 +313,7 @@ async def login(payload: LoginRequest):
         raise HTTPException(401, "Invalid credentials")
     dealership = await db.dealerships.find_one({"id": user["dealership_id"]}, {"_id": 0})
     token = create_token(user["id"], user["dealership_id"], user["email"])
+    perms = effective_permissions(user)
     return {
         "access_token": token,
         "user": {
@@ -289,6 +323,7 @@ async def login(payload: LoginRequest):
             "dealership_id": user["dealership_id"],
             "role": user.get("role", "owner"),
             "salesperson_id": user.get("salesperson_id", ""),
+            "permissions": perms,
         },
         "dealership": dealership,
     }
@@ -297,7 +332,8 @@ async def login(payload: LoginRequest):
 @api_router.get("/auth/me")
 async def me(current: dict = Depends(get_current_user)):
     dealership = await db.dealerships.find_one({"id": current["dealership_id"]}, {"_id": 0})
-    return {"user": current, "dealership": dealership}
+    out_user = {**current, "permissions": effective_permissions(current)}
+    return {"user": out_user, "dealership": dealership}
 
 
 # ============================================================
@@ -309,6 +345,7 @@ async def list_vehicles(
     search: Optional[str] = None,
     current: dict = Depends(get_current_user),
 ):
+    require_tab(current, "inventory")
     q = {"dealership_id": current["dealership_id"]}
     if status:
         q["status"] = status
@@ -407,6 +444,7 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
 @api_router.get("/delivery")
 async def list_delivery(current: dict = Depends(get_current_user)):
     """Vehicles currently in the delivery pipeline (sold but not delivered)."""
+    require_tab(current, "delivery")
     items = await db.vehicles.find(
         {"dealership_id": current["dealership_id"], "status": "sold", "delivery_step": {"$gte": 1, "$lte": 8}},
         {"_id": 0}
@@ -746,6 +784,10 @@ class SalespersonUpdate(BaseModel):
 
 @api_router.get("/salespeople", response_model=List[Salesperson])
 async def list_salespeople(current: dict = Depends(get_current_user)):
+    # Anyone with any tab access except pure BDC needs salespeople list (used in lead form). 
+    # Allow if salespeople tab OR leads tab (since leads form needs salespeople dropdown).
+    if not (user_can_access(current, "salespeople") or user_can_access(current, "leads")):
+        raise HTTPException(403, "No access")
     items = await db.salespeople.find(
         {"dealership_id": current["dealership_id"]}, {"_id": 0}
     ).sort("name", 1).to_list(500)
@@ -858,6 +900,144 @@ async def delete_bdc_user(uid: str, current: dict = Depends(get_current_user)):
     res = await db.users.delete_one({"id": uid, "dealership_id": current["dealership_id"], "role": "bdc"})
     if res.deleted_count == 0:
         raise HTTPException(404, "BDC user not found")
+    return {"deleted": True}
+
+
+# ============================================================
+# UNIFIED TEAM MANAGEMENT (owner only)
+# Centralized place to create/edit/permission salespeople and BDCs.
+# ============================================================
+class TeamMemberCreate(BaseModel):
+    full_name: str
+    email: EmailStr
+    password: str
+    role: str  # "salesperson" | "bdc"
+    salesperson_id: str = ""  # required when role=salesperson — links to salespeople collection
+    permissions: Optional[List[str]] = None  # if None, role defaults are used
+
+
+class TeamMemberUpdate(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None  # if provided, replaces the password
+    permissions: Optional[List[str]] = None
+
+
+@api_router.get("/team")
+async def list_team(current: dict = Depends(get_current_user)):
+    """List all non-owner users in this dealership with their permissions."""
+    require_owner(current)
+    users = await db.users.find(
+        {"dealership_id": current["dealership_id"], "role": {"$in": ["salesperson", "bdc"]}},
+        {"_id": 0, "password_hash": 0}
+    ).sort("full_name", 1).to_list(500)
+    # Resolve salesperson_name when role=salesperson
+    sps = {sp["id"]: sp for sp in await db.salespeople.find(
+        {"dealership_id": current["dealership_id"]}, {"_id": 0}
+    ).to_list(500)}
+    out = []
+    for u in users:
+        item = {**u, "effective_permissions": effective_permissions(u)}
+        if u.get("salesperson_id") and u["salesperson_id"] in sps:
+            item["salesperson_name"] = sps[u["salesperson_id"]].get("name", "")
+        out.append(item)
+    return {
+        "members": out,
+        "all_permissions": ALL_TAB_PERMISSIONS,
+        "role_defaults": ROLE_DEFAULT_PERMISSIONS,
+    }
+
+
+@api_router.post("/team")
+async def create_team_member(payload: TeamMemberCreate, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    if payload.role not in ("salesperson", "bdc"):
+        raise HTTPException(400, "role must be salesperson or bdc")
+    email = payload.email.lower()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(400, "Email already in use")
+
+    # For salesperson role, link to existing salespeople record (must exist first)
+    sp_id = ""
+    if payload.role == "salesperson":
+        if not payload.salesperson_id:
+            raise HTTPException(400, "salesperson_id is required when role=salesperson")
+        sp = await db.salespeople.find_one(
+            {"id": payload.salesperson_id, "dealership_id": current["dealership_id"]}, {"_id": 0}
+        )
+        if not sp:
+            raise HTTPException(400, "Salesperson record not found")
+        # one login per salesperson
+        existing = await db.users.find_one({
+            "dealership_id": current["dealership_id"],
+            "salesperson_id": payload.salesperson_id,
+            "role": "salesperson",
+        })
+        if existing:
+            raise HTTPException(400, "This salesperson already has a login")
+        sp_id = payload.salesperson_id
+
+    perms = payload.permissions if payload.permissions is not None else None
+    if perms is not None:
+        perms = [p for p in perms if p in ALL_TAB_PERMISSIONS]
+
+    user = {
+        "id": str(uuid.uuid4()),
+        "email": email,
+        "password_hash": hash_password(payload.password),
+        "full_name": payload.full_name,
+        "dealership_id": current["dealership_id"],
+        "role": payload.role,
+        "salesperson_id": sp_id,
+        "permissions": perms,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.users.insert_one(user)
+    out = {k: v for k, v in user.items() if k not in ("password_hash", "_id")}
+    out["effective_permissions"] = effective_permissions(user)
+    return out
+
+
+@api_router.put("/team/{uid}")
+async def update_team_member(uid: str, payload: TeamMemberUpdate, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    user = await db.users.find_one({"id": uid, "dealership_id": current["dealership_id"]}, {"_id": 0, "password_hash": 0})
+    if not user or user.get("role") == "owner":
+        raise HTTPException(404, "Team member not found")
+
+    upd = {}
+    if payload.full_name is not None:
+        upd["full_name"] = payload.full_name
+    if payload.email is not None:
+        new_email = payload.email.lower()
+        # Check email collision (allow keeping own email)
+        clash = await db.users.find_one({"email": new_email})
+        if clash and clash.get("id") != uid:
+            raise HTTPException(400, "Email already in use")
+        upd["email"] = new_email
+    if payload.password:
+        upd["password_hash"] = hash_password(payload.password)
+    if payload.permissions is not None:
+        upd["permissions"] = [p for p in payload.permissions if p in ALL_TAB_PERMISSIONS]
+
+    if not upd:
+        raise HTTPException(400, "Nothing to update")
+    await db.users.update_one({"id": uid}, {"$set": upd})
+    refreshed = await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
+    refreshed["effective_permissions"] = effective_permissions(refreshed)
+    return refreshed
+
+
+@api_router.delete("/team/{uid}")
+async def delete_team_member(uid: str, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    res = await db.users.delete_one({
+        "id": uid,
+        "dealership_id": current["dealership_id"],
+        "role": {"$in": ["salesperson", "bdc"]},
+    })
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Team member not found")
     return {"deleted": True}
 
 
@@ -1497,6 +1677,7 @@ async def list_leads(
     search: Optional[str] = None,
     current: dict = Depends(get_current_user),
 ):
+    require_tab(current, "leads")
     q = {"dealership_id": current["dealership_id"]}
     if status:
         q["status"] = status
