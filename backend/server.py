@@ -919,6 +919,8 @@ class TeamMemberCreate(BaseModel):
     role: str  # "salesperson" | "bdc"
     salesperson_id: str = ""  # required when role=salesperson — links to salespeople collection
     permissions: Optional[List[str]] = None  # if None, role defaults are used
+    photo_url: str = ""
+    photo_public_id: str = ""
 
 
 class TeamMemberUpdate(BaseModel):
@@ -1006,11 +1008,17 @@ async def create_team_member(payload: TeamMemberCreate, current: dict = Depends(
         "role": payload.role,
         "salesperson_id": sp_id,
         "permissions": perms,
-        "photo_url": "",
-        "photo_public_id": "",
+        "photo_url": payload.photo_url or "",
+        "photo_public_id": payload.photo_public_id or "",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.users.insert_one(user)
+    # Mirror photo to the linked salespeople doc so avatars surface everywhere immediately.
+    if payload.role == "salesperson" and sp_id and (payload.photo_url or payload.photo_public_id):
+        await db.salespeople.update_one(
+            {"id": sp_id, "dealership_id": current["dealership_id"]},
+            {"$set": {"photo_url": payload.photo_url or "", "photo_public_id": payload.photo_public_id or ""}},
+        )
     out = {k: v for k, v in user.items() if k not in ("password_hash", "_id")}
     out["effective_permissions"] = effective_permissions(user)
     return out

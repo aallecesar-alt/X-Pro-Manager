@@ -1044,8 +1044,11 @@ function TeamMemberForm({ member, allPermissions, roleDefaults, salespeople, exi
     role: member?.role || "salesperson",
     salesperson_id: member?.salesperson_id || "",
     permissions: member?.effective_permissions || roleDefaults?.salesperson || [],
+    photo_url: member?.photo_url || "",
+    photo_public_id: member?.photo_public_id || "",
   });
   const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const toggle = (perm) => {
@@ -1059,6 +1062,22 @@ function TeamMemberForm({ member, allPermissions, roleDefaults, salespeople, exi
   const applyRoleDefaults = (newRole) => {
     set("role", newRole);
     if (!isEdit) set("permissions", roleDefaults[newRole] || []);
+  };
+
+  // Handles both create (upload now, save URL on submit) and edit (upload + persist immediately).
+  const onPickPhoto = async (file) => {
+    if (!file) return;
+    setUploadingPhoto(true);
+    try {
+      const { photo_url, photo_public_id } = await uploadProfilePhoto(file);
+      setForm(f => ({ ...f, photo_url, photo_public_id }));
+      if (isEdit) {
+        await api.put(`/team/${member.id}/photo`, { photo_url, photo_public_id });
+        toast.success(t("saved"));
+      }
+    } catch (err) {
+      toast.error(err.message || t("error_generic"));
+    } finally { setUploadingPhoto(false); }
   };
 
   const submit = async (e) => {
@@ -1115,10 +1134,47 @@ function TeamMemberForm({ member, allPermissions, roleDefaults, salespeople, exi
           </div>
         )}
 
+        {/* Photo + Name side-by-side (Monday-style) */}
         <div>
           <label className="label-eyebrow block mb-2">{t("full_name")}</label>
-          <input data-testid="tm-name" required value={form.full_name} onChange={(e) => set("full_name", e.target.value)} className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm" />
+          <div className="flex items-center gap-3">
+            <label
+              className="relative cursor-pointer group shrink-0"
+              title={t("change_photo")}
+              data-testid="tm-photo-picker"
+            >
+              <Avatar
+                src={form.photo_url}
+                name={form.full_name || t("full_name")}
+                size="lg"
+                testid="tm-photo-preview"
+              />
+              <div className="absolute inset-0 rounded-full bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                {uploadingPhoto
+                  ? <span className="text-[10px] text-white">...</span>
+                  : <Upload size={14} className="text-white" />}
+              </div>
+              <input
+                data-testid="tm-photo-input"
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => onPickPhoto(e.target.files?.[0])}
+                disabled={uploadingPhoto || saving}
+              />
+            </label>
+            <input
+              data-testid="tm-name"
+              required
+              value={form.full_name}
+              onChange={(e) => set("full_name", e.target.value)}
+              placeholder={t("full_name")}
+              className="flex-1 bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm"
+            />
+          </div>
+          <p className="text-[11px] text-text-secondary mt-1.5">{t("team_photo_hint")}</p>
         </div>
+
         <div>
           <label className="label-eyebrow block mb-2">{t("email")}</label>
           <input data-testid="tm-email" required type="email" value={form.email} onChange={(e) => set("email", e.target.value)} className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm" />
