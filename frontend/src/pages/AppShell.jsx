@@ -205,13 +205,14 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, on
   const [statusFilter, setStatusFilter] = useState("all");
   const setViewSticky = (v) => { setView(v); localStorage.setItem("inventory_view", v); };
 
+  // Sold vehicles disappear from inventory — they live in Esteira de Entrega + Financeiro
+  const activeVehicles = vehicles.filter(v => v.status !== "sold");
   const counts = {
-    all: vehicles.length,
-    in_stock: vehicles.filter(v => v.status === "in_stock").length,
-    reserved: vehicles.filter(v => v.status === "reserved").length,
-    sold: vehicles.filter(v => v.status === "sold").length,
+    all: activeVehicles.length,
+    in_stock: activeVehicles.filter(v => v.status === "in_stock").length,
+    reserved: activeVehicles.filter(v => v.status === "reserved").length,
   };
-  const filtered = statusFilter === "all" ? vehicles : vehicles.filter(v => v.status === statusFilter);
+  const filtered = statusFilter === "all" ? activeVehicles : activeVehicles.filter(v => v.status === statusFilter);
 
   return (
     <div data-testid="inventory-tab">
@@ -258,13 +259,12 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, on
         </div>
       </div>
 
-      {/* Status filter pills */}
+      {/* Status filter pills (sold cars are excluded — they live in Esteira de Entrega + Financeiro) */}
       <div className="flex flex-wrap gap-2 mb-6">
         {[
           { id: "all", label: t("all_time") },
           { id: "in_stock", label: t("in_stock") },
           { id: "reserved", label: t("reserved") },
-          { id: "sold", label: t("sold") },
         ].map(s => (
           <button
             key={s.id}
