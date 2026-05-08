@@ -68,6 +68,7 @@ export default function Financial({ t }) {
   const [monthly, setMonthly] = useState([]);
   const [allSold, setAllSold] = useState([]);
   const [editing, setEditing] = useState(null); // {} for new, expense object for edit
+  const [detailVid, setDetailVid] = useState(null); // vehicle id to show details for
 
   const reload = async () => {
     try {
@@ -200,12 +201,18 @@ export default function Financial({ t }) {
                 {closing.vehicles_sold.map((v) => (
                   <tr key={v.vehicle_id} data-testid={`fin-sale-${v.vehicle_id}`} className="border-b border-border hover:bg-surface transition-colors">
                     <td className="p-3">
-                      <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        data-testid={`open-detail-${v.vehicle_id}`}
+                        onClick={() => setDetailVid(v.vehicle_id)}
+                        className="flex items-center gap-2 text-left hover:text-primary transition-colors"
+                      >
                         {v.image && <img src={v.image} alt="" className="w-10 h-8 object-cover" />}
                         <div>
-                          <p className="font-display font-bold">{v.year} {v.make} {v.model}</p>
+                          <p className="font-display font-bold border-b border-dashed border-text-secondary/40">{v.year} {v.make} {v.model}</p>
+                          <p className="text-[10px] text-text-secondary uppercase tracking-wider">{t("view_expenses")}</p>
                         </div>
-                      </div>
+                      </button>
                     </td>
                     <td className="p-3">{v.buyer_name || "—"}</td>
                     <td className="p-3">{v.salesperson_name || "—"}</td>
@@ -253,12 +260,18 @@ export default function Financial({ t }) {
                       {v.sold_at ? new Date(v.sold_at).toLocaleDateString() : "—"}
                     </td>
                     <td className="p-3">
-                      <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        data-testid={`open-detail-all-${v.vehicle_id}`}
+                        onClick={() => setDetailVid(v.vehicle_id)}
+                        className="flex items-center gap-2 text-left hover:text-primary transition-colors"
+                      >
                         {v.image && <img src={v.image} alt="" className="w-10 h-8 object-cover" />}
                         <div>
-                          <p className="font-display font-bold">{v.year} {v.make} {v.model}</p>
+                          <p className="font-display font-bold border-b border-dashed border-text-secondary/40">{v.year} {v.make} {v.model}</p>
+                          <p className="text-[10px] text-text-secondary uppercase tracking-wider">{t("view_expenses")}</p>
                         </div>
-                      </div>
+                      </button>
                     </td>
                     <td className="p-3">{v.buyer_name || "—"}</td>
                     <td className="p-3 text-right">
@@ -366,6 +379,14 @@ export default function Financial({ t }) {
           onSaved={() => { setEditing(null); reload(); }}
         />
       )}
+
+      {detailVid && (
+        <VehicleExpensesModal
+          vehicleId={detailVid}
+          t={t}
+          onClose={() => setDetailVid(null)}
+        />
+      )}
     </div>
   );
 }
@@ -462,6 +483,111 @@ function ExpenseForm({ expense, t, onClose, onSaved }) {
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function VehicleExpensesModal({ vehicleId, t, onClose }) {
+  const [vehicle, setVehicle] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancel = false;
+    api.get(`/vehicles/${vehicleId}`)
+      .then((r) => { if (!cancel) { setVehicle(r.data); setLoading(false); } })
+      .catch(() => { if (!cancel) { toast.error(t("error_generic")); setLoading(false); } });
+    return () => { cancel = true; };
+  }, [vehicleId, t]);
+
+  const items = vehicle?.expense_items || [];
+  const expensesTotal = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+  const sold = Number(vehicle?.sold_price) || 0;
+  const purchase = Number(vehicle?.purchase_price) || 0;
+  const profit = sold - purchase - expensesTotal;
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-12 px-4">
+      <div className="bg-background border border-border w-full max-w-2xl">
+        <div className="flex items-center justify-between p-6 border-b border-border">
+          <div>
+            <p className="label-eyebrow text-primary mb-1">{t("real_profit")}</p>
+            <h2 className="font-display font-black text-xl uppercase tracking-tight">
+              {vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : "..."}
+            </h2>
+            {vehicle?.buyer_name && <p className="text-xs text-text-secondary mt-1">{t("buyer_name")}: {vehicle.buyer_name}</p>}
+          </div>
+          <button onClick={onClose} data-testid="close-detail"><X size={20} className="text-text-secondary hover:text-primary" /></button>
+        </div>
+
+        {loading ? (
+          <p className="text-text-secondary text-sm text-center py-12">...</p>
+        ) : (
+          <>
+            {/* Summary breakdown */}
+            <div className="p-6 space-y-2 border-b border-border">
+              <div className="flex justify-between text-sm">
+                <span className="text-text-secondary">{t("sold_price")}</span>
+                <span className="font-display font-bold">{formatCurrency(sold)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-text-secondary">− {t("purchase_price")}</span>
+                <span className="font-display font-bold">{formatCurrency(purchase)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-text-secondary">− {t("expenses_total")}</span>
+                <span className="font-display font-bold">{formatCurrency(expensesTotal)}</span>
+              </div>
+              <div className="flex justify-between pt-3 border-t border-border">
+                <span className="label-eyebrow text-primary">{t("real_profit")}</span>
+                <span className={`font-display font-black text-2xl ${profit >= 0 ? "text-success" : "text-primary"}`}>
+                  {formatCurrency(profit)}
+                </span>
+              </div>
+            </div>
+
+            {/* Itemized expenses */}
+            <div className="p-6">
+              <p className="label-eyebrow text-primary mb-4">
+                {t("expenses_total")} · {items.length}
+              </p>
+              {items.length === 0 ? (
+                <p className="text-text-secondary text-sm text-center py-8 border border-dashed border-border">
+                  {t("no_expenses")}
+                </p>
+              ) : (
+                <div className="border border-border">
+                  {items.map((it, i) => {
+                    const att = (it.attachments && it.attachments[0]) || null;
+                    return (
+                      <div key={it.id || i} data-testid={`vex-item-${i}`} className="flex items-center justify-between gap-3 p-3 border-b border-border last:border-b-0">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-display font-bold text-sm truncate">{it.description || "—"}</p>
+                          <p className="text-xs text-text-secondary">
+                            {it.category || "—"}{it.date ? ` · ${it.date}` : ""}
+                          </p>
+                        </div>
+                        {att?.url && (
+                          <a
+                            href={att.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-primary inline-flex items-center gap-1 hover:underline"
+                          >
+                            {(att.url || "").match(/\.(pdf)$/i) ? <FileText size={12} /> : <ImageIcon size={12} />} {t("view")}
+                          </a>
+                        )}
+                        <span className="font-display font-bold text-warning shrink-0 w-28 text-right">
+                          −{formatCurrency(Number(it.amount) || 0)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
