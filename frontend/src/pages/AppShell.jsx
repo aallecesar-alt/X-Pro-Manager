@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -9,6 +9,7 @@ import ExpenseManager from "@/components/ExpenseManager";
 import Financial from "@/pages/Financial";
 import LeadsPage from "@/pages/LeadsPage";
 import Maintenance from "@/pages/Maintenance";
+import VehicleHistoryModal from "@/components/VehicleHistoryModal";
 import Avatar from "@/components/Avatar";
 import { uploadProfilePhoto } from "@/lib/uploadPhoto";
 
@@ -34,6 +35,7 @@ export default function AppShell() {
   const [editing, setEditing] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [historyVid, setHistoryVid] = useState(null);
 
   const userPerms = user?.permissions || [];
   const canAccess = (tabId) => isOwner || userPerms.includes(tabId);
@@ -178,14 +180,15 @@ export default function AppShell() {
           <Inventory
             vehicles={vehicles} t={t} search={search} setSearch={setSearch} isSalesperson={isSalesperson}
             onAdd={() => setEditing("new")} onImport={() => setImportOpen(true)} onEdit={(v) => setEditing(v)} onDelete={onDelete}
+            onHistory={setHistoryVid}
           />
         )}
-        {tab === "pipeline" && canAccess("pipeline") && <Pipeline vehicles={vehicles} t={t} onMove={updateStatus} onEdit={(v) => setEditing(v)} />}
-        {tab === "delivery" && canAccess("delivery") && <Delivery deliveries={deliveries} salespeople={salespeople} t={t} onReload={reload} isStaff={isStaff} />}
+        {tab === "pipeline" && canAccess("pipeline") && <Pipeline vehicles={vehicles} t={t} onMove={updateStatus} onEdit={(v) => setEditing(v)} onHistory={setHistoryVid} />}
+        {tab === "delivery" && canAccess("delivery") && <Delivery deliveries={deliveries} salespeople={salespeople} t={t} onReload={reload} isStaff={isStaff} onHistory={setHistoryVid} />}
         {tab === "leads" && canAccess("leads") && <LeadsPage t={t} role={user?.role || "owner"} currentSpId={user?.salesperson_id || ""} salespeople={salespeople} />}
         {tab === "salespeople" && canAccess("salespeople") && <SalespeopleTab salespeople={salespeople} t={t} onReload={reload} isSalesperson={isSalesperson} currentSpId={user?.salesperson_id || ""} />}
         {tab === "financial" && canAccess("financial") && <Financial t={t} />}
-        {tab === "maintenance" && canAccess("maintenance") && <Maintenance t={t} />}
+        {tab === "maintenance" && canAccess("maintenance") && <Maintenance t={t} onHistory={setHistoryVid} />}
         {tab === "settings" && isOwner && <SettingsTab dealership={dealership} t={t} onRefresh={refreshDealership} />}
 
         {editing && (
@@ -203,6 +206,7 @@ export default function AppShell() {
           />
         )}
       </main>
+      {historyVid && <VehicleHistoryModal vehicleId={historyVid} onClose={() => setHistoryVid(null)} />}
     </div>
   );
 }
@@ -605,7 +609,7 @@ function PromotionForm({ promotion, t, onClose, onSaved }) {
   );
 }
 
-function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, onDelete, isSalesperson }) {
+function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, onDelete, onHistory, isSalesperson }) {
   const [view, setView] = useState(() => localStorage.getItem("inventory_view") || "grid");
   const [statusFilter, setStatusFilter] = useState("all");
   const setViewSticky = (v) => { setView(v); localStorage.setItem("inventory_view", v); };
@@ -689,7 +693,7 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, on
       ) : view === "grid" ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
           {filtered.map((v) => (
-            <VehicleCard key={v.id} v={v} t={t} onEdit={onEdit} onDelete={onDelete} isSalesperson={isSalesperson} />
+            <VehicleCard key={v.id} v={v} t={t} onEdit={onEdit} onDelete={onDelete} onHistory={onHistory} isSalesperson={isSalesperson} />
           ))}
         </div>
       ) : (
@@ -723,6 +727,9 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, on
                   <td className="p-3"><StatusPill status={v.status} t={t} /></td>
                   <td className="p-3 text-right">
                     <div className="inline-flex gap-1">
+                      {onHistory && (
+                        <button data-testid={`history-${v.id}`} onClick={() => onHistory(v.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors" title={t("vehicle_history")}><History size={14} /></button>
+                      )}
                       <button data-testid={`edit-${v.id}`} onClick={() => onEdit(v)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Edit2 size={14} /></button>
                       {!isSalesperson && (
                         <button data-testid={`delete-${v.id}`} onClick={() => onDelete(v.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Trash2 size={14} /></button>
@@ -739,7 +746,7 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, on
   );
 }
 
-function VehicleCard({ v, t, onEdit, onDelete, isSalesperson }) {
+function VehicleCard({ v, t, onEdit, onDelete, onHistory, isSalesperson }) {
   const photoCount = v.images?.length || 0;
   return (
     <div data-testid={`card-grid-${v.id}`} className="group border border-border bg-surface overflow-hidden hover:border-primary transition-colors">
@@ -770,6 +777,16 @@ function VehicleCard({ v, t, onEdit, onDelete, isSalesperson }) {
             <p className="text-[10px] text-text-secondary truncate">{v.year}{v.color ? ` · ${v.color}` : ""}</p>
           </div>
           <div className="flex gap-0.5 shrink-0">
+            {onHistory && (
+              <button
+                data-testid={`history-${v.id}`}
+                onClick={(e) => { e.stopPropagation(); onHistory(v.id); }}
+                className="w-6 h-6 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
+                title={t("vehicle_history")}
+              >
+                <History size={11} />
+              </button>
+            )}
             <button
               data-testid={`edit-${v.id}`}
               onClick={(e) => { e.stopPropagation(); onEdit(v); }}
@@ -804,7 +821,7 @@ function StatusPill({ status, t }) {
   return <span className={`px-2 py-0.5 text-[10px] uppercase tracking-wider border ${cls}`}>{t(status)}</span>;
 }
 
-function Pipeline({ vehicles, t, onMove, onEdit }) {
+function Pipeline({ vehicles, t, onMove, onEdit, onHistory }) {
   return (
     <div data-testid="pipeline-tab">
       <p className="label-eyebrow text-primary mb-2">{t("pipeline")}</p>
@@ -838,6 +855,11 @@ function Pipeline({ vehicles, t, onMove, onEdit }) {
                         </button>
                       ))}
                       <button onClick={() => onEdit(v)} className="text-[10px] px-2 py-1 border border-border hover:border-primary hover:text-primary uppercase tracking-wider transition-colors">{t("edit")}</button>
+                      {onHistory && (
+                        <button onClick={() => onHistory(v.id)} className="text-[10px] px-2 py-1 border border-border hover:border-primary hover:text-primary uppercase tracking-wider transition-colors inline-flex items-center gap-1" title={t("vehicle_history")}>
+                          <History size={10} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1420,7 +1442,7 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
   );
 }
 
-function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onReload, isStaff = false }) {
+function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onReload, isStaff = false, onHistory }) {
   const [editing, setEditing] = useState(null); // vehicle being edited (step or notes)
   const [editMode, setEditMode] = useState("step"); // "step" | "notes"
   const [filesOpen, setFilesOpen] = useState(null); // { vehicle, step }
@@ -1671,7 +1693,7 @@ function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onRe
               })()}
 
               {/* Actions */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className={`grid grid-cols-1 ${onHistory ? "sm:grid-cols-3" : "sm:grid-cols-2"} gap-2`}>
                 <button
                   data-testid={`edit-step-${v.id}`}
                   onClick={() => { setEditing(v); setEditMode("step"); }}
@@ -1686,6 +1708,15 @@ function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onRe
                 >
                   <FileText size={14} /> {t("notes")}
                 </button>
+                {onHistory && (
+                  <button
+                    data-testid={`delivery-history-${v.id}`}
+                    onClick={() => onHistory(v.id)}
+                    className="border border-border hover:border-primary hover:text-primary transition-colors py-2.5 text-xs font-display font-bold uppercase tracking-widest inline-flex items-center justify-center gap-2"
+                  >
+                    <History size={14} /> {t("vehicle_history")}
+                  </button>
+                )}
               </div>
             </div>
           );

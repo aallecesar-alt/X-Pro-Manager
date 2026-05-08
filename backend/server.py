@@ -388,6 +388,126 @@ async def get_vehicle(vid: str, current: dict = Depends(get_current_user)):
     return v
 
 
+@api_router.get("/vehicles/{vid}/history")
+async def vehicle_history(vid: str, current: dict = Depends(get_current_user)):
+    """Aggregated timeline for one vehicle.
+
+    Combines: created_at, expense_items (maintenance + others), recorded history
+    (status / step / commission / salesperson swaps), lost_sales records, and
+    legacy date fields (sold_at, delivered_at) when no recorded event exists yet.
+    """
+    v = await db.vehicles.find_one(
+        {"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not v:
+        raise HTTPException(404, "Vehicle not found")
+
+    events = []
+
+    if v.get("created_at"):
+        events.append({
+            "type": "created",
+            "at": v["created_at"],
+            "title": "Veículo cadastrado no sistema",
+            "icon": "plus",
+        })
+
+    # Expense items (split into maintenance vs other)
+    for it in (v.get("expense_items") or []):
+        date = it.get("date") or it.get("created_at") or v.get("created_at")
+        if it.get("category") == "maintenance":
+            events.append({
+                "type": "maintenance",
+                "at": date,
+                "title": it.get("description") or "Servico de manutencao",
+                "amount": float(it.get("amount") or 0),
+                "by": it.get("created_by_name") or "",
+                "parts": it.get("parts") or [],
+                "attachments": it.get("attachments") or [],
+                "icon": "wrench",
+            })
+        else:
+            events.append({
+                "type": "expense",
+                "at": date,
+                "title": it.get("description") or "Despesa",
+                "amount": float(it.get("amount") or 0),
+                "category": it.get("category") or "",
+                "icon": "dollar",
+            })
+
+    # Recorded events from in-doc history (status changes, step moves, commission, etc.)
+    for ev in (v.get("history") or []):
+        events.append({**ev, "icon": ev.get("type", "dot")})
+
+    # Legacy fallbacks — only emit if not already covered by a recorded event
+    has_recorded_status = any(e.get("type") == "status_change" for e in events)
+    if v.get("sold_at") and not has_recorded_status:
+        events.append({
+            "type": "status_change",
+            "from": "in_stock", "to": "sold",
+            "at": v["sold_at"],
+            "buyer_name": v.get("buyer_name", ""),
+            "salesperson_name": v.get("salesperson_name", ""),
+            "sold_price": float(v.get("sold_price") or 0),
+            "icon": "status_change",
+        })
+    has_delivery_event = any(e.get("type") == "delivery_step" for e in events)
+    if v.get("delivered_at") and not has_delivery_event:
+        events.append({
+            "type": "delivered",
+            "at": v["delivered_at"],
+            "title": "Veiculo entregue ao cliente",
+            "icon": "check",
+        })
+    elif v.get("delivery_step_updated_at") and not has_delivery_event and (v.get("delivery_step") or 0) > 0:
+        events.append({
+            "type": "delivery_step",
+            "from": 0, "to": v.get("delivery_step"),
+            "at": v["delivery_step_updated_at"],
+            "icon": "delivery_step",
+        })
+
+    # Lost sale records (revertions)
+    async for ls in db.lost_sales.find(
+        {"vehicle_id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    ):
+        events.append({
+            "type": "lost_sale",
+            "at": ls.get("date") or ls.get("created_at"),
+            "title": "Venda revertida",
+            "buyer_name": ls.get("buyer_name") or "",
+            "reason": ls.get("reason") or "",
+            "observation": ls.get("observation") or "",
+            "lost_revenue": float(ls.get("lost_revenue") or 0),
+            "salesperson_name": ls.get("salesperson_name") or "",
+            "icon": "lost_sale",
+        })
+
+    # Sort newest first
+    events.sort(key=lambda e: e.get("at") or "", reverse=True)
+
+    return {
+        "vehicle": {
+            "id": v["id"],
+            "make": v.get("make", ""),
+            "model": v.get("model", ""),
+            "year": v.get("year"),
+            "color": v.get("color", ""),
+            "vin": v.get("vin", ""),
+            "image": (v.get("images") or [None])[0],
+            "status": v.get("status", "in_stock"),
+            "delivery_step": v.get("delivery_step") or 0,
+            "buyer_name": v.get("buyer_name", "") if v.get("status") == "sold" else "",
+            "sold_price": float(v.get("sold_price") or 0),
+            "salesperson_name": v.get("salesperson_name", ""),
+        },
+        "events": events,
+    }
+
+
+
+
 @api_router.put("/vehicles/{vid}")
 async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depends(get_current_user)):
     upd = {k: val for k, val in payload.model_dump().items() if val is not None}
@@ -417,11 +537,15 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
     # Auto-compute expenses total from itemized list when provided
     if "expense_items" in upd and isinstance(upd["expense_items"], list):
         upd["expenses"] = sum(float(it.get("amount") or 0) for it in upd["expense_items"])
+    # Existing doc — used to detect transitions for the history log.
+    existing = await db.vehicles.find_one({"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0})
+    push_events = []
+    actor_name = current.get("full_name") or current.get("email") or ""
+    now_iso = datetime.now(timezone.utc).isoformat()
     # Auto-set sold_at and start delivery pipeline at step 1 when transitioning to sold
     if upd.get("status") == "sold":
-        existing = await db.vehicles.find_one({"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0})
         if existing and existing.get("status") != "sold":
-            upd["sold_at"] = datetime.now(timezone.utc).isoformat()
+            upd["sold_at"] = now_iso
             # Auto-assign currently logged-in salesperson when no one is set
             if not upd.get("salesperson_id") and not existing.get("salesperson_id"):
                 if is_salesperson(current) and current.get("salesperson_id"):
@@ -436,18 +560,62 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
             # Force delivery_step = 1 on first transition to sold (override any 0/None payload value)
             if (existing.get("delivery_step") or 0) == 0 and (upd.get("delivery_step") or 0) == 0:
                 upd["delivery_step"] = 1
+    # Log every status transition
+    if "status" in upd and existing and upd.get("status") != existing.get("status"):
+        push_events.append({
+            "type": "status_change",
+            "from": existing.get("status") or "in_stock",
+            "to": upd.get("status"),
+            "at": now_iso,
+            "by": actor_name,
+            "buyer_name": upd.get("buyer_name") or existing.get("buyer_name") or "",
+            "salesperson_name": upd.get("salesperson_name") or existing.get("salesperson_name") or "",
+            "sold_price": upd.get("sold_price") or existing.get("sold_price") or 0,
+        })
     # Track every delivery step change so we can alert when cars get stuck.
     if "delivery_step" in upd:
-        prev_doc = await db.vehicles.find_one({"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0, "delivery_step": 1})
-        prev_step = (prev_doc or {}).get("delivery_step") or 0
-        if prev_step != (upd.get("delivery_step") or 0):
-            upd["delivery_step_updated_at"] = datetime.now(timezone.utc).isoformat()
+        prev_step = (existing or {}).get("delivery_step") or 0
+        new_step = upd.get("delivery_step") or 0
+        if prev_step != new_step:
+            upd["delivery_step_updated_at"] = now_iso
+            push_events.append({
+                "type": "delivery_step",
+                "from": prev_step,
+                "to": new_step,
+                "at": now_iso,
+                "by": actor_name,
+            })
+    # Log commission paid toggle
+    if "commission_paid" in upd and existing and bool(upd.get("commission_paid")) != bool(existing.get("commission_paid")):
+        push_events.append({
+            "type": "commission_paid" if upd.get("commission_paid") else "commission_unpaid",
+            "at": now_iso,
+            "by": actor_name,
+            "amount": float(upd.get("commission_amount") or existing.get("commission_amount") or 0),
+            "salesperson_name": upd.get("salesperson_name") or existing.get("salesperson_name") or "",
+        })
+    # Log salesperson swap
+    if "salesperson_id" in upd and existing and upd.get("salesperson_id") and upd.get("salesperson_id") != existing.get("salesperson_id"):
+        push_events.append({
+            "type": "salesperson_changed",
+            "at": now_iso,
+            "by": actor_name,
+            "from_name": existing.get("salesperson_name") or "",
+            "to_name": upd.get("salesperson_name") or "",
+        })
     # Auto-set delivered_at when reaching step 8
     if upd.get("delivery_step") == 8:
-        upd["delivered_at"] = datetime.now(timezone.utc).isoformat()
-    if not upd:
+        upd["delivered_at"] = now_iso
+    if not upd and not push_events:
         raise HTTPException(400, "Nothing to update")
-    res = await db.vehicles.update_one({"id": vid, "dealership_id": current["dealership_id"]}, {"$set": upd})
+    mongo_op = {}
+    if upd:
+        mongo_op["$set"] = upd
+    if push_events:
+        mongo_op["$push"] = {"history": {"$each": push_events}}
+    res = await db.vehicles.update_one(
+        {"id": vid, "dealership_id": current["dealership_id"]}, mongo_op
+    )
     if res.matched_count == 0:
         raise HTTPException(404, "Vehicle not found")
     v = await db.vehicles.find_one({"id": vid}, {"_id": 0})

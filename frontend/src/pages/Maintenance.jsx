@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Wrench, Search, Plus, Edit2, Trash2, X, Upload, FileText, Image as ImageIcon, Car, Calendar, DollarSign } from "lucide-react";
+import { Wrench, Search, Plus, Edit2, Trash2, X, Upload, FileText, Image as ImageIcon, Car, Calendar, DollarSign, History } from "lucide-react";
 import { toast } from "sonner";
 import api from "../lib/api";
 import { uploadProfilePhoto } from "../lib/uploadPhoto";
@@ -14,7 +14,7 @@ function formatBRL(n) {
   return Number(n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-export default function Maintenance({ t }) {
+export default function Maintenance({ t, onHistory }) {
   const [vehicles, setVehicles] = useState([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -90,6 +90,7 @@ export default function Maintenance({ t }) {
               isOpen={open === v.id}
               onToggle={() => setOpen(open === v.id ? null : v.id)}
               onChanged={reload}
+              onHistory={onHistory}
               t={t}
             />
           ))}
@@ -99,7 +100,7 @@ export default function Maintenance({ t }) {
   );
 }
 
-function VehicleRow({ v, isOpen, onToggle, onChanged, t }) {
+function VehicleRow({ v, isOpen, onToggle, onChanged, onHistory, t }) {
   const status = STATUS_LABEL[v.status] || STATUS_LABEL.in_stock;
   const [editing, setEditing] = useState(null); // null | "new" | item
 
@@ -141,14 +142,26 @@ function VehicleRow({ v, isOpen, onToggle, onChanged, t }) {
         <div className="border-t border-border p-4 space-y-3" data-testid={`maint-panel-${v.id}`}>
           <div className="flex items-center justify-between">
             <p className="label-eyebrow">{t("maintenance_services")}</p>
-            <button
-              type="button"
-              data-testid={`add-service-${v.id}`}
-              onClick={() => setEditing("new")}
-              className="bg-primary hover:bg-primary-hover text-white px-3 py-1.5 text-[11px] font-display font-bold uppercase tracking-widest inline-flex items-center gap-1.5"
-            >
-              <Plus size={12} /> {t("maintenance_add_service")}
-            </button>
+            <div className="flex gap-2">
+              {onHistory && (
+                <button
+                  type="button"
+                  data-testid={`maint-history-${v.id}`}
+                  onClick={() => onHistory(v.id)}
+                  className="border border-border hover:border-primary hover:text-primary px-3 py-1.5 text-[11px] font-display font-bold uppercase tracking-widest inline-flex items-center gap-1.5"
+                >
+                  <History size={12} /> {t("vehicle_history")}
+                </button>
+              )}
+              <button
+                type="button"
+                data-testid={`add-service-${v.id}`}
+                onClick={() => setEditing("new")}
+                className="bg-primary hover:bg-primary-hover text-white px-3 py-1.5 text-[11px] font-display font-bold uppercase tracking-widest inline-flex items-center gap-1.5"
+              >
+                <Plus size={12} /> {t("maintenance_add_service")}
+              </button>
+            </div>
           </div>
 
           {(v.maintenance_items || []).length === 0 ? (
