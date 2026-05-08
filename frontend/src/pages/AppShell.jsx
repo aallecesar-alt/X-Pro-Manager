@@ -65,14 +65,21 @@ export default function AppShell() {
   };
 
   return (
-    <div data-testid="app-shell" className="min-h-screen bg-background text-white flex">
+    <div data-testid="app-shell" className="min-h-screen text-white flex">
       {/* SIDEBAR */}
-      <aside className="w-64 border-r border-border min-h-screen flex flex-col">
-        <div className="p-6 border-b border-border">
+      <aside className="w-64 border-r border-border min-h-screen flex flex-col bg-background/60 backdrop-blur-sm relative">
+        <div className="p-6 border-b border-border bg-stripes-overlay">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary flex items-center justify-center"><Car size={18} /></div>
+            <div className="relative w-12 h-12 shrink-0">
+              <div className="absolute inset-0 bg-primary/30 blur-xl rounded-full" />
+              <img
+                src="/intercar-logo.png"
+                alt="Intercar"
+                className="relative w-12 h-12 object-contain drop-shadow-lg"
+              />
+            </div>
             <div className="min-w-0">
-              <p className="font-display font-bold uppercase text-sm truncate">{dealership?.name || "..."}</p>
+              <p className="font-display font-black uppercase text-sm truncate tracking-tight">{dealership?.name || "..."}</p>
               <p className="label-eyebrow text-[10px] truncate">{user?.email}</p>
             </div>
           </div>
@@ -193,10 +200,13 @@ function Overview({ stats, t, isSalesperson }) {
 
   return (
     <div data-testid="overview-tab">
-      {/* Hero */}
-      <div className="mb-10">
-        <p className="label-eyebrow text-primary mb-2">{t("dashboard")} · {monthLabel}</p>
-        <h1 className="font-display font-black text-4xl uppercase tracking-tighter">{t("overview")}</h1>
+      {/* Hero with subtle shield watermark */}
+      <div className="mb-10 bg-shield-watermark border border-border bg-surface/30 p-8 relative overflow-hidden" style={{ "--shield-url": "url('/intercar-logo.png')" }}>
+        <div className="bg-stripes-overlay absolute inset-0 opacity-50" />
+        <div className="relative">
+          <p className="label-eyebrow text-primary mb-2">{t("dashboard")} · {monthLabel}</p>
+          <h1 className="font-display font-black text-5xl uppercase tracking-tighter mb-2">{t("overview")}</h1>
+        </div>
       </div>
 
       {/* KPI cards */}
@@ -263,9 +273,9 @@ function Overview({ stats, t, isSalesperson }) {
           )}
         </div>
 
-        {/* Weekly Promotion */}
+        {/* Weekly Promotion — notebook page */}
         <div className="bg-background p-6 relative overflow-hidden">
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Sparkles size={16} className="text-primary" />
               <p className="label-eyebrow text-primary">{t("weekly_promo_title")}</p>
@@ -282,31 +292,41 @@ function Overview({ stats, t, isSalesperson }) {
             )}
           </div>
           {!promotion?.title && !promotion?.description && !promotion?.image_url ? (
-            <div className="text-center py-8">
-              <Sparkles size={28} className="mx-auto text-text-secondary mb-3" />
-              <p className="text-text-secondary text-sm">{t("no_promotion")}</p>
+            <div data-testid="promo-empty" className="notebook-paper py-10 px-12 min-h-[280px] flex flex-col items-center justify-center text-center">
+              <p className="notebook-handwriting text-2xl text-text-secondary mb-2 italic" style={{ color: '#9ca3af' }}>
+                {t("no_promotion")}
+              </p>
               {!isSalesperson && (
                 <button
                   data-testid="add-promotion-cta"
                   onClick={() => setEditingPromo(true)}
-                  className="mt-4 text-xs uppercase tracking-widest font-display font-bold text-primary hover:underline"
+                  className="notebook-handwriting text-xl mt-4 underline decoration-2 underline-offset-4 transition-colors hover:opacity-80"
+                  style={{ color: '#d92d20' }}
                 >
-                  {t("create_promotion")}
+                  {t("create_promotion")} →
                 </button>
               )}
             </div>
           ) : (
-            <div className="space-y-3" data-testid="promotion-card">
+            <div data-testid="promotion-card" className="notebook-paper py-6 px-12 min-h-[280px]">
               {promotion.image_url && (
-                <div className="aspect-video bg-surface overflow-hidden">
+                <div className="aspect-video bg-white/30 overflow-hidden mb-3 rotate-[-1.5deg] shadow-md mt-2 mx-2">
                   <img src={promotion.image_url} alt={promotion.title} className="w-full h-full object-cover" />
                 </div>
               )}
-              {promotion.title && <p className="font-display font-black text-lg uppercase tracking-tight text-primary">{promotion.title}</p>}
-              {promotion.description && <p className="text-sm text-white/90 leading-relaxed whitespace-pre-line">{promotion.description}</p>}
+              {promotion.title && (
+                <p className="notebook-handwriting text-3xl font-bold mb-3" style={{ color: '#d92d20' }}>
+                  {promotion.title}
+                </p>
+              )}
+              {promotion.description && (
+                <p className="notebook-handwriting text-xl whitespace-pre-line" style={{ color: '#1e3a8a' }}>
+                  {promotion.description}
+                </p>
+              )}
               {promotion.valid_until && (
-                <p className="text-xs text-text-secondary inline-flex items-center gap-1 pt-2 border-t border-border">
-                  <Calendar size={11} /> {t("valid_until")}: {promotion.valid_until}
+                <p className="notebook-handwriting text-base mt-4 inline-flex items-center gap-1.5" style={{ color: '#dc2626' }}>
+                  <Calendar size={13} /> {t("valid_until")}: {promotion.valid_until}
                 </p>
               )}
             </div>
