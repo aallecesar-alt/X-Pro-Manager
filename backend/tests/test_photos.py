@@ -272,15 +272,16 @@ class TestSetTeamPhoto:
         )
         assert r.status_code == 403
 
-    def test_owner_cannot_set_photo_on_owner_user(self, owner_session):
+    def test_owner_cannot_set_own_photo_via_team_endpoint(self, owner_session):
+        """Owners must use /me/photo for self — /team/{self_uid}/photo returns 403."""
         owner_uid = self._get_owner_uid(owner_session)
         r = owner_session.put(
             f"{BASE_URL}/api/team/{owner_uid}/photo",
             json={"photo_url": FAKE_URL, "photo_public_id": FAKE_PID},
             timeout=15,
         )
-        assert r.status_code == 404, (
-            f"Owner can't be photo-edited via /team/{{uid}}/photo (use /me/photo). Got {r.status_code}"
+        assert r.status_code == 403, (
+            f"Owner can't photo-edit themselves via /team/{{uid}}/photo (use /me/photo). Got {r.status_code}"
         )
 
     def test_owner_set_photo_on_unknown_uid_404(self, owner_session):

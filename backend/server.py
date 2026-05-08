@@ -996,7 +996,7 @@ async def list_team(current: dict = Depends(get_current_user)):
     """List all non-owner users in this dealership with their permissions."""
     require_owner(current)
     users = await db.users.find(
-        {"dealership_id": current["dealership_id"], "role": {"$in": ["salesperson", "bdc", "gerente", "geral"]}},
+        {"dealership_id": current["dealership_id"], "role": {"$in": ["owner", "salesperson", "bdc", "gerente", "geral"]}},
         {"_id": 0, "password_hash": 0}
     ).sort("full_name", 1).to_list(500)
     # Resolve salesperson_name when role=salesperson
@@ -1019,8 +1019,8 @@ async def list_team(current: dict = Depends(get_current_user)):
 @api_router.post("/team")
 async def create_team_member(payload: TeamMemberCreate, current: dict = Depends(get_current_user)):
     require_owner(current)
-    if payload.role not in ("salesperson", "bdc", "gerente", "geral"):
-        raise HTTPException(400, "role must be salesperson, bdc, gerente or geral")
+    if payload.role not in ("owner", "salesperson", "bdc", "gerente", "geral"):
+        raise HTTPException(400, "role must be owner, salesperson, bdc, gerente or geral")
     email = payload.email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already in use")
@@ -1088,8 +1088,11 @@ async def create_team_member(payload: TeamMemberCreate, current: dict = Depends(
 @api_router.put("/team/{uid}")
 async def update_team_member(uid: str, payload: TeamMemberUpdate, current: dict = Depends(get_current_user)):
     require_owner(current)
+    if uid == current.get("id"):
+        # Owners manage their own profile via /me endpoints, not /team
+        raise HTTPException(403, "Cannot edit yourself via the team endpoint")
     user = await db.users.find_one({"id": uid, "dealership_id": current["dealership_id"]}, {"_id": 0, "password_hash": 0})
-    if not user or user.get("role") == "owner":
+    if not user:
         raise HTTPException(404, "Team member not found")
 
     upd = {}
@@ -1118,10 +1121,12 @@ async def update_team_member(uid: str, payload: TeamMemberUpdate, current: dict 
 @api_router.delete("/team/{uid}")
 async def delete_team_member(uid: str, current: dict = Depends(get_current_user)):
     require_owner(current)
+    if uid == current.get("id"):
+        raise HTTPException(403, "Cannot delete yourself")
     res = await db.users.delete_one({
         "id": uid,
         "dealership_id": current["dealership_id"],
-        "role": {"$in": ["salesperson", "bdc", "gerente", "geral"]},
+        "role": {"$in": ["owner", "salesperson", "bdc", "gerente", "geral"]},
     })
     if res.deleted_count == 0:
         raise HTTPException(404, "Team member not found")
@@ -1157,13 +1162,12 @@ async def update_my_photo(payload: PhotoPayload, current: dict = Depends(get_cur
 
 @api_router.put("/team/{uid}/photo")
 async def set_team_photo(uid: str, payload: PhotoPayload, current: dict = Depends(get_current_user)):
-    """Owner sets photo for any team member (salesperson or BDC)."""
+    """Owner sets photo for any team member. Owners manage their own photo via /me/photo."""
     require_owner(current)
+    if uid == current.get("id"):
+        raise HTTPException(403, "Use /me/photo to set your own photo")
     user = await db.users.find_one({"id": uid, "dealership_id": current["dealership_id"]}, {"_id": 0, "id": 1, "role": 1})
-    # Role may be missing on legacy owner accounts (get_current_user defaults to 'owner');
-    # treat missing role the same as 'owner' to protect them from /team/{uid}/photo edits.
-    role = (user or {}).get("role") or "owner"
-    if not user or role == "owner":
+    if not user:
         raise HTTPException(404, "Team member not found")
     await _set_user_photo(uid, current["dealership_id"], payload.photo_url, payload.photo_public_id)
     return {"ok": True, "photo_url": payload.photo_url}

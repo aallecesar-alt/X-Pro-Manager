@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -902,7 +902,7 @@ const PERMISSION_LABELS = {
   financial: { key: "financial", icon: "💰" },
 };
 
-function TeamMemberAvatarUploader({ member, t, onChanged }) {
+function TeamMemberAvatarUploader({ member, t, onChanged, disabled = false }) {
   const [uploading, setUploading] = useState(false);
   const onPick = async (file) => {
     if (!file) return;
@@ -917,17 +917,20 @@ function TeamMemberAvatarUploader({ member, t, onChanged }) {
     } finally { setUploading(false); }
   };
   return (
-    <label className="relative cursor-pointer group shrink-0" title={t("change_photo")}>
+    <label className={`relative ${disabled ? "" : "cursor-pointer group"} shrink-0`} title={disabled ? "" : t("change_photo")}>
       <Avatar src={member.photo_url} name={member.full_name} size="lg" testid={`team-avatar-${member.id}`} />
-      <div className="absolute inset-0 rounded-full bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-        {uploading ? <span className="text-[10px] text-white">...</span> : <Upload size={14} className="text-white" />}
-      </div>
-      <input data-testid={`team-photo-input-${member.id}`} type="file" accept="image/*" className="hidden" onChange={(e) => onPick(e.target.files?.[0])} disabled={uploading} />
+      {!disabled && (
+        <div className="absolute inset-0 rounded-full bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+          {uploading ? <span className="text-[10px] text-white">...</span> : <Upload size={14} className="text-white" />}
+        </div>
+      )}
+      <input data-testid={`team-photo-input-${member.id}`} type="file" accept="image/*" className="hidden" onChange={(e) => onPick(e.target.files?.[0])} disabled={uploading || disabled} />
     </label>
   );
 }
 
 function TeamSection({ t }) {
+  const { user: currentUser } = useAuth();
   const [team, setTeam] = useState({ members: [], all_permissions: [], role_defaults: {} });
   const [salespeople, setSalespeople] = useState([]);
   const [editingMember, setEditingMember] = useState(null); // {} new, member edit
@@ -984,16 +987,20 @@ function TeamSection({ t }) {
           {team.members.map(m => {
             const perms = m.effective_permissions || [];
             const isSaving = savingPerms === m.id;
+            const isSelf = currentUser?.id === m.id;
+            const isOwnerRow = m.role === "owner";
             return (
               <div key={m.id} data-testid={`team-row-${m.id}`} className={`border border-border p-4 ${isSaving ? "opacity-50" : ""}`}>
                 <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
                   <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <TeamMemberAvatarUploader member={m} t={t} onChanged={reload} />
+                    <TeamMemberAvatarUploader member={m} t={t} onChanged={reload} disabled={isSelf} />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-display font-bold uppercase">{m.full_name}</p>
                         <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 border ${
-                          m.role === "bdc"
+                          m.role === "owner"
+                            ? "border-yellow-500 text-yellow-400 bg-yellow-500/10"
+                            : m.role === "bdc"
                             ? "border-cyan-500 text-cyan-400 bg-cyan-500/10"
                             : m.role === "gerente"
                             ? "border-amber-500 text-amber-400 bg-amber-500/10"
@@ -1001,30 +1008,40 @@ function TeamSection({ t }) {
                             ? "border-emerald-500 text-emerald-400 bg-emerald-500/10"
                             : "border-primary text-primary bg-primary/10"
                         }`}>
-                          {m.role === "bdc" ? "BDC" : m.role === "gerente" ? t("manager") : m.role === "geral" ? t("general_role") : t("salesperson")}
+                          {m.role === "owner" ? t("owner_role") : m.role === "bdc" ? "BDC" : m.role === "gerente" ? t("manager") : m.role === "geral" ? t("general_role") : t("salesperson")}
                         </span>
+                        {isSelf && (
+                          <span className="text-[9px] uppercase tracking-widest text-text-secondary">{t("self_badge")}</span>
+                        )}
                       </div>
                       <p className="text-xs text-text-secondary font-mono">{m.email}</p>
                       {m.salesperson_name && <p className="text-xs text-text-secondary mt-1">→ {m.salesperson_name}</p>}
                     </div>
                   </div>
-                  <div className="inline-flex gap-1">
-                    <button onClick={() => setEditingMember(m)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors" title={t("edit")}>
-                      <Edit2 size={13} />
-                    </button>
-                    <button onClick={() => remove(m.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors" title={t("delete")}>
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
+                  {!isSelf && (
+                    <div className="inline-flex gap-1">
+                      <button onClick={() => setEditingMember(m)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors" title={t("edit")}>
+                        <Edit2 size={13} />
+                      </button>
+                      <button onClick={() => remove(m.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors" title={t("delete")}>
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                <div className="border-t border-border pt-3">
-                  <p className="label-eyebrow text-[10px] mb-2">{t("permissions_label")}</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {team.all_permissions.map(p => {
-                      const meta = PERMISSION_LABELS[p] || { key: p, icon: "·" };
-                      const enabled = perms.includes(p);
-                      return (
+                {isOwnerRow ? (
+                  <div className="border-t border-border pt-3">
+                    <p className="text-xs text-text-secondary">{t("owner_full_access_note")}</p>
+                  </div>
+                ) : (
+                  <div className="border-t border-border pt-3">
+                    <p className="label-eyebrow text-[10px] mb-2">{t("permissions_label")}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {team.all_permissions.map(p => {
+                        const meta = PERMISSION_LABELS[p] || { key: p, icon: "·" };
+                        const enabled = perms.includes(p);
+                        return (
                         <button
                           key={p}
                           type="button"
@@ -1043,8 +1060,9 @@ function TeamSection({ t }) {
                         </button>
                       );
                     })}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             );
           })}
@@ -1154,13 +1172,14 @@ function TeamMemberForm({ member, allPermissions, roleDefaults, salespeople, exi
                 { id: "bdc", icon: Headphones, label: "BDC" },
                 { id: "gerente", icon: Crown, label: t("manager") },
                 { id: "geral", icon: Wrench, label: t("general_role") },
-              ].map(({ id, icon: Icon, label }) => (
+                { id: "owner", icon: ShieldCheck, label: t("owner_role"), full: true },
+              ].map(({ id, icon: Icon, label, full }) => (
                 <button
                   key={id}
                   type="button"
                   data-testid={`role-${id}`}
                   onClick={() => applyRoleDefaults(id)}
-                  className={`flex items-center justify-center gap-2 px-4 py-3 text-xs font-display font-bold uppercase tracking-widest border transition-colors ${
+                  className={`flex items-center justify-center gap-2 px-4 py-3 text-xs font-display font-bold uppercase tracking-widest border transition-colors ${full ? "col-span-2" : ""} ${
                     form.role === id ? "border-primary text-primary bg-primary/10" : "border-border text-text-secondary hover:border-primary/60"
                   }`}
                 >
@@ -1168,6 +1187,9 @@ function TeamMemberForm({ member, allPermissions, roleDefaults, salespeople, exi
                 </button>
               ))}
             </div>
+            {form.role === "owner" && (
+              <p className="text-[11px] text-text-secondary mt-2">{t("owner_role_hint")}</p>
+            )}
           </div>
         )}
 
