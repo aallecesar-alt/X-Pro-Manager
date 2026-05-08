@@ -193,7 +193,7 @@ async def get_current_user(request: Request) -> dict:
 # All tab permissions in the system. Owner always has full access.
 ALL_TAB_PERMISSIONS = [
     "overview", "inventory", "pipeline", "delivery",
-    "leads", "salespeople", "financial", "maintenance", "customers",
+    "leads", "salespeople", "financial", "maintenance",
 ]
 ROLE_DEFAULT_PERMISSIONS = {
     "owner": ALL_TAB_PERMISSIONS,

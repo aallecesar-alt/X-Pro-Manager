@@ -178,7 +178,7 @@ class TestListTeam:
         assert isinstance(body["members"], list)
         # all_permissions must contain all known tabs
         assert set(body["all_permissions"]) == {
-            "overview", "inventory", "pipeline", "delivery", "leads", "salespeople", "financial", "maintenance", "customers"
+            "overview", "inventory", "pipeline", "delivery", "leads", "salespeople", "financial", "maintenance"
         }
         # role_defaults: salesperson default has no financial, bdc=overview+leads
         assert "financial" not in body["role_defaults"]["salesperson"]
