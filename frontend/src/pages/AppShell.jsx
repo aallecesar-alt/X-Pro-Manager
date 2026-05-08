@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -933,6 +933,19 @@ function Delivery({ deliveries, t, onReload }) {
     } catch { toast.error(t("error_generic")); }
   };
 
+  const goBack = async (v) => {
+    const prevStep = Math.max((v.delivery_step || 1) - 1, 1);
+    if (prevStep === v.delivery_step) return;
+    try {
+      // Clear delivered_at if going back from step 8
+      const payload = { delivery_step: prevStep };
+      if ((v.delivery_step || 0) === 8) payload.delivered_at = null;
+      await api.put(`/vehicles/${v.id}`, payload);
+      toast.success(t("saved"));
+      onReload();
+    } catch { toast.error(t("error_generic")); }
+  };
+
   return (
     <div data-testid="delivery-tab">
       <p className="label-eyebrow text-primary mb-2">{t("delivery_pipeline_title")}</p>
@@ -980,17 +993,29 @@ function Delivery({ deliveries, t, onReload }) {
                   </p>
                 </div>
 
-                {/* Advance button */}
-                {!isDelivered && (
-                  <button
-                    data-testid={`advance-${v.id}`}
-                    onClick={() => advance(v)}
-                    className="bg-primary hover:bg-primary-hover w-12 h-12 flex items-center justify-center text-white transition-colors"
-                    title={t("advance_step")}
-                  >
-                    <ChevronRight size={24} />
-                  </button>
-                )}
+                {/* Step navigation buttons */}
+                <div className="flex gap-1.5 items-stretch">
+                  {step > 1 && (
+                    <button
+                      data-testid={`back-${v.id}`}
+                      onClick={() => goBack(v)}
+                      className="border border-border hover:border-warning hover:text-warning w-12 h-12 flex items-center justify-center transition-colors"
+                      title={t("back_step")}
+                    >
+                      <ChevronLeft size={24} />
+                    </button>
+                  )}
+                  {!isDelivered && (
+                    <button
+                      data-testid={`advance-${v.id}`}
+                      onClick={() => advance(v)}
+                      className="bg-primary hover:bg-primary-hover w-12 h-12 flex items-center justify-center text-white transition-colors"
+                      title={t("advance_step")}
+                    >
+                      <ChevronRight size={24} />
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Step indicator */}
