@@ -282,7 +282,7 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, on
       {filtered.length === 0 ? (
         <p className="border border-dashed border-border text-text-secondary text-sm text-center py-16">{t("no_vehicles")}</p>
       ) : view === "grid" ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
           {filtered.map((v) => (
             <VehicleCard key={v.id} v={v} t={t} onEdit={onEdit} onDelete={onDelete} isSalesperson={isSalesperson} />
           ))}
@@ -341,65 +341,53 @@ function VehicleCard({ v, t, onEdit, onDelete, isSalesperson }) {
       <button
         type="button"
         onClick={() => onEdit(v)}
-        className="block w-full aspect-[16/10] bg-background relative overflow-hidden"
+        className="block w-full aspect-[4/3] bg-background relative overflow-hidden"
       >
         {v.images?.[0] ? (
           <img src={v.images[0]} alt={`${v.make} ${v.model}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-text-secondary">
-            <Car size={40} />
-            <span className="text-[10px] uppercase tracking-wider">{t("no_photo")}</span>
+          <div className="w-full h-full flex items-center justify-center text-text-secondary">
+            <Car size={28} />
           </div>
         )}
-        <div className="absolute top-2 left-2"><StatusPill status={v.status} t={t} /></div>
+        <div className="absolute top-1.5 left-1.5 scale-75 origin-top-left"><StatusPill status={v.status} t={t} /></div>
         {photoCount > 1 && (
-          <span className="absolute top-2 right-2 bg-black/70 text-white text-[10px] px-2 py-1 inline-flex items-center gap-1">
-            <ImageIcon size={10} /> {photoCount}
+          <span className="absolute top-1.5 right-1.5 bg-black/70 text-white text-[9px] px-1.5 py-0.5 inline-flex items-center gap-0.5">
+            <ImageIcon size={9} /> {photoCount}
           </span>
         )}
       </button>
 
-      <div className="p-4 space-y-2">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="font-display font-bold uppercase truncate">{v.make} {v.model}</p>
-            <p className="text-xs text-text-secondary">{v.year}{v.color ? ` · ${v.color}` : ""}</p>
+      <div className="p-2.5">
+        <div className="flex items-start justify-between gap-1 mb-1.5">
+          <div className="min-w-0 flex-1">
+            <p className="font-display font-bold uppercase truncate text-xs leading-tight">{v.make} {v.model}</p>
+            <p className="text-[10px] text-text-secondary truncate">{v.year}{v.color ? ` · ${v.color}` : ""}</p>
           </div>
-          <div className="flex gap-1 shrink-0">
+          <div className="flex gap-0.5 shrink-0">
             <button
               data-testid={`edit-${v.id}`}
               onClick={(e) => { e.stopPropagation(); onEdit(v); }}
-              className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
+              className="w-6 h-6 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
               title={t("edit")}
             >
-              <Edit2 size={14} />
+              <Edit2 size={11} />
             </button>
             {!isSalesperson && (
               <button
                 data-testid={`delete-${v.id}`}
                 onClick={(e) => { e.stopPropagation(); onDelete(v.id); }}
-                className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
+                className="w-6 h-6 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
                 title={t("delete")}
               >
-                <Trash2 size={14} />
+                <Trash2 size={11} />
               </button>
             )}
           </div>
         </div>
 
-        {v.vin && <p className="font-mono text-[10px] text-text-secondary truncate">VIN {v.vin}</p>}
-
-        <div className="flex items-end justify-between pt-3 border-t border-border">
-          <div>
-            <p className="label-eyebrow text-[9px] mb-1">{t("sale_price")}</p>
-            <p className="font-display font-black text-xl text-primary">{formatCurrency(v.sale_price)}</p>
-          </div>
-          {v.status === "sold" && v.sold_price > 0 && (
-            <div className="text-right">
-              <p className="label-eyebrow text-[9px] mb-1 text-success">{t("sold_price")}</p>
-              <p className="font-display font-bold text-success">{formatCurrency(v.sold_price)}</p>
-            </div>
-          )}
+        <div className="pt-2 border-t border-border">
+          <p className="font-display font-black text-sm text-primary leading-none">{formatCurrency(v.sale_price)}</p>
         </div>
       </div>
     </div>
