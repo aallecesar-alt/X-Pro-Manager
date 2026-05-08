@@ -178,6 +178,8 @@ async def get_current_user(request: Request) -> dict:
         user.setdefault("role", "owner")
         user.setdefault("salesperson_id", "")
         user.setdefault("permissions", None)  # None means: use role defaults
+        user.setdefault("photo_url", "")
+        user.setdefault("photo_public_id", "")
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(401, "Token expired")
