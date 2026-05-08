@@ -3,6 +3,7 @@ import { Plus, Edit2, Trash2, X, Check, Search, Phone, Mail, MessageCircle, User
 import { toast } from "sonner";
 import api from "@/lib/api";
 import Avatar from "@/components/Avatar";
+import NameWithAvatar from "@/components/NameWithAvatar";
 
 const STATUSES = [
   "new", "in_progress", "hot_lead", "follow_up", "cold",
@@ -236,15 +237,7 @@ export default function LeadsPage({ t, role, currentSpId, salespeople = [] }) {
                 </td>
                 <td className="p-3 text-xs">
                   {l.salesperson_name ? (
-                    (() => {
-                      const sp = salespeople.find(s => s.id === l.salesperson_id);
-                      return (
-                        <div className="flex items-center gap-2">
-                          <Avatar src={sp?.photo_url} name={l.salesperson_name} size="sm" />
-                          <span className="font-display font-bold">{l.salesperson_name}</span>
-                        </div>
-                      );
-                    })()
+                    <NameWithAvatar name={l.salesperson_name} size="sm" className="font-display font-bold" />
                   ) : (
                     <span className="text-warning uppercase tracking-wider inline-flex items-center gap-1">
                       <AlertCircle size={11} /> {t("unassigned_label")}

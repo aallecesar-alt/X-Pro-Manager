@@ -1036,11 +1036,24 @@ async def cloudinary_signature(
     """Generate a signed upload signature for the frontend.
 
     Frontend uses signed uploads → API secret never leaves the backend.
-    Allowed folder prefixes: 'vehicles/' or 'delivery/'.
+    Allowed folder prefixes (per dealership): 'vehicles/', 'delivery/', 'profiles/'.
+    Front may also pass the bare prefix (e.g. 'profiles/') and we'll namespace it.
     """
     dealership_id = current["dealership_id"]
     # Allow only namespaced folders by dealership
-    allowed_prefixes = (f"vehicles/{dealership_id}/", f"delivery/{dealership_id}/")
+    allowed_prefixes = (
+        f"vehicles/{dealership_id}/",
+        f"delivery/{dealership_id}/",
+        f"profiles/{dealership_id}/",
+    )
+    # Auto-namespace bare prefixes
+    bare_to_ns = {
+        "profiles/": f"profiles/{dealership_id}/",
+        "vehicles/": f"vehicles/{dealership_id}/",
+        "delivery/": f"delivery/{dealership_id}/",
+    }
+    if folder in bare_to_ns:
+        folder = bare_to_ns[folder]
     if not folder.startswith(allowed_prefixes):
         # Default to vehicles folder for this dealership
         folder = f"vehicles/{dealership_id}/"
@@ -1334,6 +1347,34 @@ class TeamMemberUpdate(BaseModel):
     email: Optional[EmailStr] = None
     password: Optional[str] = None  # if provided, replaces the password
     permissions: Optional[List[str]] = None
+
+
+@api_router.get("/team/photo-map")
+async def team_photo_map(current: dict = Depends(get_current_user)):
+    """Lightweight map of full_name → photo_url for everyone in the dealership.
+
+    Available to ALL authenticated users (not just owner) so we can show avatars
+    alongside names anywhere a name appears (sales, leads, history, maintenance).
+    """
+    rows = await db.users.find(
+        {"dealership_id": current["dealership_id"], "role": {"$in": ["owner", "salesperson", "bdc", "gerente", "geral"]}},
+        {"_id": 0, "full_name": 1, "photo_url": 1}
+    ).to_list(500)
+    out = {}
+    for u in rows:
+        name = (u.get("full_name") or "").strip()
+        if name:
+            out[name] = u.get("photo_url") or ""
+    # Also include salespeople records (covers historical sales where the user
+    # was deleted but salesperson record remains)
+    sps = await db.salespeople.find(
+        {"dealership_id": current["dealership_id"]}, {"_id": 0, "name": 1, "photo_url": 1}
+    ).to_list(500)
+    for s in sps:
+        name = (s.get("name") or "").strip()
+        if name and not out.get(name):
+            out[name] = s.get("photo_url") or ""
+    return out
 
 
 @api_router.get("/team")

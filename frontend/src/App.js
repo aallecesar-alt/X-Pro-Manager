@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { I18nProvider } from "@/lib/i18n.jsx";
+import { PhotoMapProvider } from "@/components/NameWithAvatar";
 import AuthPage from "@/pages/AuthPage";
 import AppShell from "@/pages/AppShell";
 
@@ -16,7 +17,7 @@ function Gate() {
       </div>
     );
   }
-  return user ? <AppShell /> : <Navigate to="/auth" replace />;
+  return user ? <PhotoMapProvider><AppShell /></PhotoMapProvider> : <Navigate to="/auth" replace />;
 }
 
 function PublicGate({ children }) {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import NameWithAvatar from "@/components/NameWithAvatar";
 import { Plus, Trash2, Edit2, X, Check, Paperclip, FileText, Image as ImageIcon, RotateCcw, Lock, Download, FolderArchive } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency } from "@/lib/api";
@@ -231,7 +232,7 @@ export default function Financial({ t }) {
                       </button>
                     </td>
                     <td className="p-3">{v.buyer_name || "—"}</td>
-                    <td className="p-3">{v.salesperson_name || "—"}</td>
+                    <td className="p-3"><NameWithAvatar name={v.salesperson_name} size="sm" /></td>
                     <td className="p-3 text-right">
                       <EditablePrice value={v.purchase_price} onSave={(val) => updatePurchasePrice(v.vehicle_id, val)} testid={`edit-purchase-${v.vehicle_id}`} />
                     </td>
@@ -354,7 +355,7 @@ export default function Financial({ t }) {
                         </div>
                       </td>
                       <td className="p-3">{r.buyer_name || "—"}</td>
-                      <td className="p-3">{r.salesperson_name || "—"}</td>
+                      <td className="p-3"><NameWithAvatar name={r.salesperson_name} size="sm" /></td>
                       <td className="p-3">
                         <div>
                           <span className="text-xs uppercase tracking-wider px-2 py-1 border border-warning/40 text-warning">

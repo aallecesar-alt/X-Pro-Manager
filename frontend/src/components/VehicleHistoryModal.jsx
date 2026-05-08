@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { X, Car, Plus, Wrench, DollarSign, ArrowRightCircle, CheckCircle2, RotateCcw, Award, UserCheck, FileText, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import api from "../lib/api";
+import NameWithAvatar from "./NameWithAvatar";
 
 const STEP_LABEL = {
   0: "—",
@@ -94,9 +95,9 @@ function Body({ e }) {
       return (
         <>
           <p className="font-display font-bold">🔧 {e.title}</p>
-          <div className="flex items-center gap-3 flex-wrap mt-1 text-xs text-text-secondary">
+          <div className="flex items-center gap-2 flex-wrap mt-1 text-xs text-text-secondary">
             <span className="font-display font-bold text-primary">{formatBRL(e.amount)}</span>
-            {e.by && <span>por {e.by}</span>}
+            {e.by && <span>por <NameWithAvatar name={e.by} size="xs" className="font-bold text-text-primary" /></span>}
             {(e.parts || []).length > 0 && <span>peças: {e.parts.join(", ")}</span>}
           </div>
           {(e.attachments || []).length > 0 && (
@@ -128,19 +129,19 @@ function Body({ e }) {
         return (
           <>
             <p className="font-display font-bold uppercase text-primary">VENDIDO</p>
-            <p className="text-xs text-text-secondary mt-1">
+            <div className="text-xs text-text-secondary mt-1 flex items-center gap-2 flex-wrap">
               {e.buyer_name && <span>para <b className="text-text-primary">{e.buyer_name}</b></span>}
-              {e.sold_price > 0 && <span> · {formatBRL(e.sold_price)}</span>}
-              {e.salesperson_name && <span> · vendedor {e.salesperson_name}</span>}
-            </p>
-            {e.by && <p className="text-[10px] text-text-secondary mt-0.5">registrado por {e.by}</p>}
+              {e.sold_price > 0 && <span>· {formatBRL(e.sold_price)}</span>}
+              {e.salesperson_name && <span>· vendedor <NameWithAvatar name={e.salesperson_name} size="xs" className="font-bold text-text-primary" /></span>}
+            </div>
+            {e.by && <p className="text-[10px] text-text-secondary mt-1">registrado por <NameWithAvatar name={e.by} size="xs" /></p>}
           </>
         );
       }
       return (
         <>
           <p className="font-display font-bold uppercase">Status: {STATUS_LABEL[e.from] || e.from} → {STATUS_LABEL[e.to] || e.to}</p>
-          {e.by && <p className="text-xs text-text-secondary mt-0.5">por {e.by}</p>}
+          {e.by && <p className="text-xs text-text-secondary mt-0.5">por <NameWithAvatar name={e.by} size="xs" /></p>}
         </>
       );
     }
@@ -151,7 +152,7 @@ function Body({ e }) {
           <p className="font-display font-bold uppercase text-pink-400">
             Etapa {e.from || 0} → {STEP_LABEL[e.to] || e.to}
           </p>
-          {e.by && <p className="text-xs text-text-secondary mt-0.5">por {e.by}</p>}
+          {e.by && <p className="text-xs text-text-secondary mt-0.5">por <NameWithAvatar name={e.by} size="xs" /></p>}
         </>
       );
 
@@ -167,7 +168,7 @@ function Body({ e }) {
             {e.reason && <p>motivo: {e.reason}</p>}
             {e.observation && <p className="italic">"{e.observation}"</p>}
             {e.lost_revenue > 0 && <p>receita perdida: <b>{formatBRL(e.lost_revenue)}</b></p>}
-            {e.salesperson_name && <p>vendedor: {e.salesperson_name}</p>}
+            {e.salesperson_name && <p className="inline-flex items-center gap-1">vendedor: <NameWithAvatar name={e.salesperson_name} size="xs" className="font-bold text-text-primary" /></p>}
           </div>
         </>
       );
@@ -176,8 +177,10 @@ function Body({ e }) {
       return (
         <>
           <p className="font-display font-bold uppercase">Vendedor trocado</p>
-          <p className="text-xs text-text-secondary mt-0.5">{e.from_name || "—"} → <b className="text-text-primary">{e.to_name || "—"}</b></p>
-          {e.by && <p className="text-[10px] text-text-secondary mt-0.5">por {e.by}</p>}
+          <p className="text-xs text-text-secondary mt-0.5 inline-flex items-center gap-1 flex-wrap">
+            <NameWithAvatar name={e.from_name || "—"} size="xs" /> → <NameWithAvatar name={e.to_name || "—"} size="xs" className="font-bold text-text-primary" />
+          </p>
+          {e.by && <p className="text-[10px] text-text-secondary mt-0.5">por <NameWithAvatar name={e.by} size="xs" /></p>}
         </>
       );
 
@@ -185,11 +188,11 @@ function Body({ e }) {
       return (
         <>
           <p className="font-display font-bold uppercase text-emerald-400">Comissão paga</p>
-          <p className="text-xs text-text-secondary mt-0.5">
-            {e.salesperson_name && <span>{e.salesperson_name} · </span>}
+          <p className="text-xs text-text-secondary mt-0.5 inline-flex items-center gap-2 flex-wrap">
+            {e.salesperson_name && <NameWithAvatar name={e.salesperson_name} size="xs" />}
             <b className="text-text-primary">{formatBRL(e.amount)}</b>
           </p>
-          {e.by && <p className="text-[10px] text-text-secondary mt-0.5">marcado por {e.by}</p>}
+          {e.by && <p className="text-[10px] text-text-secondary mt-0.5">marcado por <NameWithAvatar name={e.by} size="xs" /></p>}
         </>
       );
 
@@ -197,7 +200,7 @@ function Body({ e }) {
       return (
         <>
           <p className="font-display font-bold uppercase">Comissão revertida (não paga)</p>
-          {e.by && <p className="text-[10px] text-text-secondary mt-0.5">por {e.by}</p>}
+          {e.by && <p className="text-[10px] text-text-secondary mt-0.5">por <NameWithAvatar name={e.by} size="xs" /></p>}
         </>
       );
 
@@ -264,7 +267,7 @@ export default function VehicleHistoryModal({ vehicleId, onClose }) {
                 <p><span className="text-text-secondary">Comprador:</span> <b>{data.vehicle.buyer_name}</b></p>
               )}
               {data.vehicle.salesperson_name && (
-                <p><span className="text-text-secondary">Vendedor:</span> <b>{data.vehicle.salesperson_name}</b></p>
+                <p className="inline-flex items-center gap-1"><span className="text-text-secondary">Vendedor:</span> <NameWithAvatar name={data.vehicle.salesperson_name} size="xs" className="font-bold" /></p>
               )}
               {data.vehicle.color && (
                 <p><span className="text-text-secondary">Cor:</span> {data.vehicle.color}</p>

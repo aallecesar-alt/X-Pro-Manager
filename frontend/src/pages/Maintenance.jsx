@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Wrench, Search, Plus, Edit2, Trash2, X, Upload, FileText, Image as ImageIcon, Car, Calendar, DollarSign, History } from "lucide-react";
 import { toast } from "sonner";
 import api from "../lib/api";
+import NameWithAvatar from "../components/NameWithAvatar";
 import { uploadProfilePhoto } from "../lib/uploadPhoto";
 
 const STATUS_LABEL = {
@@ -204,7 +205,11 @@ function ServiceItem({ item, vehicle, onEdit, onChanged, t }) {
         <p className="font-display font-bold">{item.description}</p>
         <div className="flex items-center gap-3 flex-wrap mt-1 text-xs text-text-secondary">
           <span className="inline-flex items-center gap-1"><Calendar size={11} /> {item.date || "—"}</span>
-          {item.created_by_name && <span>{t("by")} {item.created_by_name}</span>}
+          {item.created_by_name && (
+            <span className="inline-flex items-center gap-1">
+              {t("by")} <NameWithAvatar name={item.created_by_name} size="xs" className="text-text-primary" />
+            </span>
+          )}
           {(item.parts || []).length > 0 && (
             <span>{t("parts")}: {item.parts.join(", ")}</span>
           )}

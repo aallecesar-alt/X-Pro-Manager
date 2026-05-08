@@ -10,6 +10,7 @@ import Financial from "@/pages/Financial";
 import LeadsPage from "@/pages/LeadsPage";
 import Maintenance from "@/pages/Maintenance";
 import VehicleHistoryModal from "@/components/VehicleHistoryModal";
+import NameWithAvatar, { useTeamPhotos } from "@/components/NameWithAvatar";
 import Avatar from "@/components/Avatar";
 import { uploadProfilePhoto } from "@/lib/uploadPhoto";
 
@@ -930,6 +931,7 @@ const PERMISSION_LABELS = {
 
 function TeamMemberAvatarUploader({ member, t, onChanged, disabled = false }) {
   const [uploading, setUploading] = useState(false);
+  const photoMap = useTeamPhotos();
   const onPick = async (file) => {
     if (!file) return;
     setUploading(true);
@@ -937,6 +939,7 @@ function TeamMemberAvatarUploader({ member, t, onChanged, disabled = false }) {
       const { photo_url, photo_public_id } = await uploadProfilePhoto(file);
       await api.put(`/team/${member.id}/photo`, { photo_url, photo_public_id });
       toast.success(t("saved"));
+      photoMap.refresh && photoMap.refresh();
       onChanged && onChanged();
     } catch (err) {
       toast.error(err.message || t("error_generic"));
@@ -1113,6 +1116,7 @@ function TeamSection({ t }) {
 
 function TeamMemberForm({ member, allPermissions, roleDefaults, salespeople, existingTeam, t, onClose, onSaved }) {
   const isEdit = !!member;
+  const photoMap = useTeamPhotos();
   const [form, setForm] = useState({
     full_name: member?.full_name || "",
     email: member?.email || "",
@@ -1149,6 +1153,7 @@ function TeamMemberForm({ member, allPermissions, roleDefaults, salespeople, exi
       setForm(f => ({ ...f, photo_url, photo_public_id }));
       if (isEdit) {
         await api.put(`/team/${member.id}/photo`, { photo_url, photo_public_id });
+        photoMap.refresh && photoMap.refresh();
         toast.success(t("saved"));
       }
     } catch (err) {
@@ -1173,6 +1178,7 @@ function TeamMemberForm({ member, allPermissions, roleDefaults, salespeople, exi
         await api.post("/team", form);
       }
       toast.success(t("saved"));
+      photoMap.refresh && photoMap.refresh();
       onSaved();
     } catch (err) {
       toast.error(err.response?.data?.detail || t("error_generic"));
@@ -1646,12 +1652,8 @@ function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onRe
               <div className="flex flex-wrap gap-2 mb-4 items-center">
                 {v.salesperson_name && (
                   <div className="inline-flex items-center gap-2 border border-border px-2 py-1 text-xs">
-                    {(() => {
-                      const sp = (deliveriesSalespeople || []).find(s => s.id === v.salesperson_id);
-                      return <Avatar src={sp?.photo_url} name={v.salesperson_name} size="xs" />;
-                    })()}
                     <span className="text-text-secondary uppercase tracking-wider text-[10px]">{t("salesperson")}:</span>
-                    <span className="font-display font-bold">{v.salesperson_name}</span>
+                    <NameWithAvatar name={v.salesperson_name} size="xs" className="font-display font-bold" />
                   </div>
                 )}
                 {v.buyer_name && <Pill label={t("buyer_name")} value={v.buyer_name} />}
@@ -1861,13 +1863,21 @@ function InlineSalespersonSelect({ value, salespeople, onChange, t, testid }) {
       type="button"
       data-testid={testid}
       onClick={() => setEditing(true)}
-      className="inline-flex items-center gap-2 hover:text-primary transition-colors text-left group"
+      className="inline-flex items-center gap-1 hover:text-primary transition-colors text-left group"
       title={t("change_salesperson")}
     >
-      {current && <Avatar src={current.photo_url} name={current.name} size="sm" />}
-      <span className={`border-b border-dashed border-text-secondary/40 group-hover:border-primary ${current ? "font-display font-bold" : "text-warning text-xs uppercase tracking-wider"}`}>
-        {current ? current.name : t("unassigned")}
-      </span>
+      {current ? (
+        <NameWithAvatar
+          name={current.name}
+          photoUrl={current.photo_url}
+          size="sm"
+          className={`border-b border-dashed border-text-secondary/40 group-hover:border-primary font-display font-bold`}
+        />
+      ) : (
+        <span className="border-b border-dashed border-text-secondary/40 group-hover:border-primary text-warning text-xs uppercase tracking-wider">
+          {t("unassigned")}
+        </span>
+      )}
       <Edit2 size={10} className="opacity-50" />
     </button>
   );
