@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import NameWithAvatar from "@/components/NameWithAvatar";
+import FloorPlans from "@/pages/FloorPlans";
 import { Plus, Trash2, Edit2, X, Check, Paperclip, FileText, Image as ImageIcon, RotateCcw, Lock, Download, FolderArchive } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency } from "@/lib/api";
@@ -454,6 +455,11 @@ export default function Financial({ t }) {
             );
           })}
         </div>
+      </div>
+
+      {/* Floor Plans calendar */}
+      <div className="mt-12 mb-6" data-testid="floor-plans-wrap">
+        <FloorPlans t={t} />
       </div>
 
       {/* Closings archive (folder of all monthly closings) */}

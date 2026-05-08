@@ -2515,6 +2515,173 @@ async def delete_closing(cid: str, current: dict = Depends(get_current_user)):
 
 
 
+# ============================================================
+# FLOOR PLANS — dealership inventory financing tracker
+# ============================================================
+class FloorPlanPayload(BaseModel):
+    name: str
+    color: str = "#D92D20"
+
+
+class FloorPlanPaymentPayload(BaseModel):
+    floor_plan_id: str
+    vehicle_id: str = ""
+    amount: float
+    due_date: str  # ISO date YYYY-MM-DD
+    notes: str = ""
+    paid: bool = False
+
+
+@api_router.get("/floor-plans")
+async def list_floor_plans(current: dict = Depends(get_current_user)):
+    require_owner(current)
+    rows = await db.floor_plans.find(
+        {"dealership_id": current["dealership_id"]}, {"_id": 0}
+    ).sort("created_at", 1).to_list(50)
+    return rows
+
+
+@api_router.post("/floor-plans")
+async def create_floor_plan(payload: FloorPlanPayload, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    fp = {
+        "id": str(uuid.uuid4()),
+        "dealership_id": current["dealership_id"],
+        "name": payload.name.strip() or "Floor Plan",
+        "color": payload.color or "#D92D20",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.floor_plans.insert_one(fp)
+    return {k: v for k, v in fp.items() if k != "_id"}
+
+
+@api_router.put("/floor-plans/{fp_id}")
+async def update_floor_plan(fp_id: str, payload: FloorPlanPayload, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    res = await db.floor_plans.update_one(
+        {"id": fp_id, "dealership_id": current["dealership_id"]},
+        {"$set": {"name": payload.name.strip(), "color": payload.color}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Floor plan not found")
+    return {"ok": True}
+
+
+@api_router.delete("/floor-plans/{fp_id}")
+async def delete_floor_plan(fp_id: str, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    # Cascade-delete its payments
+    await db.floor_plan_payments.delete_many({"floor_plan_id": fp_id, "dealership_id": current["dealership_id"]})
+    res = await db.floor_plans.delete_one({"id": fp_id, "dealership_id": current["dealership_id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Floor plan not found")
+    return {"deleted": True}
+
+
+@api_router.get("/floor-plans/payments")
+async def list_floor_plan_payments(
+    year: int = 0, month: int = 0,
+    current: dict = Depends(get_current_user),
+):
+    """Returns payments for a given month. If year/month omitted, returns the current month."""
+    require_owner(current)
+    if not year or not month:
+        now = datetime.now(timezone.utc)
+        year = year or now.year
+        month = month or now.month
+    prefix = f"{year:04d}-{month:02d}"
+    rows = await db.floor_plan_payments.find(
+        {"dealership_id": current["dealership_id"], "due_date": {"$regex": f"^{prefix}"}},
+        {"_id": 0}
+    ).sort("due_date", 1).to_list(500)
+    return rows
+
+
+@api_router.post("/floor-plans/payments")
+async def create_payment(payload: FloorPlanPaymentPayload, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    fp = await db.floor_plans.find_one({"id": payload.floor_plan_id, "dealership_id": current["dealership_id"]}, {"_id": 0})
+    if not fp:
+        raise HTTPException(400, "Invalid floor plan")
+    pay = {
+        "id": str(uuid.uuid4()),
+        "dealership_id": current["dealership_id"],
+        "floor_plan_id": payload.floor_plan_id,
+        "floor_plan_name": fp["name"],
+        "floor_plan_color": fp.get("color", "#D92D20"),
+        "vehicle_id": payload.vehicle_id or "",
+        "amount": float(payload.amount or 0),
+        "due_date": payload.due_date,
+        "notes": payload.notes or "",
+        "paid": bool(payload.paid),
+        "paid_at": datetime.now(timezone.utc).isoformat() if payload.paid else None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if payload.vehicle_id:
+        v = await db.vehicles.find_one({"id": payload.vehicle_id, "dealership_id": current["dealership_id"]}, {"_id": 0, "make": 1, "model": 1, "year": 1})
+        if v:
+            pay["vehicle_label"] = f"{v.get('year','')} {v.get('make','')} {v.get('model','')}".strip()
+    await db.floor_plan_payments.insert_one(pay)
+    return {k: v for k, v in pay.items() if k != "_id"}
+
+
+@api_router.put("/floor-plans/payments/{pid}")
+async def update_payment(pid: str, payload: FloorPlanPaymentPayload, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    fp = await db.floor_plans.find_one({"id": payload.floor_plan_id, "dealership_id": current["dealership_id"]}, {"_id": 0})
+    if not fp:
+        raise HTTPException(400, "Invalid floor plan")
+    upd = {
+        "floor_plan_id": payload.floor_plan_id,
+        "floor_plan_name": fp["name"],
+        "floor_plan_color": fp.get("color", "#D92D20"),
+        "vehicle_id": payload.vehicle_id or "",
+        "amount": float(payload.amount or 0),
+        "due_date": payload.due_date,
+        "notes": payload.notes or "",
+        "paid": bool(payload.paid),
+        "paid_at": datetime.now(timezone.utc).isoformat() if payload.paid else None,
+    }
+    if payload.vehicle_id:
+        v = await db.vehicles.find_one({"id": payload.vehicle_id, "dealership_id": current["dealership_id"]}, {"_id": 0, "make": 1, "model": 1, "year": 1})
+        if v:
+            upd["vehicle_label"] = f"{v.get('year','')} {v.get('make','')} {v.get('model','')}".strip()
+    res = await db.floor_plan_payments.update_one(
+        {"id": pid, "dealership_id": current["dealership_id"]},
+        {"$set": upd},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Payment not found")
+    return {"ok": True}
+
+
+@api_router.post("/floor-plans/payments/{pid}/toggle")
+async def toggle_paid(pid: str, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    p = await db.floor_plan_payments.find_one(
+        {"id": pid, "dealership_id": current["dealership_id"]}, {"_id": 0, "paid": 1}
+    )
+    if not p:
+        raise HTTPException(404, "Payment not found")
+    new_paid = not bool(p.get("paid"))
+    await db.floor_plan_payments.update_one(
+        {"id": pid, "dealership_id": current["dealership_id"]},
+        {"$set": {"paid": new_paid, "paid_at": datetime.now(timezone.utc).isoformat() if new_paid else None}},
+    )
+    return {"ok": True, "paid": new_paid}
+
+
+@api_router.delete("/floor-plans/payments/{pid}")
+async def delete_payment(pid: str, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    res = await db.floor_plan_payments.delete_one({"id": pid, "dealership_id": current["dealership_id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Payment not found")
+    return {"deleted": True}
+
+
+
+
 @api_router.get("/financial/sold-vehicles")
 async def financial_sold_all(current: dict = Depends(get_current_user)):
     """All-time sold vehicles with purchase_price and sale_price for owner editing."""
