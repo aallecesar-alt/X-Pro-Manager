@@ -890,7 +890,7 @@ async def create_bdc_user(payload: BdcUserCreate, current: dict = Depends(get_cu
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.users.insert_one(user)
-    out = {k: v for k, v in user.items() if k != "password_hash"}
+    out = {k: v for k, v in user.items() if k not in ("password_hash", "_id")}
     return out
 
 
