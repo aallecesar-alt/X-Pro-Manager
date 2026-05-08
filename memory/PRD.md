@@ -90,8 +90,9 @@ Per-car features:
 
 ### Team Settings improvements (Feb 2026)
 - **Photo + Name side-by-side** in the Add/Edit Team Member form (Monday-style avatar picker).
-- New **Gerente** (manager) role alongside Vendedor and BDC. Gerente starts with empty permissions — owner grants tab access case-by-case. Visual badge in amber distinguishes managers from salesperson (red) and BDC (cyan).
-- Backend: `POST /api/team` accepts optional `photo_url`/`photo_public_id`; `DELETE /api/team/{uid}` accepts gerente; `ROLE_DEFAULT_PERMISSIONS["gerente"] = []`.
+- **Four roles** alongside Owner: Vendedor (red, trophy icon), BDC (cyan, headphones), Gerente (amber, crown), Geral (emerald, wrench — for yard / parts / maintenance staff). Both Gerente and Geral start with empty permissions — owner grants tab access case-by-case.
+- 2×2 grid role picker with icons in the Add Team Member modal.
+- Backend: `POST /api/team` accepts optional `photo_url`/`photo_public_id` and validates `role in {salesperson, bdc, gerente, geral}`. `GET/DELETE /api/team` accept all four roles.
 
 ### Stuck-delivery alerts (Feb 2026)
 - Backend tracks `delivery_step_updated_at` on every step change; `GET /api/delivery` returns `days_in_step` + `stuck_alert` (>=45 days, step <8).

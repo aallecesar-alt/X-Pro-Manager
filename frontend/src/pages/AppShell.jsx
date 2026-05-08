@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -225,6 +225,8 @@ function UserProfileChip({ user, t, onPhotoChanged }) {
     ? "BDC"
     : user.role === "gerente"
     ? t("manager")
+    : user.role === "geral"
+    ? t("general_role")
     : t("salesperson");
   return (
     <div className="px-4 py-3 border-b border-border flex items-center gap-3">
@@ -995,9 +997,11 @@ function TeamSection({ t }) {
                             ? "border-cyan-500 text-cyan-400 bg-cyan-500/10"
                             : m.role === "gerente"
                             ? "border-amber-500 text-amber-400 bg-amber-500/10"
+                            : m.role === "geral"
+                            ? "border-emerald-500 text-emerald-400 bg-emerald-500/10"
                             : "border-primary text-primary bg-primary/10"
                         }`}>
-                          {m.role === "bdc" ? "BDC" : m.role === "gerente" ? t("manager") : t("salesperson")}
+                          {m.role === "bdc" ? "BDC" : m.role === "gerente" ? t("manager") : m.role === "geral" ? t("general_role") : t("salesperson")}
                         </span>
                       </div>
                       <p className="text-xs text-text-secondary font-mono">{m.email}</p>
@@ -1144,18 +1148,23 @@ function TeamMemberForm({ member, allPermissions, roleDefaults, salespeople, exi
         {!isEdit && (
           <div>
             <label className="label-eyebrow block mb-2">{t("role")}</label>
-            <div className="grid grid-cols-3 gap-2">
-              {["salesperson", "bdc", "gerente"].map(r => (
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { id: "salesperson", icon: Trophy, label: t("salesperson") },
+                { id: "bdc", icon: Headphones, label: "BDC" },
+                { id: "gerente", icon: Crown, label: t("manager") },
+                { id: "geral", icon: Wrench, label: t("general_role") },
+              ].map(({ id, icon: Icon, label }) => (
                 <button
-                  key={r}
+                  key={id}
                   type="button"
-                  data-testid={`role-${r}`}
-                  onClick={() => applyRoleDefaults(r)}
-                  className={`px-4 py-3 text-xs font-display font-bold uppercase tracking-widest border transition-colors ${
-                    form.role === r ? "border-primary text-primary bg-primary/10" : "border-border text-text-secondary hover:border-primary/60"
+                  data-testid={`role-${id}`}
+                  onClick={() => applyRoleDefaults(id)}
+                  className={`flex items-center justify-center gap-2 px-4 py-3 text-xs font-display font-bold uppercase tracking-widest border transition-colors ${
+                    form.role === id ? "border-primary text-primary bg-primary/10" : "border-border text-text-secondary hover:border-primary/60"
                   }`}
                 >
-                  {r === "bdc" ? "BDC" : r === "gerente" ? t("manager") : t("salesperson")}
+                  <Icon size={14} /> {label}
                 </button>
               ))}
             </div>

@@ -200,6 +200,8 @@ ROLE_DEFAULT_PERMISSIONS = {
     "salesperson": ["overview", "inventory", "pipeline", "delivery", "leads", "salespeople"],
     # Gerente (manager) starts with no default access — owner grants case-by-case.
     "gerente": [],
+    # Geral (yard / parts / maintenance staff) — owner picks the tabs each one sees.
+    "geral": [],
 }
 
 
@@ -994,7 +996,7 @@ async def list_team(current: dict = Depends(get_current_user)):
     """List all non-owner users in this dealership with their permissions."""
     require_owner(current)
     users = await db.users.find(
-        {"dealership_id": current["dealership_id"], "role": {"$in": ["salesperson", "bdc", "gerente"]}},
+        {"dealership_id": current["dealership_id"], "role": {"$in": ["salesperson", "bdc", "gerente", "geral"]}},
         {"_id": 0, "password_hash": 0}
     ).sort("full_name", 1).to_list(500)
     # Resolve salesperson_name when role=salesperson
@@ -1017,8 +1019,8 @@ async def list_team(current: dict = Depends(get_current_user)):
 @api_router.post("/team")
 async def create_team_member(payload: TeamMemberCreate, current: dict = Depends(get_current_user)):
     require_owner(current)
-    if payload.role not in ("salesperson", "bdc", "gerente"):
-        raise HTTPException(400, "role must be salesperson, bdc or gerente")
+    if payload.role not in ("salesperson", "bdc", "gerente", "geral"):
+        raise HTTPException(400, "role must be salesperson, bdc, gerente or geral")
     email = payload.email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already in use")
@@ -1119,7 +1121,7 @@ async def delete_team_member(uid: str, current: dict = Depends(get_current_user)
     res = await db.users.delete_one({
         "id": uid,
         "dealership_id": current["dealership_id"],
-        "role": {"$in": ["salesperson", "bdc", "gerente"]},
+        "role": {"$in": ["salesperson", "bdc", "gerente", "geral"]},
     })
     if res.deleted_count == 0:
         raise HTTPException(404, "Team member not found")
