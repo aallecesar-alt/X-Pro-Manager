@@ -188,6 +188,10 @@ def is_salesperson(user: dict) -> bool:
     return user.get("role") == "salesperson"
 
 
+def is_bdc(user: dict) -> bool:
+    return user.get("role") == "bdc"
+
+
 # Fields hidden from salespeople (per-vehicle financials that reveal cost/profit)
 _HIDDEN_VEHICLE_FIELDS = ("purchase_price", "expenses", "expense_items")
 
@@ -203,6 +207,11 @@ def strip_vehicle_for_salesperson(v: dict) -> dict:
 def require_owner(user: dict):
     if user.get("role") != "owner":
         raise HTTPException(403, "Owner access required")
+
+
+def require_owner_or_bdc(user: dict):
+    if user.get("role") not in ("owner", "bdc"):
+        raise HTTPException(403, "Owner or BDC access required")
 
 
 # ============================================================
@@ -221,6 +230,9 @@ async def startup():
     await db.operational_expenses.create_index([("dealership_id", 1), ("date", -1)])
     await db.lost_sales.create_index("id", unique=True)
     await db.lost_sales.create_index([("dealership_id", 1), ("date", -1)])
+    await db.leads.create_index("id", unique=True)
+    await db.leads.create_index([("dealership_id", 1), ("created_at", -1)])
+    await db.leads.create_index([("dealership_id", 1), ("monday_item_id", 1)])
 
 
 # ============================================================
@@ -802,6 +814,53 @@ async def revoke_salesperson_credentials(sid: str, current: dict = Depends(get_c
     return {"deleted": res.deleted_count}
 
 
+# ---------- BDC users (owner-only management) ----------
+class BdcUserCreate(BaseModel):
+    full_name: str
+    email: EmailStr
+    password: str
+
+
+@api_router.get("/bdc-users")
+async def list_bdc_users(current: dict = Depends(get_current_user)):
+    require_owner(current)
+    users = await db.users.find(
+        {"dealership_id": current["dealership_id"], "role": "bdc"},
+        {"_id": 0, "password_hash": 0}
+    ).sort("full_name", 1).to_list(100)
+    return users
+
+
+@api_router.post("/bdc-users")
+async def create_bdc_user(payload: BdcUserCreate, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    email = payload.email.lower()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(400, "Email already in use")
+    user = {
+        "id": str(uuid.uuid4()),
+        "email": email,
+        "password_hash": hash_password(payload.password),
+        "full_name": payload.full_name,
+        "dealership_id": current["dealership_id"],
+        "role": "bdc",
+        "salesperson_id": "",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.users.insert_one(user)
+    out = {k: v for k, v in user.items() if k != "password_hash"}
+    return out
+
+
+@api_router.delete("/bdc-users/{uid}")
+async def delete_bdc_user(uid: str, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    res = await db.users.delete_one({"id": uid, "dealership_id": current["dealership_id"], "role": "bdc"})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "BDC user not found")
+    return {"deleted": True}
+
+
 @api_router.post("/salespeople", response_model=Salesperson)
 async def create_salesperson(payload: SalespersonBase, current: dict = Depends(get_current_user)):
     require_owner(current)
@@ -1372,6 +1431,296 @@ async def financial_monthly(months: int = 6, current: dict = Depends(get_current
             "vehicles_count": len(sold),
         })
     return out
+
+
+# ============================================================
+# LEADS — BDC dashboard (BDC adds, salespeople claim)
+# ============================================================
+LEAD_STATUSES = [
+    "new", "in_progress", "hot_lead", "follow_up", "cold",
+    "no_answer", "wrong_number", "deal_closed", "lost", "future"
+]
+LEAD_SOURCES = [
+    "facebook", "instagram", "google_ads", "cargurus", "carfax",
+    "craigslist", "walk_in", "referral", "phone", "other"
+]
+
+
+class LeadBase(BaseModel):
+    name: str
+    phone: str = ""
+    email: str = ""
+    source: str = "other"
+    status: str = "new"
+    interest_make_model: str = ""
+    budget: float = 0
+    payment_type: str = ""  # cash | financing
+    notes: str = ""
+    language: str = ""
+    last_contact_at: str = ""  # YYYY-MM-DD
+    salesperson_id: str = ""
+    salesperson_name: str = ""
+    attachments: List[dict] = Field(default_factory=list)
+
+
+class Lead(LeadBase):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    dealership_id: str
+    created_by_id: str = ""
+    created_by_name: str = ""
+    monday_item_id: str = ""  # external reference if imported
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class LeadUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    source: Optional[str] = None
+    status: Optional[str] = None
+    interest_make_model: Optional[str] = None
+    budget: Optional[float] = None
+    payment_type: Optional[str] = None
+    notes: Optional[str] = None
+    language: Optional[str] = None
+    last_contact_at: Optional[str] = None
+    salesperson_id: Optional[str] = None
+    salesperson_name: Optional[str] = None
+    attachments: Optional[List[dict]] = None
+
+
+@api_router.get("/leads")
+async def list_leads(
+    status: Optional[str] = None,
+    source: Optional[str] = None,
+    assigned: Optional[str] = None,  # "yes" | "no" | "mine"
+    search: Optional[str] = None,
+    current: dict = Depends(get_current_user),
+):
+    q = {"dealership_id": current["dealership_id"]}
+    if status:
+        q["status"] = status
+    if source:
+        q["source"] = source
+    if assigned == "yes":
+        q["salesperson_id"] = {"$nin": ["", None]}
+    elif assigned == "no":
+        q["$or"] = [{"salesperson_id": ""}, {"salesperson_id": None}, {"salesperson_id": {"$exists": False}}]
+    elif assigned == "mine":
+        q["salesperson_id"] = current.get("salesperson_id") or "__none__"
+    # Salespeople only see unassigned + their own leads (no other people's leads)
+    if is_salesperson(current):
+        sp_id = current.get("salesperson_id") or ""
+        q["$or"] = [
+            {"salesperson_id": sp_id},
+            {"salesperson_id": ""},
+            {"salesperson_id": None},
+            {"salesperson_id": {"$exists": False}},
+        ]
+    if search:
+        rx = {"$regex": search, "$options": "i"}
+        q.setdefault("$and", []).append({"$or": [{"name": rx}, {"phone": rx}, {"email": rx}, {"notes": rx}]})
+    items = await db.leads.find(q, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    return items
+
+
+@api_router.post("/leads", response_model=Lead)
+async def create_lead(payload: LeadBase, current: dict = Depends(get_current_user)):
+    require_owner_or_bdc(current)
+    lead = Lead(
+        dealership_id=current["dealership_id"],
+        created_by_id=current.get("id", ""),
+        created_by_name=current.get("full_name", "") or current.get("email", ""),
+        **payload.model_dump(),
+    )
+    await db.leads.insert_one(lead.model_dump())
+    return lead
+
+
+@api_router.put("/leads/{lid}", response_model=Lead)
+async def update_lead(lid: str, payload: LeadUpdate, current: dict = Depends(get_current_user)):
+    upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # Salespeople can only update their own leads (or unassigned that they then claim)
+    if is_salesperson(current):
+        existing = await db.leads.find_one({"id": lid, "dealership_id": current["dealership_id"]}, {"_id": 0})
+        if not existing:
+            raise HTTPException(404, "Lead not found")
+        my_sp = current.get("salesperson_id") or ""
+        if existing.get("salesperson_id") and existing.get("salesperson_id") != my_sp:
+            raise HTTPException(403, "Not your lead")
+    if "salesperson_id" in upd:
+        if upd["salesperson_id"]:
+            sp = await db.salespeople.find_one(
+                {"id": upd["salesperson_id"], "dealership_id": current["dealership_id"]}, {"_id": 0}
+            )
+            upd["salesperson_name"] = (sp or {}).get("name", "")
+        else:
+            upd["salesperson_name"] = ""
+    if not upd:
+        raise HTTPException(400, "Nothing to update")
+    res = await db.leads.update_one({"id": lid, "dealership_id": current["dealership_id"]}, {"$set": upd})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Lead not found")
+    return await db.leads.find_one({"id": lid}, {"_id": 0})
+
+
+@api_router.post("/leads/{lid}/claim")
+async def claim_lead(lid: str, current: dict = Depends(get_current_user)):
+    """Salesperson claims an unassigned lead."""
+    if not is_salesperson(current):
+        raise HTTPException(403, "Only salespeople can claim leads")
+    sp_id = current.get("salesperson_id") or ""
+    if not sp_id:
+        raise HTTPException(400, "No salesperson profile linked to your account")
+    lead = await db.leads.find_one({"id": lid, "dealership_id": current["dealership_id"]}, {"_id": 0})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if lead.get("salesperson_id"):
+        raise HTTPException(400, "Lead already assigned")
+    sp = await db.salespeople.find_one({"id": sp_id, "dealership_id": current["dealership_id"]}, {"_id": 0})
+    await db.leads.update_one(
+        {"id": lid},
+        {"$set": {"salesperson_id": sp_id, "salesperson_name": (sp or {}).get("name", "")}},
+    )
+    return await db.leads.find_one({"id": lid}, {"_id": 0})
+
+
+@api_router.delete("/leads/{lid}")
+async def delete_lead(lid: str, current: dict = Depends(get_current_user)):
+    require_owner_or_bdc(current)
+    res = await db.leads.delete_one({"id": lid, "dealership_id": current["dealership_id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Lead not found")
+    return {"deleted": True}
+
+
+@api_router.get("/leads-stats")
+async def leads_stats(current: dict = Depends(get_current_user)):
+    """Counts by status and source for the BDC dashboard."""
+    did = current["dealership_id"]
+    base_q = {"dealership_id": did}
+    if is_salesperson(current):
+        sp_id = current.get("salesperson_id") or ""
+        base_q["$or"] = [{"salesperson_id": sp_id}, {"salesperson_id": ""}, {"salesperson_id": None}]
+    total = await db.leads.count_documents(base_q)
+    unassigned = await db.leads.count_documents({**base_q, "$and": [{"$or": [{"salesperson_id": ""}, {"salesperson_id": None}, {"salesperson_id": {"$exists": False}}]}]})
+    by_status = {}
+    by_source = {}
+    cursor = db.leads.find(base_q, {"_id": 0, "status": 1, "source": 1})
+    async for ld in cursor:
+        by_status[ld.get("status") or "new"] = by_status.get(ld.get("status") or "new", 0) + 1
+        by_source[ld.get("source") or "other"] = by_source.get(ld.get("source") or "other", 0) + 1
+    return {"total": total, "unassigned": unassigned, "by_status": by_status, "by_source": by_source}
+
+
+# ---------- Monday.com import ----------
+MONDAY_BOARD_LEADS_ID = "9835447209"
+MONDAY_STATUS_MAP = {
+    # Monday label -> our status
+    "Em progresso": "in_progress", "Fechou": "deal_closed", "comprou": "deal_closed",
+    "Já comprou": "deal_closed", "New Leads": "new", "Hot lead": "hot_lead",
+    "Quente": "hot_lead", "Frio": "cold", "Indeciso": "cold", "Futuro": "future",
+    "Fazer FOLLOW-UP": "follow_up", "Não Atendeu": "no_answer", "Desligou na Cara": "no_answer",
+    "Número fora de serviço": "wrong_number", "parou de responder": "lost", "Perdido": "lost",
+    "caiu": "lost", "bad credit/not approved": "lost",
+}
+MONDAY_SOURCE_MAP = {
+    "Facebook": "facebook", "instagram": "instagram", "Walk-In": "walk_in",
+    "Indicaçao": "referral", "CarGurus": "cargurus", "Carfax": "carfax",
+    "Craiglist": "craigslist", "Carzing": "other", "car for sale": "other",
+    "Cars for sales": "other", "Arquivo": "other",
+}
+
+
+@api_router.post("/leads/import-monday")
+async def import_monday_leads(payload: dict = None, current: dict = Depends(get_current_user)):
+    """One-shot importer that pulls all leads from Monday.com Leads board into our DB.
+
+    Owner only. Idempotent: existing items (matched by monday_item_id) are updated, not duplicated.
+    """
+    require_owner(current)
+    import httpx
+    token = os.environ.get("MONDAY_API_TOKEN", "")
+    if not token:
+        raise HTTPException(500, "Monday token not configured on server")
+    board_id = (payload or {}).get("board_id") or MONDAY_BOARD_LEADS_ID
+    did = current["dealership_id"]
+    imported = 0
+    updated = 0
+    cursor = None
+    pages = 0
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        while True:
+            pages += 1
+            if cursor:
+                query = '''query ($cursor: String!) { next_items_page(cursor: $cursor, limit: 100) { cursor items { id name created_at column_values { id text type } } } }'''
+                variables = {"cursor": cursor}
+                r = await client.post("https://api.monday.com/v2", headers={"Authorization": token, "Content-Type": "application/json", "API-Version": "2024-01"}, json={"query": query, "variables": variables})
+                data = (r.json() or {}).get("data", {}) or {}
+                page = data.get("next_items_page") or {}
+            else:
+                query = '''query ($board: ID!) { boards(ids: [$board]) { items_page(limit: 100) { cursor items { id name created_at column_values { id text type } } } } }'''
+                variables = {"board": board_id}
+                r = await client.post("https://api.monday.com/v2", headers={"Authorization": token, "Content-Type": "application/json", "API-Version": "2024-01"}, json={"query": query, "variables": variables})
+                data = (r.json() or {}).get("data", {}) or {}
+                boards = data.get("boards") or []
+                if not boards:
+                    raise HTTPException(400, f"Monday board {board_id} not found or no access")
+                page = boards[0].get("items_page") or {}
+
+            items = page.get("items") or []
+            cursor = page.get("cursor")
+
+            for it in items:
+                mid = str(it.get("id"))
+                name = it.get("name", "") or ""
+                created = it.get("created_at", "") or ""
+                col_by_id = {c["id"]: c for c in (it.get("column_values") or [])}
+                phone = (col_by_id.get("phone_mktx71tz") or {}).get("text") or ""
+                email = (col_by_id.get("email_mktxjh32") or {}).get("text") or ""
+                src_text = (col_by_id.get("color_mktx43yz") or {}).get("text") or ""
+                status_text = (col_by_id.get("status") or {}).get("text") or ""
+                notes = (col_by_id.get("long_text_mktxhctt") or {}).get("text") or ""
+                last_contact = (col_by_id.get("data") or {}).get("text") or ""
+                language = (col_by_id.get("dropdown_mkvnz5nr") or {}).get("text") or ""
+
+                doc = {
+                    "name": name.strip() or "—",
+                    "phone": phone,
+                    "email": email,
+                    "source": MONDAY_SOURCE_MAP.get(src_text, "other"),
+                    "status": MONDAY_STATUS_MAP.get(status_text, "new"),
+                    "interest_make_model": "",
+                    "budget": 0,
+                    "payment_type": "",
+                    "notes": notes,
+                    "language": language,
+                    "last_contact_at": last_contact,
+                    "salesperson_id": "",
+                    "salesperson_name": "",
+                    "attachments": [],
+                    "monday_item_id": mid,
+                    "dealership_id": did,
+                    "created_by_id": current.get("id", ""),
+                    "created_by_name": "Monday import",
+                    "created_at": created or datetime.now(timezone.utc).isoformat(),
+                }
+                existing = await db.leads.find_one({"dealership_id": did, "monday_item_id": mid}, {"_id": 0, "id": 1})
+                if existing:
+                    await db.leads.update_one({"id": existing["id"]}, {"$set": {k: v for k, v in doc.items() if k not in ("created_at",)}})
+                    updated += 1
+                else:
+                    doc["id"] = str(uuid.uuid4())
+                    await db.leads.insert_one(doc)
+                    imported += 1
+
+            if not cursor or not items:
+                break
+            if pages > 50:  # safety cap (50 * 100 = 5000)
+                break
+
+    return {"imported": imported, "updated": updated, "pages": pages}
 
 
 # ============================================================

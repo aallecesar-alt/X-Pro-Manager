@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -7,6 +7,7 @@ import { useI18n, LANG_OPTIONS } from "@/lib/i18n.jsx";
 import PhotoUploader from "@/components/PhotoUploader";
 import ExpenseManager from "@/components/ExpenseManager";
 import Financial from "@/pages/Financial";
+import LeadsPage from "@/pages/LeadsPage";
 
 const STATUS_COLUMNS = [
   { id: "in_stock", color: "border-blue-500" },
@@ -18,6 +19,8 @@ export default function AppShell() {
   const { t, lang, setLang } = useI18n();
   const { user, dealership, logout, refreshDealership } = useAuth();
   const isSalesperson = user?.role === "salesperson";
+  const isBdc = user?.role === "bdc";
+  const isOwner = user?.role === "owner";
   const [tab, setTab] = useState("overview");
   const [stats, setStats] = useState(null);
   const [vehicles, setVehicles] = useState([]);
@@ -27,11 +30,16 @@ export default function AppShell() {
   const [importOpen, setImportOpen] = useState(false);
   const [search, setSearch] = useState("");
 
-  const tabs = [
+  // BDC has a focused workflow: dashboard + leads only
+  const tabs = isBdc ? [
+    { id: "overview", label: t("dashboard"), icon: LayoutDashboard },
+    { id: "leads", label: t("leads_title"), icon: Headphones },
+  ] : [
     { id: "overview", label: t("dashboard"), icon: LayoutDashboard },
     { id: "inventory", label: t("inventory"), icon: Package },
     { id: "pipeline", label: t("pipeline"), icon: TrendingUp },
     { id: "delivery", label: t("delivery"), icon: Truck },
+    { id: "leads", label: t("leads_title"), icon: Headphones },
     { id: "salespeople", label: t("salespeople"), icon: Users },
     ...(isSalesperson ? [] : [
       { id: "financial", label: t("financial"), icon: DollarSign },
@@ -41,6 +49,12 @@ export default function AppShell() {
 
   const reload = async () => {
     try {
+      if (isBdc) {
+        // BDC only needs salespeople for the lead form
+        const sp = await api.get("/salespeople");
+        setSalespeople(sp.data);
+        return;
+      }
       const [s, v, d, sp] = await Promise.all([
         api.get("/stats"),
         api.get("/vehicles", { params: { search: search || undefined } }),
@@ -127,18 +141,19 @@ export default function AppShell() {
 
       {/* MAIN */}
       <main className="flex-1 p-8 overflow-auto">
-        {tab === "overview" && <Overview stats={stats} t={t} isSalesperson={isSalesperson} />}
-        {tab === "inventory" && (
+        {tab === "overview" && <Overview stats={stats} t={t} isSalesperson={isSalesperson} isBdc={isBdc} />}
+        {tab === "inventory" && !isBdc && (
           <Inventory
             vehicles={vehicles} t={t} search={search} setSearch={setSearch} isSalesperson={isSalesperson}
             onAdd={() => setEditing("new")} onImport={() => setImportOpen(true)} onEdit={(v) => setEditing(v)} onDelete={onDelete}
           />
         )}
-        {tab === "pipeline" && <Pipeline vehicles={vehicles} t={t} onMove={updateStatus} onEdit={(v) => setEditing(v)} />}
-        {tab === "delivery" && <Delivery deliveries={deliveries} t={t} onReload={reload} />}
-        {tab === "salespeople" && <SalespeopleTab salespeople={salespeople} t={t} onReload={reload} isSalesperson={isSalesperson} currentSpId={user?.salesperson_id || ""} />}
-        {tab === "financial" && !isSalesperson && <Financial t={t} />}
-        {tab === "settings" && !isSalesperson && <SettingsTab dealership={dealership} t={t} onRefresh={refreshDealership} />}
+        {tab === "pipeline" && !isBdc && <Pipeline vehicles={vehicles} t={t} onMove={updateStatus} onEdit={(v) => setEditing(v)} />}
+        {tab === "delivery" && !isBdc && <Delivery deliveries={deliveries} t={t} onReload={reload} />}
+        {tab === "leads" && <LeadsPage t={t} role={user?.role || "owner"} currentSpId={user?.salesperson_id || ""} salespeople={salespeople} />}
+        {tab === "salespeople" && !isBdc && <SalespeopleTab salespeople={salespeople} t={t} onReload={reload} isSalesperson={isSalesperson} currentSpId={user?.salesperson_id || ""} />}
+        {tab === "financial" && isOwner && <Financial t={t} />}
+        {tab === "settings" && isOwner && <SettingsTab dealership={dealership} t={t} onRefresh={refreshDealership} />}
 
         {editing && (
           <VehicleForm t={t} vehicle={editing === "new" || (editing && editing.__prefill) ? null : editing} prefill={editing && editing.__prefill ? editing : null} salespeople={salespeople} isSalesperson={isSalesperson} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />
@@ -159,7 +174,7 @@ export default function AppShell() {
   );
 }
 
-function Overview({ stats, t, isSalesperson }) {
+function Overview({ stats, t, isSalesperson, isBdc }) {
   const [leaderboard, setLeaderboard] = useState({ rows: [], total_sold: 0 });
   const [promotion, setPromotion] = useState(null);
   const [editingPromo, setEditingPromo] = useState(false);
@@ -176,9 +191,9 @@ function Overview({ stats, t, isSalesperson }) {
     try { const r = await api.get("/promotion"); setPromotion(r.data); } catch { /* noop */ }
   };
 
-  if (!stats) return <p className="text-text-secondary">...</p>;
+  if (!stats && !isBdc) return <p className="text-text-secondary">...</p>;
 
-  const cards = [
+  const cards = isBdc ? [] : [
     { label: t("total_vehicles"), value: stats.total_vehicles, icon: Car },
     { label: t("in_stock"), value: stats.in_stock, icon: Package },
     { label: t("reserved"), value: stats.reserved, icon: Clock },
@@ -186,7 +201,7 @@ function Overview({ stats, t, isSalesperson }) {
   ];
 
   // Build the last 6 months bucket so the chart always shows 6 bars
-  const sourceMonthly = stats.monthly_sales || [];
+  const sourceMonthly = (stats && stats.monthly_sales) || [];
   const monthMap = new Map(sourceMonthly.map(m => [m.month, m]));
   const monthly = [];
   const today = new Date();
@@ -209,19 +224,21 @@ function Overview({ stats, t, isSalesperson }) {
         </div>
       </div>
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border border border-border mb-10">
-        {cards.map((c, i) => {
-          const Icon = c.icon;
-          return (
-            <div key={i} data-testid={`stat-${i}`} className="bg-background p-6 relative overflow-hidden group">
-              <Icon size={64} className="absolute -bottom-4 -right-4 text-text-secondary/5 group-hover:text-primary/10 transition-colors" />
-              <p className="label-eyebrow mb-3 relative">{c.label}</p>
-              <p className="font-display font-black text-3xl text-white relative">{c.value}</p>
-            </div>
-          );
-        })}
-      </div>
+      {/* KPI cards (hidden for BDC role - they live in Leads tab) */}
+      {!isBdc && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border border border-border mb-10">
+          {cards.map((c, i) => {
+            const Icon = c.icon;
+            return (
+              <div key={i} data-testid={`stat-${i}`} className="bg-background p-6 relative overflow-hidden group">
+                <Icon size={64} className="absolute -bottom-4 -right-4 text-text-secondary/5 group-hover:text-primary/10 transition-colors" />
+                <p className="label-eyebrow mb-3 relative">{c.label}</p>
+                <p className="font-display font-black text-3xl text-white relative">{c.value}</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-border border border-border mb-10">
         {/* Leaderboard */}
@@ -334,39 +351,41 @@ function Overview({ stats, t, isSalesperson }) {
         </div>
       </div>
 
-      {/* Monthly chart */}
-      <div className="border border-border p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-2">
-            <TrendingUp size={16} className="text-primary" />
-            <p className="label-eyebrow text-primary">{t("monthly_performance")}</p>
+      {/* Monthly chart (hidden for BDC) */}
+      {!isBdc && (
+        <div className="border border-border p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <TrendingUp size={16} className="text-primary" />
+              <p className="label-eyebrow text-primary">{t("monthly_performance")}</p>
+            </div>
+            <p className="text-xs text-text-secondary">6 {t("months_short")}</p>
           </div>
-          <p className="text-xs text-text-secondary">6 {t("months_short")}</p>
-        </div>
-        {monthly.length === 0 ? (
-          <p className="text-text-secondary text-sm py-8 text-center">—</p>
-        ) : (
-          <div className="flex items-end gap-3 h-40 px-2">
-            {monthly.map((m) => {
-              const h = Math.max(((m.count || 0) / maxBar) * 100, 2);
-              return (
-                <div key={m.month} className="flex-1 flex flex-col items-center gap-2 h-full">
-                  <div className="flex-1 w-full flex items-end relative group">
-                    <div
-                      className="w-full bg-gradient-to-t from-primary to-primary/60 transition-all hover:from-primary/80 hover:to-primary"
-                      style={{ height: `${h}%` }}
-                    />
-                    <span className="absolute -top-5 left-1/2 -translate-x-1/2 font-display font-bold text-xs">
-                      {m.count || 0}
-                    </span>
+          {monthly.length === 0 ? (
+            <p className="text-text-secondary text-sm py-8 text-center">—</p>
+          ) : (
+            <div className="flex items-end gap-3 h-40 px-2">
+              {monthly.map((m) => {
+                const h = Math.max(((m.count || 0) / maxBar) * 100, 2);
+                return (
+                  <div key={m.month} className="flex-1 flex flex-col items-center gap-2 h-full">
+                    <div className="flex-1 w-full flex items-end relative group">
+                      <div
+                        className="w-full bg-gradient-to-t from-primary to-primary/60 transition-all hover:from-primary/80 hover:to-primary"
+                        style={{ height: `${h}%` }}
+                      />
+                      <span className="absolute -top-5 left-1/2 -translate-x-1/2 font-display font-bold text-xs">
+                        {m.count || 0}
+                      </span>
+                    </div>
+                    <span className="font-display font-bold text-[10px] uppercase tracking-wider text-text-secondary">{m.month.slice(5)}/{m.month.slice(2, 4)}</span>
                   </div>
-                  <span className="font-display font-bold text-[10px] uppercase tracking-wider text-text-secondary">{m.month.slice(5)}/{m.month.slice(2, 4)}</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {editingPromo && !isSalesperson && (
         <PromotionForm
@@ -792,6 +811,109 @@ function SettingsTab({ dealership, t, onRefresh }) {
           <RefreshCw size={14} /> {t("regenerate")}
         </button>
       </div>
+
+      {/* BDC users management */}
+      <BdcUsersSection t={t} />
+    </div>
+  );
+}
+
+function BdcUsersSection({ t }) {
+  const [users, setUsers] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ full_name: "", email: "", password: "" });
+  const [saving, setSaving] = useState(false);
+
+  const reload = async () => {
+    try { const r = await api.get("/bdc-users"); setUsers(r.data); }
+    catch { /* noop */ }
+  };
+  useEffect(() => { reload(); }, []);
+
+  const create = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.post("/bdc-users", form);
+      toast.success(t("saved"));
+      setForm({ full_name: "", email: "", password: "" });
+      setShowForm(false);
+      reload();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || t("error_generic"));
+    } finally { setSaving(false); }
+  };
+
+  const remove = async (id) => {
+    if (!window.confirm(t("confirm_delete"))) return;
+    try { await api.delete(`/bdc-users/${id}`); toast.success(t("saved")); reload(); }
+    catch { toast.error(t("error_generic")); }
+  };
+
+  return (
+    <div className="border border-border p-6 mt-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <p className="label-eyebrow text-primary mb-1">{t("bdc_users_title")}</p>
+          <p className="text-text-secondary text-sm">{t("bdc_users_hint")}</p>
+        </div>
+        <button
+          data-testid="add-bdc"
+          type="button"
+          onClick={() => setShowForm(true)}
+          className="bg-primary hover:bg-primary-hover px-4 py-2.5 font-display font-bold uppercase text-xs tracking-widest inline-flex items-center gap-2"
+        >
+          <UserPlus size={14} /> {t("add_bdc")}
+        </button>
+      </div>
+
+      {users.length === 0 ? (
+        <p className="text-text-secondary text-sm border border-dashed border-border py-8 text-center">{t("no_bdc_users")}</p>
+      ) : (
+        <div className="space-y-2">
+          {users.map(u => (
+            <div key={u.id} data-testid={`bdc-row-${u.id}`} className="flex items-center justify-between border border-border p-3">
+              <div>
+                <p className="font-display font-bold">{u.full_name}</p>
+                <p className="text-xs text-text-secondary font-mono">{u.email}</p>
+              </div>
+              <button onClick={() => remove(u.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors" title={t("delete")}>
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showForm && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-12 px-4">
+          <form onSubmit={create} className="bg-background border border-border w-full max-w-md p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-display font-black text-xl uppercase tracking-tight">{t("add_bdc")}</h2>
+              <button type="button" onClick={() => setShowForm(false)}><X size={20} className="text-text-secondary hover:text-primary" /></button>
+            </div>
+            <p className="text-xs text-text-secondary leading-relaxed border-l-2 border-primary pl-3">{t("bdc_users_hint")}</p>
+            <div>
+              <label className="label-eyebrow block mb-2">{t("full_name")}</label>
+              <input data-testid="bdc-name" required value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm" />
+            </div>
+            <div>
+              <label className="label-eyebrow block mb-2">{t("email")}</label>
+              <input data-testid="bdc-email" required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm" />
+            </div>
+            <div>
+              <label className="label-eyebrow block mb-2">{t("password")}</label>
+              <input data-testid="bdc-password" required type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm" />
+            </div>
+            <div className="flex justify-end gap-3 pt-3 border-t border-border">
+              <button type="button" onClick={() => setShowForm(false)} className="px-5 py-2.5 border border-border hover:border-primary text-xs font-display font-bold uppercase tracking-widest transition-colors">{t("cancel")}</button>
+              <button type="submit" data-testid="bdc-submit" disabled={saving} className="bg-primary hover:bg-primary-hover disabled:opacity-50 px-5 py-2.5 text-xs font-display font-bold uppercase tracking-widest transition-colors">
+                {saving ? "..." : t("save")}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
