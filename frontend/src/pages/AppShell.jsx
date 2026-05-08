@@ -1230,6 +1230,42 @@ function DeliveryEditModal({ vehicle, mode, t, onClose, onSaved }) {
   );
 }
 
+function InlineSalespersonSelect({ value, salespeople, onChange, t, testid }) {
+  const [editing, setEditing] = useState(false);
+  const current = salespeople.find(s => s.id === value);
+
+  if (editing) {
+    return (
+      <select
+        data-testid={testid}
+        autoFocus
+        value={value || ""}
+        onChange={(e) => { setEditing(false); onChange(e.target.value); }}
+        onBlur={() => setEditing(false)}
+        className="w-44 bg-surface border border-primary focus:outline-none px-2 h-8 text-sm font-display font-bold"
+      >
+        <option value="">— {t("unassigned")} —</option>
+        {salespeople.filter(s => s.active !== false).map(s => (
+          <option key={s.id} value={s.id}>{s.name}</option>
+        ))}
+      </select>
+    );
+  }
+  return (
+    <button
+      type="button"
+      data-testid={testid}
+      onClick={() => setEditing(true)}
+      className={`inline-flex items-center gap-1.5 hover:text-primary transition-colors border-b border-dashed border-text-secondary/40 hover:border-primary text-left ${current ? "font-display font-bold" : "text-warning text-xs uppercase tracking-wider"}`}
+      title={t("change_salesperson")}
+    >
+      {current ? current.name : t("unassigned")}
+      <Edit2 size={10} className="opacity-50" />
+    </button>
+  );
+}
+
+
 function InlineMoneyEdit({ value, onSave, testid }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(value ?? 0));
@@ -1331,6 +1367,28 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
     if (Number.isNaN(n) || n < 0) { toast.error(t("error_generic")); return; }
     try {
       await api.put(`/vehicles/${vehicle_id}`, { commission_amount: n });
+      toast.success(t("saved"));
+      loadReport();
+      onReload();
+    } catch { toast.error(t("error_generic")); }
+  };
+
+  const updateSalesperson = async (vehicle_id, sp_id) => {
+    if (isSalesperson) return;
+    const sp = salespeople.find(s => s.id === sp_id);
+    const payload = {
+      salesperson_id: sp_id || "",
+      salesperson_name: sp ? sp.name : "",
+    };
+    // When switching to a real salesperson, snapshot their default commission if current row has 0
+    try {
+      const v = await api.get(`/vehicles/${vehicle_id}`).then(r => r.data);
+      if (sp && (Number(v.commission_amount) || 0) === 0) {
+        payload.commission_amount = Number(sp.commission_amount) || 0;
+      }
+    } catch { /* noop */ }
+    try {
+      await api.put(`/vehicles/${vehicle_id}`, payload);
       toast.success(t("saved"));
       loadReport();
       onReload();
@@ -1628,11 +1686,13 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
                           <td className="p-3">{r.buyer_name || "—"}</td>
                           {!isSalesperson && (
                             <td className="p-3">
-                              {r.salesperson_name && r.salesperson_name !== "—" ? (
-                                <span className="font-display font-bold">{r.salesperson_name}</span>
-                              ) : (
-                                <span className="text-warning text-xs uppercase tracking-wider">{t("unassigned")}</span>
-                              )}
+                              <InlineSalespersonSelect
+                                value={r.salesperson_id || ""}
+                                salespeople={salespeople}
+                                onChange={(spId) => updateSalesperson(r.vehicle_id, spId)}
+                                t={t}
+                                testid={`change-sp-${r.vehicle_id}`}
+                              />
                             </td>
                           )}
                           <td className="p-3 text-right font-display font-bold">{formatCurrency(r.sold_price)}</td>
