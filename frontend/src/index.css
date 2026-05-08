@@ -88,43 +88,43 @@ body {
 
 /* Notebook paper effect for promotion card */
 .notebook-paper {
-  background-color: #fef9c3;
+  background-color: #ffffff;
   background-image:
     /* red margin line */
-    linear-gradient(90deg, transparent 32px, rgba(217, 45, 32, 0.4) 32px, rgba(217, 45, 32, 0.4) 33px, transparent 33px),
-    /* horizontal ruled lines */
+    linear-gradient(90deg, transparent 38px, rgba(217, 45, 32, 0.5) 38px, rgba(217, 45, 32, 0.5) 39px, transparent 39px),
+    /* horizontal ruled lines (every 48px to fit large handwriting) */
     repeating-linear-gradient(
       to bottom,
       transparent 0px,
-      transparent 27px,
-      rgba(35, 92, 158, 0.35) 27px,
-      rgba(35, 92, 158, 0.35) 28px
+      transparent 47px,
+      rgba(35, 92, 158, 0.32) 47px,
+      rgba(35, 92, 158, 0.32) 48px
     );
   color: #1a1a1a;
   position: relative;
   border-radius: 2px;
   box-shadow:
-    0 1px 0 rgba(0, 0, 0, 0.1),
-    inset 0 0 60px rgba(0, 0, 0, 0.05);
+    0 2px 0 rgba(0, 0, 0, 0.12),
+    inset 0 0 80px rgba(0, 0, 0, 0.04);
 }
 
 /* Holes on the left side */
 .notebook-paper::before {
   content: '';
   position: absolute;
-  left: 8px;
+  left: 10px;
   top: 0;
   bottom: 0;
-  width: 12px;
-  background-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.18) 0, rgba(0, 0, 0, 0.18) 4px, transparent 5px);
-  background-size: 12px 80px;
+  width: 14px;
+  background-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.18) 0, rgba(0, 0, 0, 0.18) 5px, transparent 6px);
+  background-size: 14px 96px;
   background-repeat: repeat-y;
   pointer-events: none;
 }
 
 .notebook-handwriting {
   font-family: 'Caveat', 'Patrick Hand', 'Comic Sans MS', cursive;
-  line-height: 28px;
+  line-height: 48px;
 }
 
 ::selection {

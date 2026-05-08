@@ -596,15 +596,15 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, onGoToFinancial })
             )}
           </div>
           {!promotion?.title && !promotion?.description && !promotion?.image_url ? (
-            <div data-testid="promo-empty" className="notebook-paper py-10 px-12 min-h-[280px] flex flex-col items-center justify-center text-center">
-              <p className="notebook-handwriting text-2xl text-text-secondary mb-2 italic" style={{ color: '#9ca3af' }}>
+            <div data-testid="promo-empty" className="notebook-paper py-12 px-16 min-h-[320px] flex flex-col items-center justify-center text-center">
+              <p className="notebook-handwriting text-4xl mb-2 italic" style={{ color: '#9ca3af' }}>
                 {t("no_promotion")}
               </p>
               {!isSalesperson && (
                 <button
                   data-testid="add-promotion-cta"
                   onClick={() => setEditingPromo(true)}
-                  className="notebook-handwriting text-xl mt-4 underline decoration-2 underline-offset-4 transition-colors hover:opacity-80"
+                  className="notebook-handwriting text-3xl mt-4 underline decoration-2 underline-offset-4 transition-colors hover:opacity-80"
                   style={{ color: '#d92d20' }}
                 >
                   {t("create_promotion")} →
@@ -612,25 +612,25 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, onGoToFinancial })
               )}
             </div>
           ) : (
-            <div data-testid="promotion-card" className="notebook-paper py-6 px-12 min-h-[280px]">
+            <div data-testid="promotion-card" className="notebook-paper py-8 px-16 min-h-[320px]">
               {promotion.image_url && (
-                <div className="aspect-video bg-white/30 overflow-hidden mb-3 rotate-[-1.5deg] shadow-md mt-2 mx-2">
+                <div className="aspect-video bg-white/30 overflow-hidden mb-4 rotate-[-1.5deg] shadow-md mt-2 mx-2">
                   <img src={promotion.image_url} alt={promotion.title} className="w-full h-full object-cover" />
                 </div>
               )}
               {promotion.title && (
-                <p className="notebook-handwriting text-3xl font-bold mb-3" style={{ color: '#d92d20' }}>
+                <p className="notebook-handwriting text-6xl font-bold mb-4 leading-none" style={{ color: '#d92d20' }}>
                   {promotion.title}
                 </p>
               )}
               {promotion.description && (
-                <p className="notebook-handwriting text-xl whitespace-pre-line" style={{ color: '#1e3a8a' }}>
+                <p className="notebook-handwriting text-4xl whitespace-pre-line" style={{ color: '#1e3a8a' }}>
                   {promotion.description}
                 </p>
               )}
               {promotion.valid_until && (
-                <p className="notebook-handwriting text-base mt-4 inline-flex items-center gap-1.5" style={{ color: '#dc2626' }}>
-                  <Calendar size={13} /> {t("valid_until")}: {promotion.valid_until}
+                <p className="notebook-handwriting text-2xl mt-6 inline-flex items-center gap-2" style={{ color: '#dc2626' }}>
+                  <Calendar size={18} /> {t("valid_until")}: {promotion.valid_until}
                 </p>
               )}
             </div>
