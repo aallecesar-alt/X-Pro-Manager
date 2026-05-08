@@ -257,14 +257,16 @@ class TestEndToEndClosingCalculation:
                          headers=_auth(owner_token), timeout=20)
         assert r.status_code == 200, r.text
         d = r.json()
-        # the test vehicle contributes gross 9000, paid commission 500
-        # opex from our rent = 3500 (other test expenses may exist but iteration tests cleaned up).
+        # the test vehicle contributes gross 9000 (rev 30000 - cost 21000),
+        # commission 500 paid -> per-row profit = 9000 - 500 = 8500.
+        # opex from our rent = 3500.
         # Find our specific row & rent row
         v_match = [v for v in d["vehicles_sold"] if v["vehicle_id"] == setup_data["vid"]]
         assert len(v_match) == 1, f"sold vehicle not found in closing: {d['vehicles_sold']}"
         assert v_match[0]["sold_price"] == 30000
         assert v_match[0]["cost"] == 21000  # 20000 + 1000 expenses
-        assert v_match[0]["profit"] == 9000
+        # Per-row profit subtracts paid commission as a per-car expense (consistent with VehicleExpensesModal)
+        assert v_match[0]["profit"] == 8500
         assert v_match[0]["commission_amount"] == 500
         assert v_match[0]["commission_paid"] is True
 
@@ -272,15 +274,15 @@ class TestEndToEndClosingCalculation:
         assert len(opex_match) == 1
         assert opex_match[0]["amount"] == 3500
 
-        # The aggregate totals must AT LEAST contain the contributions of our test data;
-        # there might be other data in the dealership, so we assert relational facts on the
-        # *isolated* contributions rather than full totals.
-        # However per spec the user wants exact values; assume only our test data exists for current month.
-        # We'll do a soft assertion: the aggregate must equal sum of all sold rows' profit etc.
-        sum_profit = sum(v["profit"] for v in d["vehicles_sold"])
+        # gross_profit at dealership level is rev - cost (without commission deduction).
+        # net_profit = gross - opex - paid_commissions (so commission is counted exactly once).
+        # Per-row profit DOES subtract commission, so sum(profit) != gross_profit (differs by paid_commissions).
+        sum_row_profit = sum(v["profit"] for v in d["vehicles_sold"])
         sum_opex = sum(e["amount"] for e in d["operational_expenses"])
         sum_paid_comm = sum(v["commission_amount"] for v in d["vehicles_sold"] if v["commission_paid"])
-        assert abs(d["gross_profit"] - sum_profit) < 0.01
+        # gross_profit = sum_row_profit + sum_paid_comm
+        assert abs(d["gross_profit"] - (sum_row_profit + sum_paid_comm)) < 0.01
         assert abs(d["operational_total"] - sum_opex) < 0.01
         assert abs(d["paid_commissions"] - sum_paid_comm) < 0.01
-        assert abs(d["net_profit"] - (sum_profit - sum_opex - sum_paid_comm)) < 0.01
+        # net = gross - opex - paid_commissions
+        assert abs(d["net_profit"] - (d["gross_profit"] - sum_opex - sum_paid_comm)) < 0.01

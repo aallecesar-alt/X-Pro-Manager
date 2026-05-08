@@ -982,8 +982,10 @@ async def leaderboard(
     ).to_list(2000)
     by_sp = {}
     for v in sold:
-        sp_id = v.get("salesperson_id") or "__unassigned__"
-        bucket = by_sp.setdefault(sp_id, {"salesperson_id": sp_id, "salesperson_name": v.get("salesperson_name", "") or "Unassigned", "count": 0, "revenue": 0.0})
+        sp_id = v.get("salesperson_id")
+        if not sp_id:
+            continue  # Don't show unassigned sales in leaderboard
+        bucket = by_sp.setdefault(sp_id, {"salesperson_id": sp_id, "salesperson_name": v.get("salesperson_name", "") or "", "count": 0, "revenue": 0.0})
         bucket["count"] += 1
         bucket["revenue"] += float(v.get("sold_price") or 0)
     # Add salespeople with zero sales
