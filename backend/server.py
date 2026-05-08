@@ -1047,6 +1047,7 @@ class RevertSaleRequest(BaseModel):
 @api_router.post("/vehicles/{vid}/revert-sale")
 async def revert_sale(vid: str, payload: RevertSaleRequest, current: dict = Depends(get_current_user)):
     """Roll back a sold vehicle to in_stock and log a lost_sale audit record."""
+    require_owner(current)
     v = await db.vehicles.find_one({"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0})
     if not v:
         raise HTTPException(404, "Vehicle not found")
