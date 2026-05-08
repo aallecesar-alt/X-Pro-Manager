@@ -203,7 +203,13 @@ function UserProfileChip({ user, t, onPhotoChanged }) {
       toast.error(err.message || t("error_generic"));
     } finally { setUploading(false); }
   };
-  const roleLabel = user.role === "owner" ? t("owner_role") : user.role === "bdc" ? "BDC" : t("salesperson");
+  const roleLabel = user.role === "owner"
+    ? t("owner_role")
+    : user.role === "bdc"
+    ? "BDC"
+    : user.role === "gerente"
+    ? t("manager")
+    : t("salesperson");
   return (
     <div className="px-4 py-3 border-b border-border flex items-center gap-3">
       <label className="relative cursor-pointer group" title={t("change_photo")}>
@@ -968,8 +974,14 @@ function TeamSection({ t }) {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-display font-bold uppercase">{m.full_name}</p>
-                        <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 border ${m.role === "bdc" ? "border-cyan-500 text-cyan-400 bg-cyan-500/10" : "border-primary text-primary bg-primary/10"}`}>
-                          {m.role === "bdc" ? "BDC" : t("salesperson")}
+                        <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 border ${
+                          m.role === "bdc"
+                            ? "border-cyan-500 text-cyan-400 bg-cyan-500/10"
+                            : m.role === "gerente"
+                            ? "border-amber-500 text-amber-400 bg-amber-500/10"
+                            : "border-primary text-primary bg-primary/10"
+                        }`}>
+                          {m.role === "bdc" ? "BDC" : m.role === "gerente" ? t("manager") : t("salesperson")}
                         </span>
                       </div>
                       <p className="text-xs text-text-secondary font-mono">{m.email}</p>
@@ -1116,8 +1128,8 @@ function TeamMemberForm({ member, allPermissions, roleDefaults, salespeople, exi
         {!isEdit && (
           <div>
             <label className="label-eyebrow block mb-2">{t("role")}</label>
-            <div className="grid grid-cols-2 gap-2">
-              {["salesperson", "bdc"].map(r => (
+            <div className="grid grid-cols-3 gap-2">
+              {["salesperson", "bdc", "gerente"].map(r => (
                 <button
                   key={r}
                   type="button"
@@ -1127,7 +1139,7 @@ function TeamMemberForm({ member, allPermissions, roleDefaults, salespeople, exi
                     form.role === r ? "border-primary text-primary bg-primary/10" : "border-border text-text-secondary hover:border-primary/60"
                   }`}
                 >
-                  {r === "bdc" ? "BDC" : t("salesperson")}
+                  {r === "bdc" ? "BDC" : r === "gerente" ? t("manager") : t("salesperson")}
                 </button>
               ))}
             </div>

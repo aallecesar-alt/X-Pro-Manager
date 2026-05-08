@@ -196,6 +196,8 @@ ROLE_DEFAULT_PERMISSIONS = {
     "owner": ALL_TAB_PERMISSIONS,
     "bdc": ["overview", "leads"],
     "salesperson": ["overview", "inventory", "pipeline", "delivery", "leads", "salespeople"],
+    # Gerente (manager) starts with no default access — owner grants case-by-case.
+    "gerente": [],
 }
 
 
@@ -935,7 +937,7 @@ async def list_team(current: dict = Depends(get_current_user)):
     """List all non-owner users in this dealership with their permissions."""
     require_owner(current)
     users = await db.users.find(
-        {"dealership_id": current["dealership_id"], "role": {"$in": ["salesperson", "bdc"]}},
+        {"dealership_id": current["dealership_id"], "role": {"$in": ["salesperson", "bdc", "gerente"]}},
         {"_id": 0, "password_hash": 0}
     ).sort("full_name", 1).to_list(500)
     # Resolve salesperson_name when role=salesperson
@@ -958,8 +960,8 @@ async def list_team(current: dict = Depends(get_current_user)):
 @api_router.post("/team")
 async def create_team_member(payload: TeamMemberCreate, current: dict = Depends(get_current_user)):
     require_owner(current)
-    if payload.role not in ("salesperson", "bdc"):
-        raise HTTPException(400, "role must be salesperson or bdc")
+    if payload.role not in ("salesperson", "bdc", "gerente"):
+        raise HTTPException(400, "role must be salesperson, bdc or gerente")
     email = payload.email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already in use")
@@ -1060,7 +1062,7 @@ async def delete_team_member(uid: str, current: dict = Depends(get_current_user)
     res = await db.users.delete_one({
         "id": uid,
         "dealership_id": current["dealership_id"],
-        "role": {"$in": ["salesperson", "bdc"]},
+        "role": {"$in": ["salesperson", "bdc", "gerente"]},
     })
     if res.deleted_count == 0:
         raise HTTPException(404, "Team member not found")
