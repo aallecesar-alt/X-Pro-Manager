@@ -962,25 +962,36 @@ async def create_team_member(payload: TeamMemberCreate, current: dict = Depends(
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already in use")
 
-    # For salesperson role, link to existing salespeople record (must exist first)
+    # For salesperson role: auto-create a matching salespeople record when no salesperson_id is provided.
+    # If salesperson_id IS provided, link to that existing salesperson (no duplicate login).
     sp_id = ""
     if payload.role == "salesperson":
-        if not payload.salesperson_id:
-            raise HTTPException(400, "salesperson_id is required when role=salesperson")
-        sp = await db.salespeople.find_one(
-            {"id": payload.salesperson_id, "dealership_id": current["dealership_id"]}, {"_id": 0}
-        )
-        if not sp:
-            raise HTTPException(400, "Salesperson record not found")
-        # one login per salesperson
-        existing = await db.users.find_one({
-            "dealership_id": current["dealership_id"],
-            "salesperson_id": payload.salesperson_id,
-            "role": "salesperson",
-        })
-        if existing:
-            raise HTTPException(400, "This salesperson already has a login")
-        sp_id = payload.salesperson_id
+        if payload.salesperson_id:
+            sp = await db.salespeople.find_one(
+                {"id": payload.salesperson_id, "dealership_id": current["dealership_id"]}, {"_id": 0}
+            )
+            if not sp:
+                raise HTTPException(400, "Salesperson record not found")
+            existing = await db.users.find_one({
+                "dealership_id": current["dealership_id"],
+                "salesperson_id": payload.salesperson_id,
+                "role": "salesperson",
+            })
+            if existing:
+                raise HTTPException(400, "This salesperson already has a login")
+            sp_id = payload.salesperson_id
+        else:
+            # Auto-create a salespeople record so the user can add someone here without visiting Vendedores tab
+            new_sp = Salesperson(
+                dealership_id=current["dealership_id"],
+                name=payload.full_name,
+                email=email,
+                phone="",
+                commission_amount=0,
+                active=True,
+            )
+            await db.salespeople.insert_one(new_sp.model_dump())
+            sp_id = new_sp.id
 
     perms = payload.permissions if payload.permissions is not None else None
     if perms is not None:
@@ -995,6 +1006,8 @@ async def create_team_member(payload: TeamMemberCreate, current: dict = Depends(
         "role": payload.role,
         "salesperson_id": sp_id,
         "permissions": perms,
+        "photo_url": "",
+        "photo_public_id": "",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.users.insert_one(user)

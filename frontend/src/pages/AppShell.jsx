@@ -1055,16 +1055,14 @@ function TeamMemberForm({ member, allPermissions, roleDefaults, salespeople, exi
     });
   };
 
-  // Salespeople not yet linked to a login (for the dropdown)
-  const linkedIds = new Set(existingTeam.filter(m => m.role === "salesperson" && m.id !== member?.id).map(m => m.salesperson_id));
-  const availableSalespeople = salespeople.filter(s => !linkedIds.has(s.id) && s.active !== false);
+  // Apply role defaults when user changes role (only when creating)
+  const applyRoleDefaults = (newRole) => {
+    set("role", newRole);
+    if (!isEdit) set("permissions", roleDefaults[newRole] || []);
+  };
 
   const submit = async (e) => {
     e.preventDefault();
-    if (form.role === "salesperson" && !form.salesperson_id && !isEdit) {
-      toast.error(t("must_pick_salesperson"));
-      return;
-    }
     setSaving(true);
     try {
       if (isEdit) {
@@ -1076,6 +1074,7 @@ function TeamMemberForm({ member, allPermissions, roleDefaults, salespeople, exi
         if (form.password) upd.password = form.password;
         await api.put(`/team/${member.id}`, upd);
       } else {
+        // Backend now auto-creates the salespeople record when role=salesperson and no salesperson_id is given
         await api.post("/team", form);
       }
       toast.success(t("saved"));
@@ -1083,12 +1082,6 @@ function TeamMemberForm({ member, allPermissions, roleDefaults, salespeople, exi
     } catch (err) {
       toast.error(err.response?.data?.detail || t("error_generic"));
     } finally { setSaving(false); }
-  };
-
-  // Apply role defaults when user changes role (only when creating)
-  const applyRoleDefaults = (newRole) => {
-    set("role", newRole);
-    if (!isEdit) set("permissions", roleDefaults[newRole] || []);
   };
 
   return (
@@ -1119,27 +1112,6 @@ function TeamMemberForm({ member, allPermissions, roleDefaults, salespeople, exi
                 </button>
               ))}
             </div>
-          </div>
-        )}
-
-        {!isEdit && form.role === "salesperson" && (
-          <div>
-            <label className="label-eyebrow block mb-2">{t("link_salesperson")}</label>
-            <select
-              data-testid="tm-link-sp"
-              required
-              value={form.salesperson_id}
-              onChange={(e) => set("salesperson_id", e.target.value)}
-              className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm"
-            >
-              <option value="">— {t("select_salesperson")} —</option>
-              {availableSalespeople.map(s => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
-            {availableSalespeople.length === 0 && (
-              <p className="text-xs text-warning mt-2">{t("no_available_salesperson")}</p>
-            )}
           </div>
         )}
 
