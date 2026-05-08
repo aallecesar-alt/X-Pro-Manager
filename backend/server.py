@@ -702,6 +702,7 @@ async def import_vehicle_from_url(payload: dict, current: dict = Depends(get_cur
     if not url or not (url.startswith("http://") or url.startswith("https://")):
         raise HTTPException(400, "Provide a valid http(s) URL")
 
+    import os
     import requests
     import cloudscraper
     from bs4 import BeautifulSoup
@@ -717,15 +718,36 @@ async def import_vehicle_from_url(payload: dict, current: dict = Depends(get_cur
     r = None
     last_error = None
 
-    # Try plain requests first
-    try:
-        r = requests.get(url, headers=headers, timeout=20, allow_redirects=True)
-        if r.status_code != 200:
+    # 1) Try ScraperAPI (handles most anti-bot pages — even on free plan)
+    scraper_key = os.environ.get("SCRAPERAPI_KEY", "").strip()
+    if scraper_key:
+        try:
+            r = requests.get(
+                "https://api.scraperapi.com",
+                params={
+                    "api_key": scraper_key,
+                    "url": url,
+                    "country_code": "us",
+                },
+                timeout=70,
+            )
+            if r.status_code != 200:
+                last_error = f"scraperapi {r.status_code}: {r.text[:120]}"
+                r = None
+        except Exception as e:
+            last_error = f"scraperapi: {e}"
             r = None
-    except Exception as e:
-        last_error = str(e)
 
-    # Fallback to cloudscraper (handles Cloudflare JS challenges)
+    # 2) Fallback: plain requests
+    if r is None:
+        try:
+            r = requests.get(url, headers=headers, timeout=20, allow_redirects=True)
+            if r.status_code != 200:
+                r = None
+        except Exception as e:
+            last_error = str(e)
+
+    # 3) Fallback: cloudscraper (handles Cloudflare JS challenges)
     if r is None:
         try:
             scraper = cloudscraper.create_scraper(
@@ -757,18 +779,30 @@ async def import_vehicle_from_url(payload: dict, current: dict = Depends(get_cur
     title = meta("og:title") or meta("twitter:title") or (soup.title.string.strip() if soup.title and soup.title.string else "")
     description = meta("og:description") or meta("description") or ""
 
-    # Fallback: first <img> with reasonable size
-    if not image:
-        for img in soup.find_all("img"):
-            src = img.get("src") or img.get("data-src") or ""
-            if src and not src.startswith("data:") and any(x in src.lower() for x in [".jpg", ".jpeg", ".png", ".webp"]):
-                if src.startswith("//"):
-                    src = "https:" + src
-                elif src.startswith("/"):
-                    from urllib.parse import urljoin
-                    src = urljoin(url, src)
-                image = src
-                break
+    # Collect a gallery of additional images from the page (most dealer sites have 10+ photos)
+    images = []
+    if image:
+        images.append(image)
+    for img in soup.find_all("img"):
+        src = img.get("src") or img.get("data-src") or img.get("data-lazy-src") or ""
+        if not src or src.startswith("data:"):
+            continue
+        if src.startswith("//"):
+            src = "https:" + src
+        elif src.startswith("/"):
+            from urllib.parse import urljoin
+            src = urljoin(url, src)
+        # Keep only image-like URLs and skip tiny icons
+        if any(x in src.lower() for x in [".jpg", ".jpeg", ".png", ".webp"]) and src not in images:
+            # Heuristic: skip logos/icons (often have "logo" or "icon" in path)
+            if not any(b in src.lower() for b in ["logo", "icon", "favicon", "sprite"]):
+                images.append(src)
+        if len(images) >= 30:
+            break
+
+    # Fallback: first <img> with reasonable size (kept for legacy single-image flow)
+    if not image and images:
+        image = images[0]
 
     # Try to extract year + make + model from title (e.g. "2022 Honda Civic LX - Inter Car")
     year = 0
@@ -786,24 +820,40 @@ async def import_vehicle_from_url(payload: dict, current: dict = Depends(get_cur
             if ym:
                 year = int(ym.group(0))
 
-    # Try to find a price like $12,345 or $12345 in the page
+    # Try to find a price like $12,345 or $12345 in the page (largest plausible $ amount)
     price = 0
-    price_m = _re.search(r"\$\s*([\d,]+(?:\.\d{2})?)", r.text)
-    if price_m:
+    candidates = []
+    for m in _re.finditer(r"\$\s*([\d,]+(?:\.\d{2})?)", r.text):
         try:
-            price = float(price_m.group(1).replace(",", ""))
+            v = float(m.group(1).replace(",", ""))
         except Exception:
-            pass
+            continue
+        # Plausible vehicle price range
+        if 1000 <= v <= 500000:
+            candidates.append(v)
+    if candidates:
+        # Most pages mention the asking price multiple times — pick the most common (mode), then highest
+        from collections import Counter
+        most_common = Counter(candidates).most_common(1)[0][0]
+        price = most_common
+
+    # Try to find VIN (17 alphanumeric chars, no I/O/Q)
+    vin = ""
+    vin_m = _re.search(r"\b([A-HJ-NPR-Z0-9]{17})\b", r.text)
+    if vin_m:
+        vin = vin_m.group(1)
 
     return {
         "extracted": {
             "image": image or "",
+            "images": images,
             "title": title,
             "description": description[:500],
             "year": year,
             "make": make,
             "model": model,
             "price": price,
+            "vin": vin,
             "source_url": url,
         }
     }

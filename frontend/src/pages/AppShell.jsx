@@ -1291,7 +1291,7 @@ function TeamMemberForm({ member, allPermissions, roleDefaults, salespeople, exi
 function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClose, onSaved, t }) {
   const isEdit = !!vehicle;
   const initial = vehicle || {
-    make: prefill?.make || "", model: prefill?.model || "", year: prefill?.year || 2024, color: "", vin: "",
+    make: prefill?.make || "", model: prefill?.model || "", year: prefill?.year || 2024, color: "", vin: prefill?.vin || "",
     transmission: "Automatic", fuel_type: "Gasoline", body_type: "Sedan",
     purchase_price: 0, sale_price: prefill?.price || 0, expenses: 0, description: prefill?.description || "",
     images: [], status: "in_stock", buyer_name: "", buyer_phone: "", payment_method: "", sold_price: 0, bank_name: "",
@@ -1300,7 +1300,9 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
   };
   const [form, setForm] = useState(initial);
   const [photos, setPhotos] = useState(
-    vehicle?.images?.length ? vehicle.images : (prefill?.image ? [prefill.image] : [])
+    vehicle?.images?.length
+      ? vehicle.images
+      : (prefill?.images?.length ? prefill.images : (prefill?.image ? [prefill.image] : []))
   );
   const [expenseItems, setExpenseItems] = useState(vehicle?.expense_items || []);
   const [saving, setSaving] = useState(false);
@@ -2707,7 +2709,7 @@ function ImportUrlModal({ t, onClose, onImported }) {
               onChange={(e) => setUrl(e.target.value)}
               className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-4 h-11 text-sm"
             />
-            <p className="text-xs text-text-secondary mt-2">Ex: https://intercarautosales.com/vehicle/2022-honda-civic</p>
+            <p className="text-xs text-text-secondary mt-2">Ex: https://www.intercarautosales.com/details/used-2019-honda-civic/125084579</p>
           </div>
 
           <button
@@ -2730,12 +2732,23 @@ function ImportUrlModal({ t, onClose, onImported }) {
                 ) : (
                   <div className="w-32 h-24 bg-background flex items-center justify-center"><Car size={28} className="text-text-secondary" /></div>
                 )}
-                <div className="flex-1 min-w-0">
-                  <p className="font-display font-bold text-sm mb-1 truncate">{preview.title || "—"}</p>
-                  {preview.year ? <p className="text-xs text-text-secondary">{preview.year} {preview.make} {preview.model}</p> : null}
-                  {preview.price ? <p className="text-sm font-display font-bold text-primary mt-1">{formatCurrency(preview.price)}</p> : null}
+                <div className="flex-1 min-w-0 text-sm space-y-1">
+                  <p className="font-display font-bold mb-1 truncate">{preview.title || "—"}</p>
+                  {preview.year ? <p className="text-text-secondary">{preview.year} {preview.make} {preview.model}</p> : null}
+                  {preview.price ? <p className="font-display font-bold text-primary">{formatCurrency(preview.price)}</p> : null}
+                  {preview.vin ? <p className="text-xs text-text-secondary font-mono">VIN {preview.vin}</p> : null}
+                  {preview.images?.length > 1 ? (
+                    <p className="text-xs text-success">{preview.images.length} {t("photos_imported")}</p>
+                  ) : null}
                 </div>
               </div>
+              {preview.images?.length > 1 && (
+                <div className="grid grid-cols-6 gap-1.5 mt-3">
+                  {preview.images.slice(0, 12).map((src, i) => (
+                    <img key={i} src={src} alt="" className="w-full h-12 object-cover bg-background border border-border" />
+                  ))}
+                </div>
+              )}
               <button
                 type="button"
                 data-testid="import-url-use"
