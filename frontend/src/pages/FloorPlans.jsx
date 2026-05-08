@@ -102,7 +102,7 @@ export default function FloorPlans({ t, onHistory }) {
         </button>
       </div>
 
-      <div className="p-4 grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4">
+      <div className="p-4 grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-4">
         {/* Plan list + monthly totals */}
         <div className="space-y-2">
           {plans.length === 0 ? (
@@ -161,23 +161,23 @@ export default function FloorPlans({ t, onHistory }) {
 
         {/* Calendar */}
         <div>
-          <div className="flex items-center justify-between mb-3">
-            <button data-testid="cal-prev" onClick={goPrev} className="w-9 h-9 border border-border hover:border-primary hover:text-primary flex items-center justify-center"><ChevronLeft size={14} /></button>
+          <div className="flex items-center justify-between mb-4">
+            <button data-testid="cal-prev" onClick={goPrev} className="w-11 h-11 border border-border hover:border-primary hover:text-primary flex items-center justify-center"><ChevronLeft size={18} /></button>
             <div className="text-center">
-              <p className="font-display font-black text-lg uppercase">{MONTH_NAMES_PT[month]} {year}</p>
-              <button onClick={goToday} className="text-[10px] uppercase tracking-widest text-text-secondary hover:text-primary">{t("today")}</button>
+              <p className="font-display font-black text-2xl uppercase tracking-tight">{MONTH_NAMES_PT[month]} {year}</p>
+              <button onClick={goToday} className="text-[11px] uppercase tracking-widest text-text-secondary hover:text-primary mt-0.5">{t("today")}</button>
             </div>
-            <button data-testid="cal-next" onClick={goNext} className="w-9 h-9 border border-border hover:border-primary hover:text-primary flex items-center justify-center"><ChevronRight size={14} /></button>
+            <button data-testid="cal-next" onClick={goNext} className="w-11 h-11 border border-border hover:border-primary hover:text-primary flex items-center justify-center"><ChevronRight size={18} /></button>
           </div>
 
           <div className="grid grid-cols-7 gap-1 mb-1">
             {WEEKDAY_LABELS.map((w, i) => (
-              <div key={i} className="text-[10px] uppercase text-text-secondary text-center font-display font-bold tracking-widest py-1">{w}</div>
+              <div key={i} className="text-xs uppercase text-text-secondary text-center font-display font-bold tracking-widest py-2">{w}</div>
             ))}
           </div>
-          <div className="grid grid-cols-7 gap-1">
+          <div className="grid grid-cols-7 gap-1.5">
             {grid.map((d, i) => {
-              if (d === null) return <div key={i} className="aspect-square" />;
+              if (d === null) return <div key={i} className="min-h-[110px]" />;
               const iso = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
               const dayPays = paymentsByDay[iso] || [];
               const isToday = iso === today.toISOString().slice(0, 10);
@@ -192,35 +192,47 @@ export default function FloorPlans({ t, onHistory }) {
                     if (dayPays.length > 0) setDayOpen(iso);
                     else setEditingPay({ defaultDate: iso });
                   }}
-                  className={`aspect-square border p-1.5 text-left flex flex-col transition-colors hover:border-primary ${
+                  className={`min-h-[110px] border p-2.5 text-left flex flex-col transition-colors hover:border-primary ${
                     isToday ? "border-primary bg-primary/5" : "border-border bg-background"
                   }`}
                 >
-                  <span className={`text-[11px] font-display font-bold ${isToday ? "text-primary" : ""}`}>{d}</span>
+                  <span className={`text-base font-display font-black ${isToday ? "text-primary" : ""}`}>{d}</span>
                   {dayPays.length > 0 && (
-                    <div className="flex flex-wrap gap-0.5 mt-auto">
-                      {dayPays.slice(0, 6).map(p => (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {dayPays.slice(0, 8).map(p => (
                         <span
                           key={p.id}
-                          className={`w-1.5 h-1.5 rounded-full ${p.paid ? "" : "ring-1 ring-warning"}`}
+                          className={`w-2.5 h-2.5 rounded-full ${p.paid ? "" : "ring-2 ring-warning"}`}
                           style={{ background: p.floor_plan_color || "#888" }}
                         />
                       ))}
                     </div>
                   )}
                   {dayPays.length > 0 && (
-                    <p className={`text-[8px] mt-0.5 leading-none ${dayPendTotal > 0 ? "text-warning" : "text-success"}`}>
-                      {dayPendTotal > 0 ? `−${formatBRL(dayPendTotal).replace("R$", "R$").replace(/,\d\d$/, "")}` : `✓ ${formatBRL(dayPaidTotal).replace(/,\d\d$/, "")}`}
-                    </p>
+                    <div className="mt-auto space-y-0.5">
+                      {dayPendTotal > 0 && (
+                        <p className="text-xs font-display font-bold text-warning leading-tight">
+                          −{formatBRL(dayPendTotal).replace(/,\d\d$/, "")}
+                        </p>
+                      )}
+                      {dayPaidTotal > 0 && (
+                        <p className="text-xs font-display font-bold text-success leading-tight">
+                          ✓ {formatBRL(dayPaidTotal).replace(/,\d\d$/, "")}
+                        </p>
+                      )}
+                      <p className="text-[10px] text-text-secondary uppercase tracking-wider">
+                        {dayPays.length} {dayPays.length === 1 ? "pgto" : "pgtos"}
+                      </p>
+                    </div>
                   )}
                 </button>
               );
             })}
           </div>
 
-          <p className="text-[10px] text-text-secondary mt-3">
-            <span className="inline-block w-1.5 h-1.5 bg-text-secondary rounded-full ring-1 ring-warning mr-1" /> {t("pending")}
-            <span className="inline-block w-1.5 h-1.5 bg-text-secondary rounded-full ml-3 mr-1" /> {t("paid")}
+          <p className="text-xs text-text-secondary mt-3">
+            <span className="inline-block w-2 h-2 bg-text-secondary rounded-full ring-2 ring-warning mr-2 align-middle" /> {t("pending")}
+            <span className="inline-block w-2 h-2 bg-text-secondary rounded-full ml-4 mr-2 align-middle" /> {t("paid")}
             <span className="ml-3">·</span>
             <span className="ml-3">{t("floor_plans_calendar_hint")}</span>
           </p>
