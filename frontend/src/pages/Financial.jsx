@@ -468,7 +468,9 @@ export default function Financial({ t }) {
         {closings.length === 0 ? (
           <p className="text-text-secondary text-sm text-center py-8 italic">{t("closings_archive_empty")}</p>
         ) : (
-          <div className="divide-y divide-border">
+          <>
+            <ClosingsBarChart closings={closings} t={t} />
+            <div className="divide-y divide-border">
             {closings.map(c => {
               const label = `${monthOptions[c.month - 1]?.label} ${c.year}`;
               const downloadUrl = `${api.defaults.baseURL}/financial/closings/${c.id}/pdf`;
@@ -533,6 +535,7 @@ export default function Financial({ t }) {
               );
             })}
           </div>
+          </>
         )}
       </div>
 
@@ -987,6 +990,43 @@ function CloseMonthModal({ year, month, monthLabel, closing, t, onClose, onDone 
             <Lock size={13} /> {submitting ? "..." : t("close_and_export")}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+function ClosingsBarChart({ closings, t }) {
+  // Sort chronologically (oldest -> newest), keep last 12
+  const sorted = [...closings]
+    .sort((a, b) => (a.year * 12 + a.month) - (b.year * 12 + b.month))
+    .slice(-12);
+  if (sorted.length === 0) return null;
+  const monthShort = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+  const max = Math.max(...sorted.map(c => Math.abs(c.net_profit || 0)), 1);
+  return (
+    <div className="px-4 py-5 border-b border-border" data-testid="closings-chart">
+      <p className="label-eyebrow text-text-secondary mb-4">{t("monthly_evolution")}</p>
+      <div className="grid grid-flow-col auto-cols-fr gap-2 items-end h-40">
+        {sorted.map(c => {
+          const v = c.net_profit || 0;
+          const positive = v >= 0;
+          const heightPct = Math.max(4, Math.round((Math.abs(v) / max) * 100));
+          return (
+            <div key={c.id} className="flex flex-col items-center justify-end h-full group" title={`${monthShort[c.month]}/${c.year} · ${formatCurrency(v)}`}>
+              <span className={`text-[9px] font-display font-bold mb-1 ${positive ? "text-success" : "text-primary"}`}>
+                {formatCurrency(v).replace(/\u00a0/g, " ")}
+              </span>
+              <div
+                className={`w-full transition-all ${positive ? "bg-success/70 group-hover:bg-success" : "bg-primary/70 group-hover:bg-primary"}`}
+                style={{ height: `${heightPct}%` }}
+              />
+              <span className="text-[10px] text-text-secondary uppercase tracking-wider mt-1">
+                {monthShort[c.month]}/{String(c.year).slice(2)}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

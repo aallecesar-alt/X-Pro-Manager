@@ -193,7 +193,7 @@ async def get_current_user(request: Request) -> dict:
 # All tab permissions in the system. Owner always has full access.
 ALL_TAB_PERMISSIONS = [
     "overview", "inventory", "pipeline", "delivery",
-    "leads", "salespeople", "financial", "maintenance",
+    "leads", "salespeople", "financial", "maintenance", "customers",
 ]
 ROLE_DEFAULT_PERMISSIONS = {
     "owner": ALL_TAB_PERMISSIONS,
@@ -810,6 +810,189 @@ async def delete_maintenance_item(vid: str, item_id: str, current: dict = Depend
         raise HTTPException(404, "Maintenance item not found")
     await _save_expense_items(vid, current["dealership_id"], items)
     return {"deleted": True}
+
+
+
+# ============================================================
+# CUSTOMER DATABASE — aggregated buyers from sold vehicles
+# ============================================================
+@api_router.get("/customers")
+async def list_customers(current: dict = Depends(get_current_user)):
+    """Aggregate every buyer across all sold vehicles. Stripped of cost fields
+    when called by salesperson (they only see their own customers)."""
+    require_tab(current, "customers")
+    q = {"dealership_id": current["dealership_id"], "status": "sold"}
+    if is_salesperson(current):
+        q["salesperson_id"] = current.get("salesperson_id") or "_none_"
+    sold = await db.vehicles.find(q, {"_id": 0}).sort("sold_at", -1).to_list(2000)
+    by_key = {}
+    for v in sold:
+        name = (v.get("buyer_name") or "").strip()
+        phone = (v.get("buyer_phone") or "").strip()
+        if not name and not phone:
+            continue
+        # Group by phone when present, else by lowercased name
+        key = phone or name.lower()
+        if key not in by_key:
+            by_key[key] = {
+                "key": key,
+                "name": name or "—",
+                "phone": phone,
+                "vehicles_count": 0,
+                "total_spent": 0.0,
+                "last_purchase_at": None,
+                "salespeople": set(),
+                "vehicles": [],
+            }
+        c = by_key[key]
+        c["vehicles_count"] += 1
+        c["total_spent"] += float(v.get("sold_price") or v.get("sale_price") or 0)
+        if v.get("salesperson_name"):
+            c["salespeople"].add(v["salesperson_name"])
+        sold_at = v.get("sold_at") or v.get("delivered_at") or v.get("created_at") or ""
+        if not c["last_purchase_at"] or sold_at > c["last_purchase_at"]:
+            c["last_purchase_at"] = sold_at
+            if name and not c["name"]:
+                c["name"] = name
+        c["vehicles"].append({
+            "id": v.get("id"),
+            "year": v.get("year"),
+            "make": v.get("make", ""),
+            "model": v.get("model", ""),
+            "color": v.get("color", ""),
+            "sold_price": float(v.get("sold_price") or 0),
+            "sold_at": sold_at,
+            "salesperson_name": v.get("salesperson_name", ""),
+            "image": (v.get("images") or [None])[0],
+            "delivery_step": v.get("delivery_step") or 0,
+        })
+    out = []
+    for c in by_key.values():
+        c["salespeople"] = sorted(c["salespeople"])
+        c["vehicles"].sort(key=lambda x: x["sold_at"] or "", reverse=True)
+        out.append(c)
+    out.sort(key=lambda c: c["last_purchase_at"] or "", reverse=True)
+    return out
+
+
+# ============================================================
+# IMPORT INVENTORY PAGE — extract list of vehicles from a dealer listing page
+# (uses ScraperAPI). Returns links + thumbnails so user can pick which to import.
+# ============================================================
+class ImportInventoryPagePayload(BaseModel):
+    url: str
+
+
+def _extract_vehicles_from_listing(html_text: str, base_url: str):
+    """Best-effort: pulls every '/details/...' anchor from the listing along with
+    the closest <img> + nearby price."""
+    import re as _re
+    from bs4 import BeautifulSoup
+    from urllib.parse import urljoin
+
+    soup = BeautifulSoup(html_text, "html.parser")
+    seen = set()
+    items = []
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if "/details/" not in href:
+            continue
+        full = urljoin(base_url, href)
+        if full in seen:
+            continue
+        seen.add(full)
+        # Title from anchor text or img alt
+        title = (a.get_text() or "").strip().replace("\n", " ")
+        title = _re.sub(r"\s+", " ", title)[:120]
+        img = a.find("img") or (a.find_parent() and a.find_parent().find("img"))
+        thumb = ""
+        if img:
+            thumb = img.get("src") or img.get("data-src") or img.get("data-lazy-src") or ""
+            if thumb.startswith("//"):
+                thumb = "https:" + thumb
+            elif thumb.startswith("/"):
+                thumb = urljoin(base_url, thumb)
+            if not title:
+                title = (img.get("alt") or "").strip()[:120]
+        # Try to find a price near the link (within parent)
+        price = 0
+        parent_text = (a.find_parent() or a).get_text(" ", strip=True) if a.find_parent() else ""
+        m = _re.search(r"\$\s*([\d,]+(?:\.\d{2})?)", parent_text or "")
+        if m:
+            try:
+                v = float(m.group(1).replace(",", ""))
+                if 1000 <= v <= 500000:
+                    price = v
+            except Exception:
+                pass
+        # Try to extract year/make/model from the slug ('used-2019-honda-civic')
+        slug_m = _re.search(r"/details/(?:new-|used-)?(\d{4})-([a-z0-9-]+)", href.lower())
+        year = int(slug_m.group(1)) if slug_m else None
+        make = ""
+        model = ""
+        if slug_m:
+            rest = slug_m.group(2).split("-")
+            if rest:
+                make = rest[0].title()
+                model = " ".join(p.title() for p in rest[1:5])
+        items.append({
+            "url": full,
+            "title": title or f"{year or ''} {make} {model}".strip(),
+            "thumbnail": thumb,
+            "year": year,
+            "make": make,
+            "model": model,
+            "price": price,
+        })
+        if len(items) >= 200:
+            break
+    return items
+
+
+@api_router.post("/vehicles/import-inventory-page")
+async def import_inventory_page(payload: ImportInventoryPagePayload, current: dict = Depends(get_current_user)):
+    """Scrape a dealer listing page and return all detail-page URLs found.
+
+    The user can then pick which ones to import individually using the existing
+    /vehicles/import-url endpoint.
+    """
+    require_owner(current)
+    import requests
+    import os as _os
+
+    url = (payload.url or "").strip()
+    if not url.startswith("http"):
+        raise HTTPException(400, "Please provide a full URL")
+
+    headers = {"User-Agent": "Mozilla/5.0 (Macintosh) Chrome/127.0"}
+
+    r = None
+    last_error = None
+    scraper_key = _os.environ.get("SCRAPERAPI_KEY", "").strip()
+    if scraper_key:
+        try:
+            r = requests.get(
+                "https://api.scraperapi.com",
+                params={"api_key": scraper_key, "url": url, "country_code": "us"},
+                timeout=70,
+            )
+            if r.status_code != 200:
+                last_error = f"scraperapi {r.status_code}"
+                r = None
+        except Exception as e:
+            last_error = str(e)
+            r = None
+    if r is None:
+        try:
+            r = requests.get(url, headers=headers, timeout=20)
+        except Exception as e:
+            raise HTTPException(400, f"Could not fetch URL: {last_error or e}")
+    if r is None or r.status_code != 200:
+        raise HTTPException(400, f"Could not fetch URL: {last_error or r.status_code if r else 'no response'}")
+
+    items = _extract_vehicles_from_listing(r.text, url)
+    return {"count": len(items), "items": items}
+
 
 
 

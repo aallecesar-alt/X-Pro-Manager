@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -10,8 +10,10 @@ import ExpenseManager from "@/components/ExpenseManager";
 import Financial from "@/pages/Financial";
 import LeadsPage from "@/pages/LeadsPage";
 import Maintenance from "@/pages/Maintenance";
+import Customers from "@/pages/Customers";
 import VehicleHistoryModal from "@/components/VehicleHistoryModal";
 import NameWithAvatar, { useTeamPhotos } from "@/components/NameWithAvatar";
+import ImportInventoryPageModal from "@/components/ImportInventoryPageModal";
 import Avatar from "@/components/Avatar";
 import { uploadProfilePhoto } from "@/lib/uploadPhoto";
 
@@ -38,6 +40,7 @@ export default function AppShell() {
   const [importOpen, setImportOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [historyVid, setHistoryVid] = useState(null);
+  const [importPageOpen, setImportPageOpen] = useState(false);
 
   const userPerms = user?.permissions || [];
   const canAccess = (tabId) => isOwner || userPerms.includes(tabId);
@@ -51,6 +54,7 @@ export default function AppShell() {
     { id: "salespeople", label: t("salespeople"), icon: Users },
     { id: "financial", label: t("financial"), icon: DollarSign },
     { id: "maintenance", label: t("maintenance_tab"), icon: Wrench },
+    { id: "customers", label: t("customers_tab"), icon: UserPlus },
     { id: "settings", label: t("settings"), icon: Settings, ownerOnly: true },
   ];
   const tabs = allTabs.filter(tb => tb.ownerOnly ? isOwner : canAccess(tb.id));
@@ -181,7 +185,8 @@ export default function AppShell() {
         {tab === "inventory" && canAccess("inventory") && (
           <Inventory
             vehicles={vehicles} t={t} search={search} setSearch={setSearch} isSalesperson={isSalesperson}
-            onAdd={() => setEditing("new")} onImport={() => setImportOpen(true)} onEdit={(v) => setEditing(v)} onDelete={onDelete}
+            onAdd={() => setEditing("new")} onImport={() => setImportOpen(true)} onImportPage={isOwner ? () => setImportPageOpen(true) : null}
+            onEdit={(v) => setEditing(v)} onDelete={onDelete}
             onHistory={setHistoryVid}
           />
         )}
@@ -191,6 +196,7 @@ export default function AppShell() {
         {tab === "salespeople" && canAccess("salespeople") && <SalespeopleTab salespeople={salespeople} t={t} onReload={reload} isSalesperson={isSalesperson} currentSpId={user?.salesperson_id || ""} />}
         {tab === "financial" && canAccess("financial") && <Financial t={t} />}
         {tab === "maintenance" && canAccess("maintenance") && <Maintenance t={t} onHistory={setHistoryVid} />}
+        {tab === "customers" && canAccess("customers") && <Customers t={t} onHistory={setHistoryVid} />}
         {tab === "settings" && isOwner && <SettingsTab dealership={dealership} t={t} onRefresh={refreshDealership} />}
 
         {editing && (
@@ -209,6 +215,7 @@ export default function AppShell() {
         )}
       </main>
       {historyVid && <VehicleHistoryModal vehicleId={historyVid} onClose={() => setHistoryVid(null)} />}
+      {importPageOpen && <ImportInventoryPageModal t={t} onClose={() => setImportPageOpen(false)} onImported={() => reload()} />}
     </div>
   );
 }
@@ -709,7 +716,7 @@ function PromotionForm({ promotion, t, onClose, onSaved }) {
   );
 }
 
-function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, onDelete, onHistory, isSalesperson }) {
+function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onImportPage, onEdit, onDelete, onHistory, isSalesperson }) {
   const [view, setView] = useState(() => localStorage.getItem("inventory_view") || "grid");
   const [statusFilter, setStatusFilter] = useState("all");
   const setViewSticky = (v) => { setView(v); localStorage.setItem("inventory_view", v); };
@@ -732,6 +739,11 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onEdit, on
         </div>
         {!isSalesperson && (
           <div className="flex gap-2 flex-wrap">
+            {onImportPage && (
+              <button data-testid="import-inventory-page-btn" onClick={onImportPage} className="border border-border hover:border-primary hover:text-primary transition-colors px-5 py-3 font-display font-bold uppercase text-xs tracking-widest inline-flex items-center gap-2">
+                <ListChecks size={14} /> {t("import_inv_btn")}
+              </button>
+            )}
             <button data-testid="import-url" onClick={onImport} className="border border-border hover:border-primary hover:text-primary transition-colors px-5 py-3 font-display font-bold uppercase text-xs tracking-widest inline-flex items-center gap-2">
               <Download size={14} className="rotate-180" /> {t("import_from_url")}
             </button>
@@ -1026,6 +1038,7 @@ const PERMISSION_LABELS = {
   salespeople: { key: "salespeople", icon: "🏆" },
   financial: { key: "financial", icon: "💰" },
   maintenance: { key: "maintenance_tab", icon: "🔧" },
+  customers: { key: "customers_tab", icon: "👥" },
 };
 
 function TeamMemberAvatarUploader({ member, t, onChanged, disabled = false }) {

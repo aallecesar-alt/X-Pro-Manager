@@ -24,6 +24,11 @@ TEST_SALES_EMAIL = "joao@intercar.com"
 TEST_SALES_PASS = "senha456"
 TEST_SALES_NAME = "Joao Silva"
 
+# Throwaway test BDC same idea (used by test_team_management).
+TEST_BDC_EMAIL = "bdc@intercar.com"
+TEST_BDC_PASS = "bdc1234"
+TEST_BDC_NAME = "Natalia"
+
 
 def _wipe_test_residue(db):
     """Aggressive sweep — anything that looks like test data gets nuked.
@@ -116,6 +121,36 @@ def _drop_test_salesperson(db):
     db.salespeople.delete_many({"name": TEST_SALES_NAME, "email": TEST_SALES_EMAIL})
 
 
+def _ensure_test_bdc(db):
+    """Create a throwaway BDC login. Idempotent."""
+    owner = db.users.find_one({"email": "carlos@intercar.com"})
+    if not owner:
+        return None
+    dealership_id = owner["dealership_id"]
+    pwd_hash = bcrypt.hashpw(TEST_BDC_PASS.encode(), bcrypt.gensalt()).decode()
+    db.users.update_one(
+        {"email": TEST_BDC_EMAIL},
+        {"$set": {
+            "id": str(uuid.uuid4()),
+            "email": TEST_BDC_EMAIL,
+            "password_hash": pwd_hash,
+            "full_name": TEST_BDC_NAME,
+            "dealership_id": dealership_id,
+            "role": "bdc",
+            "salesperson_id": "",
+            "permissions": None,  # use role defaults (overview + leads)
+            "photo_url": "",
+            "photo_public_id": "",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+
+
+def _drop_test_bdc(db):
+    db.users.delete_one({"email": TEST_BDC_EMAIL})
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _global_test_cleanup():
     """Runs once at the START of every session AND once at the END.
@@ -138,6 +173,7 @@ def _global_test_cleanup():
     if any(pre.values()):
         print(f"\n[conftest] Pre-test cleanup wiped: {pre}")
     _ensure_test_salesperson(db)
+    _ensure_test_bdc(db)
 
     yield
 
@@ -146,4 +182,5 @@ def _global_test_cleanup():
     if any(post.values()):
         print(f"\n[conftest] Post-test cleanup wiped: {post}")
     _drop_test_salesperson(db)
+    _drop_test_bdc(db)
     client.close()
