@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -214,6 +215,7 @@ export default function AppShell() {
 
 function UserProfileChip({ user, t, onPhotoChanged }) {
   const [uploading, setUploading] = useState(false);
+  const [pwOpen, setPwOpen] = useState(false);
   if (!user) return null;
   const onPick = async (file) => {
     if (!file) return;
@@ -248,8 +250,105 @@ function UserProfileChip({ user, t, onPhotoChanged }) {
       <div className="min-w-0 flex-1">
         <p className="font-display font-bold text-sm truncate">{user.full_name || user.email}</p>
         <p className="text-[10px] uppercase tracking-wider text-text-secondary">{roleLabel}</p>
+        <button
+          type="button"
+          data-testid="open-change-password"
+          onClick={() => setPwOpen(true)}
+          className="text-[10px] uppercase tracking-wider text-text-secondary hover:text-primary inline-flex items-center gap-1 mt-0.5 transition-colors"
+        >
+          <Key size={9} /> {t("change_password_link")}
+        </button>
       </div>
+      {pwOpen && <ChangePasswordModal t={t} onClose={() => setPwOpen(false)} />}
     </div>
+  );
+}
+
+function ChangePasswordModal({ t, onClose }) {
+  const [current_password, setCurrent] = useState("");
+  const [new_password, setNew] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [show, setShow] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (new_password !== confirm) {
+      toast.error(t("change_password_mismatch"));
+      return;
+    }
+    if (new_password.length < 6) {
+      toast.error(t("change_password_too_short"));
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.post("/me/change-password", { current_password, new_password });
+      toast.success(t("change_password_success"));
+      onClose();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || t("error_generic"));
+    } finally { setSaving(false); }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[9999] flex items-start justify-center overflow-auto py-12 px-4" data-testid="change-password-modal">
+      <form onSubmit={submit} className="bg-background border border-border w-full max-w-md p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-display font-black text-xl uppercase tracking-tight inline-flex items-center gap-2">
+            <Key size={18} /> {t("change_password_title")}
+          </h2>
+          <button type="button" onClick={onClose}><X size={20} className="text-text-secondary hover:text-primary" /></button>
+        </div>
+        <p className="text-sm text-text-secondary">{t("change_password_intro")}</p>
+
+        <div>
+          <label className="label-eyebrow block mb-2">{t("change_password_current")}</label>
+          <input
+            data-testid="cp-current"
+            required
+            type={show ? "text" : "password"}
+            value={current_password}
+            onChange={(e) => setCurrent(e.target.value)}
+            className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm"
+          />
+        </div>
+        <div>
+          <label className="label-eyebrow block mb-2">{t("change_password_new")}</label>
+          <input
+            data-testid="cp-new"
+            required
+            type={show ? "text" : "password"}
+            minLength={6}
+            value={new_password}
+            onChange={(e) => setNew(e.target.value)}
+            className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm"
+          />
+        </div>
+        <div>
+          <label className="label-eyebrow block mb-2">{t("change_password_confirm")}</label>
+          <input
+            data-testid="cp-confirm"
+            required
+            type={show ? "text" : "password"}
+            minLength={6}
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm"
+          />
+        </div>
+        <label className="flex items-center gap-2 text-xs cursor-pointer select-none text-text-secondary">
+          <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} />
+          {t("change_password_show")}
+        </label>
+
+        <div className="flex justify-end gap-3 pt-3 border-t border-border">
+          <button type="button" onClick={onClose} disabled={saving} className="px-5 py-2.5 border border-border hover:border-primary text-xs font-display font-bold uppercase tracking-widest transition-colors">{t("cancel")}</button>
+          <button type="submit" data-testid="cp-submit" disabled={saving} className="bg-primary hover:bg-primary-hover disabled:opacity-50 px-5 py-2.5 text-xs font-display font-bold uppercase tracking-widest text-white transition-colors">{saving ? "..." : t("save")}</button>
+        </div>
+      </form>
+    </div>,
+    document.body
   );
 }
 

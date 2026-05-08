@@ -1546,6 +1546,32 @@ async def update_my_photo(payload: PhotoPayload, current: dict = Depends(get_cur
     return {"ok": True, "photo_url": payload.photo_url}
 
 
+class ChangePasswordPayload(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@api_router.post("/me/change-password")
+async def change_my_password(payload: ChangePasswordPayload, current: dict = Depends(get_current_user)):
+    """Any logged-in user can change their own password.
+
+    Requires the current password for confirmation. Minimum new password length: 6.
+    """
+    if len(payload.new_password) < 6:
+        raise HTTPException(400, "New password must be at least 6 characters")
+    user = await db.users.find_one({"id": current["id"]}, {"_id": 0, "password_hash": 1})
+    if not user or not verify_password(payload.current_password, user.get("password_hash", "")):
+        raise HTTPException(400, "Current password is incorrect")
+    if payload.new_password == payload.current_password:
+        raise HTTPException(400, "New password must be different from the current one")
+    await db.users.update_one(
+        {"id": current["id"]},
+        {"$set": {"password_hash": hash_password(payload.new_password)}},
+    )
+    return {"ok": True}
+
+
+
 @api_router.put("/team/{uid}/photo")
 async def set_team_photo(uid: str, payload: PhotoPayload, current: dict = Depends(get_current_user)):
     """Owner sets photo for any team member. Owners manage their own photo via /me/photo."""
