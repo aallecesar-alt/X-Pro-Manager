@@ -41,6 +41,22 @@ export default function AppShell() {
   const [search, setSearch] = useState("");
   const [historyVid, setHistoryVid] = useState(null);
   const [importPageOpen, setImportPageOpen] = useState(false);
+  const [fpAlerts, setFpAlerts] = useState({ overdue: [], today: [], tomorrow: [], total: 0 });
+
+  // Auto-load Floor Plan alerts for owner+gerente every 5 minutes
+  useEffect(() => {
+    if (!isStaff) return;
+    let alive = true;
+    const fetchAlerts = async () => {
+      try {
+        const r = await api.get("/floor-plans/alerts");
+        if (alive) setFpAlerts(r.data || { overdue: [], today: [], tomorrow: [], total: 0 });
+      } catch {/* silent */}
+    };
+    fetchAlerts();
+    const id = setInterval(fetchAlerts, 5 * 60 * 1000);
+    return () => { alive = false; clearInterval(id); };
+  }, [isStaff]);
 
   const userPerms = user?.permissions || [];
   const canAccess = (tabId) => isOwner || userPerms.includes(tabId);
@@ -129,6 +145,7 @@ export default function AppShell() {
         <nav className="flex-1 p-3 space-y-1">
           {tabs.map((tb) => {
             const showStuckBadge = tb.id === "delivery" && isStaff && stuckCount > 0;
+            const showFpBadge = tb.id === "financial" && isStaff && fpAlerts.total > 0;
             return (
               <button
                 key={tb.id}
@@ -147,6 +164,15 @@ export default function AppShell() {
                     title={`${stuckCount} ${stuckCount === 1 ? "carro" : "carros"}`}
                   >
                     {stuckCount}
+                  </span>
+                )}
+                {showFpBadge && (
+                  <span
+                    data-testid="nav-financial-fp-badge"
+                    className="min-w-[20px] h-5 px-1.5 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center shadow-[0_0_10px_rgba(217,45,32,0.6)] animate-pulse"
+                    title={`${fpAlerts.total} pagamento(s) Floor Plan`}
+                  >
+                    {fpAlerts.total}
                   </span>
                 )}
               </button>
@@ -181,7 +207,7 @@ export default function AppShell() {
 
       {/* MAIN */}
       <main className="flex-1 p-8 overflow-auto">
-        {tab === "overview" && canAccess("overview") && <Overview stats={stats} t={t} isSalesperson={isSalesperson} isBdc={isBdc} />}
+        {tab === "overview" && canAccess("overview") && <Overview stats={stats} t={t} isSalesperson={isSalesperson} isBdc={isBdc} fpAlerts={isStaff ? fpAlerts : null} onGoToFinancial={() => setTab("financial")} />}
         {tab === "inventory" && canAccess("inventory") && (
           <Inventory
             vehicles={vehicles} t={t} search={search} setSearch={setSearch} isSalesperson={isSalesperson}
@@ -361,7 +387,78 @@ function ChangePasswordModal({ t, onClose }) {
 
 
 
-function Overview({ stats, t, isSalesperson, isBdc }) {
+function FloorPlanAlertBanner({ alerts, onGoTo, t }) {
+  function formatBRL(n) {
+    return Number(n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  }
+  const totalAmount =
+    [...alerts.overdue, ...alerts.today, ...alerts.tomorrow]
+      .reduce((s, p) => s + (p.amount || 0), 0);
+  const buckets = [
+    { id: "overdue", label: t("fp_alerts_overdue"), items: alerts.overdue, cls: "border-primary text-primary bg-primary/15", icon: AlertTriangle, urgent: true },
+    { id: "today", label: t("fp_alerts_today"), items: alerts.today, cls: "border-warning text-warning bg-warning/15", icon: Calendar, urgent: false },
+    { id: "tomorrow", label: t("fp_alerts_tomorrow"), items: alerts.tomorrow, cls: "border-amber-500 text-amber-400 bg-amber-500/10", icon: Calendar, urgent: false },
+  ].filter(b => b.items.length > 0);
+
+  return (
+    <div data-testid="fp-alert-banner" className="border border-primary bg-primary/5 mb-8">
+      <div className="px-4 py-3 border-b border-primary/30 flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-full bg-primary/20 border border-primary flex items-center justify-center shrink-0 ${alerts.overdue.length > 0 ? "animate-pulse" : ""}`}>
+            <AlertTriangle size={20} className="text-primary" />
+          </div>
+          <div>
+            <p className="font-display font-black uppercase tracking-tight text-primary">
+              {alerts.total} {t("fp_alerts_pending_total")}
+            </p>
+            <p className="text-xs text-text-secondary mt-0.5">{t("fp_alerts_hint")} · Total {formatBRL(totalAmount)}</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          data-testid="fp-alert-go"
+          onClick={onGoTo}
+          className="px-4 py-2 text-[11px] font-display font-bold uppercase tracking-widest border border-primary text-primary hover:bg-primary hover:text-white transition-colors"
+        >
+          {t("fp_alerts_go")}
+        </button>
+      </div>
+      <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+        {buckets.map(b => {
+          const Icon = b.icon;
+          const sum = b.items.reduce((s, p) => s + (p.amount || 0), 0);
+          return (
+            <div key={b.id} className={`border ${b.cls} p-3`}>
+              <div className="flex items-center gap-2 mb-2">
+                <Icon size={14} />
+                <p className="label-eyebrow">{b.label}</p>
+                <span className="ml-auto font-display font-black text-lg">{b.items.length}</span>
+              </div>
+              <p className="font-display font-bold mb-2">{formatBRL(sum)}</p>
+              <ul className="space-y-1 text-[11px]">
+                {b.items.slice(0, 3).map(p => (
+                  <li key={p.id} className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.floor_plan_color || "#888" }} />
+                    <span className="truncate">
+                      {p.floor_plan_name}{p.vehicle_label ? ` · ${p.vehicle_label}` : ""}
+                      {b.id === "overdue" && p.days_late ? ` (${p.days_late}d)` : ""}
+                    </span>
+                    <span className="ml-auto font-mono whitespace-nowrap">{formatBRL(p.amount)}</span>
+                  </li>
+                ))}
+                {b.items.length > 3 && (
+                  <li className="text-text-secondary italic">+ {b.items.length - 3} {t("more")}</li>
+                )}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, onGoToFinancial }) {
   const [leaderboard, setLeaderboard] = useState({ rows: [], total_sold: 0 });
   const [promotion, setPromotion] = useState(null);
   const [editingPromo, setEditingPromo] = useState(false);
@@ -410,6 +507,11 @@ function Overview({ stats, t, isSalesperson, isBdc }) {
           <h1 className="font-display font-black text-5xl uppercase tracking-tighter mb-2">{t("overview")}</h1>
         </div>
       </div>
+
+      {/* Floor Plan alerts banner — owner+gerente only */}
+      {fpAlerts && fpAlerts.total > 0 && (
+        <FloorPlanAlertBanner alerts={fpAlerts} onGoTo={onGoToFinancial} t={t} />
+      )}
 
       {/* KPI cards (hidden when user has no stats access — e.g. BDC) */}
       {hasStats && (

@@ -2680,6 +2680,47 @@ async def delete_payment(pid: str, current: dict = Depends(get_current_user)):
     return {"deleted": True}
 
 
+@api_router.get("/floor-plans/alerts")
+async def floor_plan_alerts(current: dict = Depends(get_current_user)):
+    """In-app alerts for upcoming + overdue Floor Plan payments.
+
+    Owner + gerente only. Returns 3 buckets:
+      - overdue: due_date < today AND not paid
+      - today: due_date == today AND not paid
+      - tomorrow: due_date == today+1 AND not paid
+    """
+    role = (current or {}).get("role") or "owner"
+    if role not in ("owner", "gerente"):
+        return {"overdue": [], "today": [], "tomorrow": [], "total": 0}
+    today = datetime.now(timezone.utc).date()
+    tomorrow = today + timedelta(days=1)
+    today_iso = today.isoformat()
+    tomorrow_iso = tomorrow.isoformat()
+    rows = await db.floor_plan_payments.find(
+        {"dealership_id": current["dealership_id"], "paid": False, "due_date": {"$lte": tomorrow_iso}},
+        {"_id": 0}
+    ).sort("due_date", 1).to_list(500)
+    overdue, today_b, tomorrow_b = [], [], []
+    for p in rows:
+        d = p.get("due_date") or ""
+        if d < today_iso:
+            try:
+                p["days_late"] = (today - datetime.fromisoformat(d).date()).days
+            except Exception:
+                p["days_late"] = 0
+            overdue.append(p)
+        elif d == today_iso:
+            today_b.append(p)
+        elif d == tomorrow_iso:
+            tomorrow_b.append(p)
+    return {
+        "overdue": overdue,
+        "today": today_b,
+        "tomorrow": tomorrow_b,
+        "total": len(overdue) + len(today_b) + len(tomorrow_b),
+    }
+
+
 
 
 @api_router.get("/financial/sold-vehicles")
