@@ -1861,6 +1861,7 @@ function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onRe
   const [editMode, setEditMode] = useState("step"); // "step" | "notes"
   const [filesOpen, setFilesOpen] = useState(null); // { vehicle, step }
   const [alertsOnly, setAlertsOnly] = useState(false);
+  const [showDelivered, setShowDelivered] = useState(false);
 
   const STEPS = [1, 2, 3, 4, 5, 6, 7, 8];
   // Color per step (mimics screenshot: red→pink→blue→purple→green)
@@ -1876,7 +1877,10 @@ function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onRe
   };
 
   const stuckCount = deliveries.filter(v => v.stuck_alert).length;
-  const visibleDeliveries = (isStaff && alertsOnly) ? deliveries.filter(v => v.stuck_alert) : deliveries;
+  // Split into active (steps 1-7) and delivered (step 8). Delivered go into a collapsible section.
+  const activeDeliveries = deliveries.filter(v => (v.delivery_step || 0) < 8);
+  const deliveredDeliveries = deliveries.filter(v => (v.delivery_step || 0) === 8);
+  const visibleActive = (isStaff && alertsOnly) ? activeDeliveries.filter(v => v.stuck_alert) : activeDeliveries;
 
   const advance = async (v) => {
     const nextStep = Math.min((v.delivery_step || 1) + 1, 8);
@@ -1946,13 +1950,13 @@ function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onRe
       </div>
 
       <div className="space-y-4">
-        {visibleDeliveries.length === 0 && (
+        {visibleActive.length === 0 && (
           <p className="text-text-secondary text-center py-16 border border-dashed border-border">
             {alertsOnly ? t("no_stuck_deliveries") : t("no_deliveries")}
           </p>
         )}
 
-        {visibleDeliveries.map((v) => {
+        {visibleActive.map((v) => {
           const step = v.delivery_step || 1;
           const isDelivered = step === 8;
           const isStuck = isStaff && v.stuck_alert;
@@ -2132,6 +2136,89 @@ function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onRe
           );
         })}
       </div>
+
+      {/* Collapsible "Já entregues" (delivered) section — hidden by default */}
+      {deliveredDeliveries.length > 0 && (
+        <div className="mt-8">
+          <button
+            type="button"
+            data-testid="toggle-delivered"
+            onClick={() => setShowDelivered(s => !s)}
+            className="w-full flex items-center justify-between gap-3 py-3 px-4 border border-border bg-surface hover:border-success/60 transition-colors group"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-full bg-success/15 border border-success/40 flex items-center justify-center shrink-0">
+                <CheckCircle2 size={16} className="text-success" />
+              </div>
+              <div className="text-left min-w-0">
+                <p className="font-display font-black uppercase tracking-tight text-sm">{t("delivered_section_title")}</p>
+                <p className="text-[11px] text-text-secondary">{deliveredDeliveries.length} {deliveredDeliveries.length === 1 ? t("delivered_section_one") : t("delivered_section_many")}</p>
+              </div>
+            </div>
+            <ChevronRight
+              size={18}
+              className={`text-text-secondary group-hover:text-success transition-transform shrink-0 ${showDelivered ? "rotate-90" : ""}`}
+            />
+          </button>
+
+          {showDelivered && (
+            <div data-testid="delivered-list" className="mt-3 space-y-3">
+              {deliveredDeliveries.map((v) => (
+                <div
+                  key={v.id}
+                  data-testid={`delivered-${v.id}`}
+                  className="border border-border bg-surface/40 p-4 flex flex-wrap items-center gap-4 hover:border-success/60 transition-colors"
+                >
+                  {(v.images && v.images[0]) && (
+                    <img src={v.images[0]} alt="" className="w-20 h-16 object-cover shrink-0" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-display font-bold uppercase truncate">{v.year} {v.make} {v.model}</p>
+                    <p className="text-xs text-text-secondary truncate">
+                      {v.buyer_name || "—"}
+                      {v.salesperson_name && (
+                        <span className="ml-2 text-text-secondary/70">· {v.salesperson_name}</span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="inline-flex items-center gap-1.5 border border-success text-success bg-success/10 px-2.5 py-1 text-[10px] font-display font-bold uppercase tracking-widest">
+                      <CheckCircle2 size={11} /> {t("delivered_label")}
+                    </span>
+                    {v.delivered_at && (
+                      <p className="text-[10px] text-text-secondary mt-1">
+                        {new Date(v.delivered_at).toLocaleDateString()}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      data-testid={`delivered-files-${v.id}`}
+                      onClick={() => setFilesOpen({ vehicle: v, step: 8 })}
+                      title={t("delivery_photos")}
+                      className="border border-border hover:border-primary hover:text-primary transition-colors p-2"
+                    >
+                      <ImageIcon size={14} />
+                    </button>
+                    {onHistory && (
+                      <button
+                        type="button"
+                        data-testid={`delivered-history-${v.id}`}
+                        onClick={() => onHistory(v.id)}
+                        title={t("vehicle_history")}
+                        className="border border-border hover:border-primary hover:text-primary transition-colors p-2"
+                      >
+                        <History size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {editing && (
         <DeliveryEditModal
