@@ -321,6 +321,99 @@ function FloorPlanForm({ plan, t, onClose, onSaved }) {
   );
 }
 
+function VehiclePicker({ vehicles, value, onChange, t }) {
+  // Hybrid: type a VIN to instantly resolve, OR pick from list.
+  const [vinInput, setVinInput] = useState("");
+  const [error, setError] = useState("");
+
+  const selected = vehicles.find(v => v.id === value);
+
+  const lookupByVin = () => {
+    const q = vinInput.trim();
+    if (!q) {
+      setError(t("vin_required") || "Digite o VIN");
+      return;
+    }
+    const found = vehicles.find(v => (v.vin || "").toLowerCase() === q.toLowerCase());
+    if (!found) {
+      setError(t("vin_not_found") || "VIN não encontrado no estoque");
+      return;
+    }
+    setError("");
+    setVinInput("");
+    onChange(found.id);
+  };
+
+  return (
+    <div className="space-y-2">
+      <label className="label-eyebrow block">{t("vehicle_optional")}</label>
+
+      {/* VIN search box */}
+      <div className="flex gap-2">
+        <input
+          data-testid="pay-vin-input"
+          type="text"
+          value={vinInput}
+          onChange={(e) => { setVinInput(e.target.value.toUpperCase()); setError(""); }}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); lookupByVin(); } }}
+          placeholder={t("vehicle_vin_search_placeholder") || "Digite o VIN..."}
+          className="flex-1 bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm uppercase tracking-wider"
+        />
+        <button
+          type="button"
+          data-testid="pay-vin-search"
+          onClick={lookupByVin}
+          className="border border-primary text-primary hover:bg-primary hover:text-white px-4 h-11 text-[11px] font-display font-bold uppercase tracking-widest transition-colors"
+        >
+          {t("search") || "Buscar"}
+        </button>
+      </div>
+
+      {/* OR dropdown */}
+      <div className="flex items-center gap-2 text-[10px] text-text-secondary uppercase tracking-widest py-1">
+        <span className="flex-1 border-t border-border" />
+        <span>{t("or") || "OU"}</span>
+        <span className="flex-1 border-t border-border" />
+      </div>
+      <select
+        data-testid="pay-vehicle"
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setError(""); }}
+        className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm"
+      >
+        <option value="">{t("none")}</option>
+        {vehicles.map(v => (
+          <option key={v.id} value={v.id}>
+            {v.year} {v.make} {v.model}{v.vin ? ` · VIN ${v.vin}` : ""}
+          </option>
+        ))}
+      </select>
+
+      {/* Selected confirmation chip */}
+      {selected && (
+        <div className="flex items-center gap-2 border border-primary/40 bg-primary/5 text-primary px-3 py-2 text-xs">
+          <span className="font-display font-bold uppercase tracking-wider">
+            {selected.year} {selected.make} {selected.model}
+          </span>
+          {selected.vin && <span className="text-text-secondary">· VIN {selected.vin}</span>}
+          <button
+            type="button"
+            data-testid="pay-vehicle-clear"
+            onClick={() => onChange("")}
+            className="ml-auto text-text-secondary hover:text-primary"
+            aria-label="Remover"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {error && <p className="text-warning text-xs">{error}</p>}
+    </div>
+  );
+}
+
+
 function PaymentForm({ payment, defaults, plans, vehicles, t, onClose, onSaved }) {
   const isEdit = !!payment;
   const [form, setForm] = useState({
@@ -377,13 +470,7 @@ function PaymentForm({ payment, defaults, plans, vehicles, t, onClose, onSaved }
                 <input data-testid="pay-date" required type="date" value={form.due_date} onChange={(e) => set("due_date", e.target.value)} className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm" />
               </div>
             </div>
-            <div>
-              <label className="label-eyebrow block mb-2">{t("vehicle_optional")}</label>
-              <select data-testid="pay-vehicle" value={form.vehicle_id} onChange={(e) => set("vehicle_id", e.target.value)} className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm">
-                <option value="">{t("none")}</option>
-                {vehicles.map(v => <option key={v.id} value={v.id}>{v.year} {v.make} {v.model}</option>)}
-              </select>
-            </div>
+            <VehiclePicker vehicles={vehicles} value={form.vehicle_id} onChange={(id) => set("vehicle_id", id)} t={t} />
             <div>
               <label className="label-eyebrow block mb-2">{t("notes")}</label>
               <input data-testid="pay-notes" value={form.notes} onChange={(e) => set("notes", e.target.value)} className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm" />
