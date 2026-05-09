@@ -619,6 +619,15 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
     # Auto-set delivered_at when reaching step 8
     if upd.get("delivery_step") == 8:
         upd["delivered_at"] = now_iso
+    # Auto-CLEAR delivered_at when stepping back from step 8 to a lower step
+    # (e.g. owner reopens a wrong delivery via "Reabrir entrega" button)
+    if (
+        "delivery_step" in upd
+        and existing
+        and (existing.get("delivery_step") or 0) == 8
+        and (upd.get("delivery_step") or 0) < 8
+    ):
+        upd["delivered_at"] = ""
     if not upd and not push_events:
         raise HTTPException(400, "Nothing to update")
     mongo_op = {}

@@ -1904,6 +1904,15 @@ function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onRe
     } catch { toast.error(t("error_generic")); }
   };
 
+  const reopenDelivery = async (v) => {
+    if (!window.confirm(t("reopen_delivery_confirm"))) return;
+    try {
+      await api.put(`/vehicles/${v.id}`, { delivery_step: 7, delivered_at: null });
+      toast.success(t("delivery_reopened"));
+      onReload();
+    } catch { toast.error(t("error_generic")); }
+  };
+
   return (
     <div data-testid="delivery-tab">
       <p className="label-eyebrow text-primary mb-2">{t("delivery_pipeline_title")}</p>
@@ -2192,6 +2201,16 @@ function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onRe
                     )}
                   </div>
                   <div className="flex gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      data-testid={`delivered-reopen-${v.id}`}
+                      onClick={() => reopenDelivery(v)}
+                      title={t("reopen_delivery")}
+                      className="border border-warning/40 text-warning hover:bg-warning hover:text-black transition-colors p-2 inline-flex items-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-widest"
+                    >
+                      <RefreshCw size={13} />
+                      <span className="hidden sm:inline">{t("reopen_delivery")}</span>
+                    </button>
                     <button
                       type="button"
                       data-testid={`delivered-files-${v.id}`}
