@@ -3043,60 +3043,53 @@ async def list_floor_plans(current: dict = Depends(get_current_user)):
 
 
 # ─────────────────────────────────────────────────────────────
-# Floor-plan expense mirror — when a payment is marked paid AND tied to a
-# vehicle, an item with category="floor_plan" is added to that vehicle's
-# expense_items. Toggling unpaid (or changing the linked vehicle) removes the
-# previous mirror. Idempotent: uses payment.id as the expense_item.id.
+# Floor-plan expense mirror — when a payment is marked paid an
+# operational_expense (category="floor_plan") is created with the same id as
+# the payment, so toggling unpaid or deleting the payment automatically removes
+# it from the monthly Operational Expenses.
+# Idempotent: re-marking paid replaces the previous mirror entry.
 # ─────────────────────────────────────────────────────────────
 async def _sync_floor_plan_expense(payment: dict, dealership_id: str):
     pid = payment.get("id")
     if not pid:
         return
-    veh_id = payment.get("vehicle_id") or ""
-    amount = float(payment.get("amount") or 0)
     is_paid = bool(payment.get("paid"))
+    amount = float(payment.get("amount") or 0)
 
-    # Always remove any existing mirror first (handles vehicle change / unpaid).
-    await db.vehicles.update_many(
-        {"dealership_id": dealership_id, "expense_items.id": pid},
-        {"$pull": {"expense_items": {"id": pid}}},
-    )
-    # Recompute totals on every vehicle that may have lost the mirror.
-    affected = await db.vehicles.find(
-        {"dealership_id": dealership_id}, {"_id": 0, "id": 1, "expense_items": 1}
-    ).to_list(2000)
-    for v in affected:
-        new_total = sum(float(it.get("amount") or 0) for it in (v.get("expense_items") or []))
-        await db.vehicles.update_one(
-            {"id": v["id"], "dealership_id": dealership_id},
-            {"$set": {"expenses": new_total}},
-        )
+    # Always remove any existing mirror first.
+    await db.operational_expenses.delete_one({"id": pid, "dealership_id": dealership_id})
 
-    # Re-add only when paid + has vehicle + has amount.
-    if not (is_paid and veh_id and amount > 0):
+    # Re-add only when paid + has a positive amount.
+    if not (is_paid and amount > 0):
         return
-    veh = await db.vehicles.find_one(
-        {"id": veh_id, "dealership_id": dealership_id}, {"_id": 0}
-    )
-    if not veh:
-        return
-    items = list(veh.get("expense_items") or [])
-    items.append({
+
+    # Description: "<plan name> · <vehicle label or notes>"
+    plan_name = payment.get("floor_plan_name") or "Floor Plan"
+    bits = [plan_name]
+    if payment.get("vehicle_label"):
+        bits.append(payment["vehicle_label"])
+    elif payment.get("notes"):
+        bits.append(payment["notes"])
+    description = " · ".join(bits)[:200]
+
+    # Date: when paid (paid_at) takes precedence, fallback to due_date or today
+    date_iso = (payment.get("paid_at") or "").split("T")[0]
+    if not date_iso:
+        date_iso = payment.get("due_date") or datetime.now(timezone.utc).date().isoformat()
+
+    await db.operational_expenses.insert_one({
         "id": pid,
-        "description": (payment.get("notes") or payment.get("floor_plan_name") or "Floor Plan")[:200],
-        "amount": amount,
+        "dealership_id": dealership_id,
+        "date": date_iso,
         "category": "floor_plan",
-        "date": payment.get("paid_at") or payment.get("due_date") or datetime.now(timezone.utc).date().isoformat(),
+        "description": description,
+        "amount": amount,
+        "attachment_url": "",
+        "attachment_public_id": "",
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "floor_plan_payment_id": pid,
         "floor_plan_id": payment.get("floor_plan_id", ""),
-        "floor_plan_name": payment.get("floor_plan_name", ""),
-        "created_at": datetime.now(timezone.utc).isoformat(),
     })
-    new_total = sum(float(it.get("amount") or 0) for it in items)
-    await db.vehicles.update_one(
-        {"id": veh_id, "dealership_id": dealership_id},
-        {"$set": {"expense_items": items, "expenses": new_total}},
-    )
 
 
 @api_router.post("/floor-plans")
@@ -3243,20 +3236,8 @@ async def toggle_paid(pid: str, current: dict = Depends(get_current_user)):
 @api_router.delete("/floor-plans/payments/{pid}")
 async def delete_payment(pid: str, current: dict = Depends(get_current_user)):
     require_owner(current)
-    # Pull mirror first
-    await db.vehicles.update_many(
-        {"dealership_id": current["dealership_id"], "expense_items.id": pid},
-        {"$pull": {"expense_items": {"id": pid}}},
-    )
-    affected = await db.vehicles.find(
-        {"dealership_id": current["dealership_id"]}, {"_id": 0, "id": 1, "expense_items": 1}
-    ).to_list(2000)
-    for v in affected:
-        new_total = sum(float(it.get("amount") or 0) for it in (v.get("expense_items") or []))
-        await db.vehicles.update_one(
-            {"id": v["id"], "dealership_id": current["dealership_id"]},
-            {"$set": {"expenses": new_total}},
-        )
+    # Remove the mirrored operational expense (no-op if it never existed)
+    await db.operational_expenses.delete_one({"id": pid, "dealership_id": current["dealership_id"]})
     res = await db.floor_plan_payments.delete_one({"id": pid, "dealership_id": current["dealership_id"]})
     if res.deleted_count == 0:
         raise HTTPException(404, "Payment not found")

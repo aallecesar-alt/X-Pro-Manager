@@ -5,7 +5,7 @@ import { Plus, Trash2, Edit2, X, Check, Paperclip, FileText, Image as ImageIcon,
 import { toast } from "sonner";
 import api, { formatCurrency } from "@/lib/api";
 
-const CATEGORIES = ["rent", "water", "electricity", "internet", "phone", "salary", "marketing", "maintenance", "taxes", "other"];
+const CATEGORIES = ["rent", "water", "electricity", "internet", "phone", "salary", "marketing", "maintenance", "taxes", "floor_plan", "other"];
 
 function Input({ label, value, set, type = "text", testid, required }) {
   return (
