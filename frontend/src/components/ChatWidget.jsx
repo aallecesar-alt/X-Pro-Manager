@@ -203,7 +203,7 @@ export default function ChatWidget() {
         <button
           data-testid="chat-open-btn"
           onClick={() => setOpen(true)}
-          className="fixed bottom-5 right-5 z-50 bg-primary hover:bg-primary-hover text-white shadow-2xl shadow-primary/40 w-14 h-14 rounded-full flex items-center justify-center transition-transform hover:scale-110"
+          className="fixed top-5 right-5 z-50 bg-primary hover:bg-primary-hover text-white shadow-2xl shadow-primary/40 w-14 h-14 rounded-full flex items-center justify-center transition-transform hover:scale-110"
           title="Abrir chat"
         >
           <MessageCircle size={22} />
@@ -219,7 +219,7 @@ export default function ChatWidget() {
       {open && (
         <div
           data-testid="chat-panel"
-          className="fixed bottom-5 right-5 z-50 w-[380px] max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-2rem)] bg-background border border-border shadow-2xl flex flex-col"
+          className="fixed top-5 right-5 z-50 w-[380px] max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-2rem)] bg-background border border-border shadow-2xl flex flex-col"
         >
           {/* Header */}
           <div className="flex items-center justify-between px-4 h-14 border-b border-border bg-surface">
