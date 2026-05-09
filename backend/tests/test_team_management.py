@@ -180,12 +180,13 @@ class TestListTeam:
         assert set(body["all_permissions"]) == {
             "overview", "inventory", "pipeline", "delivery", "leads", "salespeople", "financial", "post_sales", "applications"
         }
-        # role_defaults: salesperson default has no financial, bdc=overview+leads+applications
+        # role_defaults: salesperson default has no financial, includes applications
         assert "financial" not in body["role_defaults"]["salesperson"]
         assert set(body["role_defaults"]["salesperson"]) == {
-            "overview", "inventory", "pipeline", "delivery", "leads", "salespeople"
+            "overview", "inventory", "pipeline", "delivery", "leads", "salespeople", "applications"
         }
         assert set(body["role_defaults"]["bdc"]) == {"overview", "leads", "applications"}
+        assert set(body["role_defaults"]["gerente"]) == {"applications"}
         assert set(body["role_defaults"]["owner"]) == set(body["all_permissions"])
 
     def test_salesperson_cannot_list_team(self, sales_headers):
@@ -480,14 +481,15 @@ class TestDefaultPermissions:
         r = requests.get(f"{API}/team", headers=owner_headers, timeout=15)
         assert r.status_code == 200
         rd = r.json()["role_defaults"]
-        assert set(rd["salesperson"]) == {"overview", "inventory", "pipeline", "delivery", "leads", "salespeople"}
+        assert set(rd["salesperson"]) == {"overview", "inventory", "pipeline", "delivery", "leads", "salespeople", "applications"}
         assert "financial" not in rd["salesperson"]
         assert set(rd["bdc"]) == {"overview", "leads", "applications"}
+        assert set(rd["gerente"]) == {"applications"}
 
     def test_seeded_salesperson_default_perms(self, sales_login):
         # joao@intercar.com has permissions=null -> defaults applied
         perms = sales_login["user"]["permissions"]
-        assert set(perms) == {"overview", "inventory", "pipeline", "delivery", "leads", "salespeople"}
+        assert set(perms) == {"overview", "inventory", "pipeline", "delivery", "leads", "salespeople", "applications"}
 
     def test_seeded_bdc_default_perms(self, bdc_login):
         # The seeded BDC may have customized permissions in production. Validate

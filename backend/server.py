@@ -201,9 +201,10 @@ ROLE_DEFAULT_PERMISSIONS = {
     "owner": ALL_TAB_PERMISSIONS,
     # BDC handles incoming clients → can also see applications.
     "bdc": ["overview", "leads", "applications"],
-    "salesperson": ["overview", "inventory", "pipeline", "delivery", "leads", "salespeople"],
-    # Gerente (manager) starts with no default access — owner grants case-by-case.
-    "gerente": [],
+    # Salespeople need to see credit applications to follow up on financing leads.
+    "salesperson": ["overview", "inventory", "pipeline", "delivery", "leads", "salespeople", "applications"],
+    # Manager — by default sees applications so they can route financing.
+    "gerente": ["applications"],
     # Geral (yard / parts / shop staff) — defaults to post-sales (handles repairs).
     "geral": ["post_sales"],
 }
@@ -278,6 +279,19 @@ async def startup():
     await db.leads.create_index("id", unique=True)
     await db.leads.create_index([("dealership_id", 1), ("created_at", -1)])
     await db.leads.create_index([("dealership_id", 1), ("monday_item_id", 1)])
+
+    # ── Migration: existing salesperson / gerente / bdc accounts that have
+    # an explicit permissions array (not null) but don't include "applications"
+    # get it added automatically. Users with permissions=null already pick up
+    # the new role default through ROLE_DEFAULT_PERMISSIONS.
+    for role in ("salesperson", "gerente", "bdc"):
+        await db.users.update_many(
+            {
+                "role": role,
+                "permissions": {"$type": "array", "$nin": ["applications"]},
+            },
+            {"$addToSet": {"permissions": "applications"}},
+        )
 
 
 # ============================================================
