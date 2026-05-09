@@ -103,12 +103,26 @@ Per-car features:
   - Each stuck car card highlighted with red border and chip "⚠ Parado há N dias".
 
 ### Inventory advanced filters (Feb 9 2026)
-- Inventory tab now has 3 dropdowns next to the search bar: **Marca**, **Modelo** (dependent on selected Marca), **Carroceria**.
-- Dropdown options auto-populated from current stock — only values that actually exist appear.
+- Inventory tab now has 3 dropdowns next to the search bar: **Marca**, **Modelo** (dependent on selected Marca), **Carroceria** (8 fixed options always visible).
+- Marca dropdown auto-populated from current stock; Modelo cascades on Marca; Carroceria always shows the 8 canonical options.
+- Inventory display sorted alphabetically by Make, then Model.
 - Active-filter chips with one-click remove + "limpar filtros" button.
 - New **Carroceria** selector in Add/Edit Vehicle form with 8 options: Sedan · SUV · Truck · Coupe · Hatch · Convertible · Wagon · Van.
 - Backend `GET /api/vehicles` now accepts optional `make`, `model`, `body_type` query params (case-insensitive exact match).
 - Translations added in PT/EN/ES (`filter_all_makes`, `filter_all_models`, `filter_all_bodies`, `active_filters`, `clear_filters`).
+
+### Pós-Vendas (Post-Sales) tab (Feb 9 2026)
+- New sidebar tab "Pós-Vendas" (ShieldCheck icon) — accessible to owner, gerente, and geral roles by default.
+- Workflow: customer brings a car back → enter VIN → system auto-finds the vehicle and pre-fills make/model/year/customer/phone (or allow manual entry if VIN doesn't match).
+- 3-step status flow: **Aberto → Em andamento → Concluído**. Advance arrow on each card. When status flips to "Concluído", `exit_date` auto-stamps if empty.
+- Each repair tracks: VIN, vehicle_id (link to original sale), make/model/year, customer name+phone, problem, work_to_do, cost, technician, entry/exit dates, notes, status.
+- Cost mirrors automatically into the linked vehicle's `expense_items` (category="post_sale") so Financial dashboard counts it without duplicates. Mirror is removed on delete or when cost/vehicle changes.
+- Summary cards: Em aberto / Concluídos / Total de reparos / Custo total.
+- Filters: search box + 4 status pills (Todos / Aberto / Em andamento / Concluído) with live counts.
+- New endpoints: `GET /api/post-sales`, `GET /api/post-sales/lookup-vin?vin=...`, `POST /api/post-sales`, `PUT /api/post-sales/{id}`, `DELETE /api/post-sales/{id}`.
+- New permission `post_sales` added to `ALL_TAB_PERMISSIONS`. Default role mapping: owner=all, geral=[maintenance, post_sales], gerente=opt-in via Settings.
+- New collection: `post_sales`.
+- 9 pytest tests cover RBAC, VIN lookup (found/not_found/case-insensitive), full CRUD lifecycle, mirror expense sync, invalid status rejection, manual entry without vehicle_id.
 
 ## Test credentials
 - **Owner** — Email: `carlos@intercar.com` · Password: `senha123` (sees everything)

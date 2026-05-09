@@ -59,12 +59,18 @@ def _wipe_test_residue(db):
         {"notes": {"$regex": "TEST_", "$options": "i"}},
     ]})
     r7 = db.dealerships.delete_many({"name": {"$regex": "^TEST_|^E2E_", "$options": "i"}})
+    r8 = db.post_sales.delete_many({"$or": [
+        {"vin": {"$regex": "^TEST"}},
+        {"problem": {"$regex": "TEST_", "$options": "i"}},
+        {"work_to_do": {"$regex": "TEST_", "$options": "i"}},
+        {"customer_name": {"$regex": "^TEST ", "$options": "i"}},
+    ]})
 
     return {
         "lost_sales": r1.deleted_count, "vehicles": r2.deleted_count,
         "salespeople": r3.deleted_count, "operational_expenses": r4.deleted_count,
         "users": r5.deleted_count, "leads": r6.deleted_count,
-        "dealerships": r7.deleted_count,
+        "dealerships": r7.deleted_count, "post_sales": r8.deleted_count,
     }
 
 

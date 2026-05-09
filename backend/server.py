@@ -194,7 +194,7 @@ async def get_current_user(request: Request) -> dict:
 # All tab permissions in the system. Owner always has full access.
 ALL_TAB_PERMISSIONS = [
     "overview", "inventory", "pipeline", "delivery",
-    "leads", "salespeople", "financial", "maintenance",
+    "leads", "salespeople", "financial", "maintenance", "post_sales",
 ]
 ROLE_DEFAULT_PERMISSIONS = {
     "owner": ALL_TAB_PERMISSIONS,
@@ -202,8 +202,8 @@ ROLE_DEFAULT_PERMISSIONS = {
     "salesperson": ["overview", "inventory", "pipeline", "delivery", "leads", "salespeople"],
     # Gerente (manager) starts with no default access — owner grants case-by-case.
     "gerente": [],
-    # Geral (yard / parts / maintenance staff) — defaults to maintenance only.
-    "geral": ["maintenance"],
+    # Geral (yard / parts / maintenance staff) — defaults to maintenance and post-sales.
+    "geral": ["maintenance", "post_sales"],
 }
 
 
@@ -819,6 +819,231 @@ async def delete_maintenance_item(vid: str, item_id: str, current: dict = Depend
     if len(items) == before:
         raise HTTPException(404, "Maintenance item not found")
     await _save_expense_items(vid, current["dealership_id"], items)
+    return {"deleted": True}
+
+
+
+# ============================================================
+# POST-SALES (Pós-Vendas) — track repairs after a car has been sold.
+# Stored as standalone documents in `post_sales` collection.
+# When a repair has cost AND vehicle_id is set, a mirroring expense_item with
+# category="post_sale" is kept in sync on the vehicle so the Financial dashboard
+# accounts for it without duplicates.
+# ============================================================
+class PostSalePayload(BaseModel):
+    vin: str = ""
+    vehicle_id: str = ""           # blank if VIN didn't match an existing vehicle
+    make: str = ""
+    model: str = ""
+    year: Optional[int] = None
+    color: str = ""
+    customer_name: str = ""
+    customer_phone: str = ""
+    entry_date: Optional[str] = None      # data de entrada (YYYY-MM-DD)
+    exit_date: Optional[str] = None       # data de saída (when finished)
+    problem: str = ""                     # descrição do problema relatado pelo cliente
+    work_to_do: str = ""                  # o que tem que fazer
+    cost: float = 0
+    technician: str = ""                  # mecânico/responsável
+    notes: str = ""
+    status: str = "open"                  # open | in_progress | done
+
+
+VALID_POST_SALE_STATUSES = {"open", "in_progress", "done"}
+
+
+def _post_sale_to_view(doc: dict) -> dict:
+    """Strip Mongo internals and ensure consistent JSON shape."""
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+async def _sync_post_sale_expense_on_vehicle(post_sale: dict, dealership_id: str):
+    """Mirror this post-sale onto the vehicle's expense_items so the Financial
+    dashboard counts it. Idempotent — uses post_sale id as the expense_item id.
+    Removes the mirror when post_sale has no vehicle_id or zero cost."""
+    ps_id = post_sale.get("id")
+    if not ps_id:
+        return
+    veh_id = post_sale.get("vehicle_id") or ""
+    cost = float(post_sale.get("cost") or 0)
+
+    # Remove any existing mirror from EVERY vehicle in this dealership (handles vehicle change).
+    await db.vehicles.update_many(
+        {"dealership_id": dealership_id, "expense_items.id": ps_id},
+        {"$pull": {"expense_items": {"id": ps_id}}},
+    )
+    # Recompute totals for every vehicle that lost a mirror item
+    affected = await db.vehicles.find(
+        {"dealership_id": dealership_id}, {"_id": 0, "id": 1, "expense_items": 1}
+    ).to_list(2000)
+    for v in affected:
+        new_total = sum(float(it.get("amount") or 0) for it in (v.get("expense_items") or []))
+        await db.vehicles.update_one(
+            {"id": v["id"], "dealership_id": dealership_id},
+            {"$set": {"expenses": new_total}},
+        )
+
+    # Add mirror expense to current vehicle if both a vehicle AND a cost are set.
+    if not veh_id or cost <= 0:
+        return
+    veh = await db.vehicles.find_one(
+        {"id": veh_id, "dealership_id": dealership_id}, {"_id": 0}
+    )
+    if not veh:
+        return
+    items = list(veh.get("expense_items") or [])
+    items.append({
+        "id": ps_id,
+        "description": (post_sale.get("work_to_do") or post_sale.get("problem") or "Pós-venda")[:200],
+        "amount": cost,
+        "category": "post_sale",
+        "date": post_sale.get("exit_date") or post_sale.get("entry_date") or datetime.now(timezone.utc).date().isoformat(),
+        "post_sale_id": ps_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    new_total = sum(float(it.get("amount") or 0) for it in items)
+    await db.vehicles.update_one(
+        {"id": veh_id, "dealership_id": dealership_id},
+        {"$set": {"expense_items": items, "expenses": new_total}},
+    )
+
+
+@api_router.get("/post-sales/lookup-vin")
+async def post_sales_lookup_vin(vin: str, current: dict = Depends(get_current_user)):
+    """Try to find a sold vehicle by VIN. Returns autofill data if found, empty if not."""
+    require_tab(current, "post_sales")
+    vin_clean = (vin or "").strip()
+    if not vin_clean:
+        return {"found": False}
+    veh = await db.vehicles.find_one(
+        {"dealership_id": current["dealership_id"], "vin": {"$regex": f"^{re.escape(vin_clean)}$", "$options": "i"}},
+        {"_id": 0},
+    )
+    if not veh:
+        return {"found": False}
+    return {
+        "found": True,
+        "vehicle_id": veh.get("id"),
+        "vin": veh.get("vin", ""),
+        "make": veh.get("make", ""),
+        "model": veh.get("model", ""),
+        "year": veh.get("year"),
+        "color": veh.get("color", ""),
+        "customer_name": veh.get("buyer_name", "") if veh.get("status") == "sold" else "",
+        "customer_phone": veh.get("buyer_phone", "") if veh.get("status") == "sold" else "",
+        "image": (veh.get("images") or [None])[0],
+        "status": veh.get("status", ""),
+    }
+
+
+@api_router.get("/post-sales")
+async def list_post_sales(current: dict = Depends(get_current_user)):
+    """List every post-sale repair for this dealership, newest first."""
+    require_tab(current, "post_sales")
+    items = await db.post_sales.find(
+        {"dealership_id": current["dealership_id"]}, {"_id": 0}
+    ).sort("entry_date", -1).to_list(2000)
+    return items
+
+
+@api_router.post("/post-sales")
+async def create_post_sale(payload: PostSalePayload, current: dict = Depends(get_current_user)):
+    require_tab(current, "post_sales")
+    if payload.status and payload.status not in VALID_POST_SALE_STATUSES:
+        raise HTTPException(400, "Invalid status")
+    today = datetime.now(timezone.utc).date().isoformat()
+    doc = {
+        "id": str(uuid.uuid4()),
+        "dealership_id": current["dealership_id"],
+        "vin": payload.vin.strip(),
+        "vehicle_id": payload.vehicle_id or "",
+        "make": payload.make,
+        "model": payload.model,
+        "year": payload.year,
+        "color": payload.color,
+        "customer_name": payload.customer_name,
+        "customer_phone": payload.customer_phone,
+        "entry_date": payload.entry_date or today,
+        "exit_date": payload.exit_date or None,
+        "problem": payload.problem,
+        "work_to_do": payload.work_to_do,
+        "cost": float(payload.cost or 0),
+        "technician": payload.technician,
+        "notes": payload.notes,
+        "status": payload.status or "open",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by_name": current.get("full_name") or current.get("email") or "",
+    }
+    await db.post_sales.insert_one(doc)
+    await _sync_post_sale_expense_on_vehicle(doc, current["dealership_id"])
+    return _post_sale_to_view(doc)
+
+
+@api_router.put("/post-sales/{ps_id}")
+async def update_post_sale(ps_id: str, payload: PostSalePayload, current: dict = Depends(get_current_user)):
+    require_tab(current, "post_sales")
+    if payload.status and payload.status not in VALID_POST_SALE_STATUSES:
+        raise HTTPException(400, "Invalid status")
+    existing = await db.post_sales.find_one(
+        {"id": ps_id, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not existing:
+        raise HTTPException(404, "Post-sale not found")
+    update = {
+        "vin": payload.vin.strip(),
+        "vehicle_id": payload.vehicle_id or "",
+        "make": payload.make,
+        "model": payload.model,
+        "year": payload.year,
+        "color": payload.color,
+        "customer_name": payload.customer_name,
+        "customer_phone": payload.customer_phone,
+        "entry_date": payload.entry_date or existing.get("entry_date"),
+        "exit_date": payload.exit_date,
+        "problem": payload.problem,
+        "work_to_do": payload.work_to_do,
+        "cost": float(payload.cost or 0),
+        "technician": payload.technician,
+        "notes": payload.notes,
+        "status": payload.status or existing.get("status", "open"),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by_name": current.get("full_name") or current.get("email") or "",
+    }
+    # Auto-stamp exit_date when status flips to "done" if not set
+    if update["status"] == "done" and not update.get("exit_date"):
+        update["exit_date"] = datetime.now(timezone.utc).date().isoformat()
+    await db.post_sales.update_one(
+        {"id": ps_id, "dealership_id": current["dealership_id"]},
+        {"$set": update},
+    )
+    merged = {**existing, **update}
+    await _sync_post_sale_expense_on_vehicle(merged, current["dealership_id"])
+    return _post_sale_to_view(merged)
+
+
+@api_router.delete("/post-sales/{ps_id}")
+async def delete_post_sale(ps_id: str, current: dict = Depends(get_current_user)):
+    require_tab(current, "post_sales")
+    existing = await db.post_sales.find_one(
+        {"id": ps_id, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not existing:
+        raise HTTPException(404, "Post-sale not found")
+    # Remove mirror from any vehicle
+    await db.vehicles.update_many(
+        {"dealership_id": current["dealership_id"], "expense_items.id": ps_id},
+        {"$pull": {"expense_items": {"id": ps_id}}},
+    )
+    affected = await db.vehicles.find(
+        {"dealership_id": current["dealership_id"]}, {"_id": 0, "id": 1, "expense_items": 1}
+    ).to_list(2000)
+    for v in affected:
+        new_total = sum(float(it.get("amount") or 0) for it in (v.get("expense_items") or []))
+        await db.vehicles.update_one(
+            {"id": v["id"], "dealership_id": current["dealership_id"]},
+            {"$set": {"expenses": new_total}},
+        )
+    await db.post_sales.delete_one({"id": ps_id, "dealership_id": current["dealership_id"]})
     return {"deleted": True}
 
 
