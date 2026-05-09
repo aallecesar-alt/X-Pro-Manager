@@ -11,6 +11,7 @@ import Financial from "@/pages/Financial";
 import LeadsPage from "@/pages/LeadsPage";
 import PostSales from "@/pages/PostSales";
 import CreditApplications from "@/pages/CreditApplications";
+import { Menu as MenuIcon } from "lucide-react";
 import VehicleHistoryModal from "@/components/VehicleHistoryModal";
 import ChatWidget from "@/components/ChatWidget";
 import InstallPrompt from "@/components/InstallPrompt";
@@ -34,6 +35,7 @@ export default function AppShell() {
   const isManager = user?.role === "gerente";
   const isStaff = isOwner || isManager;
   const [tab, setTab] = useState("overview");
+  const [sidebarOpen, setSidebarOpen] = useState(false); // mobile drawer state
   const [stats, setStats] = useState(null);
   const [vehicles, setVehicles] = useState([]);
   const [deliveries, setDeliveries] = useState([]);
@@ -122,8 +124,37 @@ export default function AppShell() {
 
   return (
     <div data-testid="app-shell" className="min-h-screen text-white flex">
+      {/* Mobile top bar — hidden on desktop */}
+      <div className="lg:hidden fixed top-0 inset-x-0 h-14 bg-background/95 backdrop-blur-sm border-b border-border z-30 flex items-center justify-between px-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <img src="/intercar-logo.png" alt="" className="w-8 h-8 object-contain" />
+          <p className="font-display font-black uppercase text-sm truncate">{dealership?.name || "Intercar"}</p>
+        </div>
+        <button
+          data-testid="mobile-menu-btn"
+          onClick={() => setSidebarOpen(true)}
+          className="p-2 border border-border hover:border-primary"
+          aria-label="Menu"
+        >
+          <MenuIcon size={20} />
+        </button>
+      </div>
+
+      {/* Mobile backdrop when sidebar is open */}
+      {sidebarOpen && (
+        <div
+          data-testid="mobile-backdrop"
+          className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* SIDEBAR */}
-      <aside className="w-64 border-r border-border min-h-screen flex flex-col bg-background/60 backdrop-blur-sm relative">
+      <aside
+        className={`w-64 border-r border-border min-h-screen flex flex-col bg-background backdrop-blur-sm
+          fixed lg:relative inset-y-0 left-0 z-50 transition-transform duration-200 lg:flex-shrink-0
+          ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}
+      >
         <div className="p-6 border-b border-border bg-stripes-overlay">
           <div className="flex items-center gap-3">
             <div className="relative w-12 h-12 shrink-0">
@@ -152,7 +183,7 @@ export default function AppShell() {
               <button
                 key={tb.id}
                 data-testid={`nav-${tb.id}`}
-                onClick={() => setTab(tb.id)}
+                onClick={() => { setTab(tb.id); setSidebarOpen(false); }}
                 className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-display uppercase tracking-wider font-semibold transition-colors ${
                   tab === tb.id ? "bg-primary text-white" : "text-text-secondary hover:bg-surface hover:text-white"
                 }`}
@@ -208,7 +239,7 @@ export default function AppShell() {
       </aside>
 
       {/* MAIN */}
-      <main className="flex-1 p-8 overflow-auto">
+      <main className="flex-1 p-4 lg:p-8 overflow-auto pt-20 lg:pt-8 min-w-0">
         {tab === "overview" && canAccess("overview") && <Overview stats={stats} t={t} isSalesperson={isSalesperson} isBdc={isBdc} fpAlerts={isStaff ? fpAlerts : null} onGoToFinancial={() => setTab("financial")} />}
         {tab === "inventory" && canAccess("inventory") && (
           <Inventory
@@ -579,11 +610,11 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, onGoToFinancial })
   return (
     <div data-testid="overview-tab">
       {/* Hero with subtle shield watermark */}
-      <div className="mb-10 bg-shield-watermark border border-border bg-surface/30 p-8 relative overflow-hidden" style={{ "--shield-url": "url('/intercar-logo.png')" }}>
+      <div className="mb-6 lg:mb-10 bg-shield-watermark border border-border bg-surface/30 p-5 lg:p-8 relative overflow-hidden" style={{ "--shield-url": "url('/intercar-logo.png')" }}>
         <div className="bg-stripes-overlay absolute inset-0 opacity-50" />
         <div className="relative">
           <p className="label-eyebrow text-primary mb-2">{t("dashboard")} · {monthLabel}</p>
-          <h1 className="font-display font-black text-5xl uppercase tracking-tighter mb-2">{t("overview")}</h1>
+          <h1 className="font-display font-black text-3xl sm:text-4xl lg:text-5xl uppercase tracking-tighter mb-2">{t("overview")}</h1>
         </div>
       </div>
 
