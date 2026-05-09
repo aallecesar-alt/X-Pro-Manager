@@ -194,7 +194,7 @@ async def get_current_user(request: Request) -> dict:
 # All tab permissions in the system. Owner always has full access.
 ALL_TAB_PERMISSIONS = [
     "overview", "inventory", "pipeline", "delivery",
-    "leads", "salespeople", "financial", "maintenance", "post_sales",
+    "leads", "salespeople", "financial", "post_sales",
 ]
 ROLE_DEFAULT_PERMISSIONS = {
     "owner": ALL_TAB_PERMISSIONS,
@@ -202,8 +202,8 @@ ROLE_DEFAULT_PERMISSIONS = {
     "salesperson": ["overview", "inventory", "pipeline", "delivery", "leads", "salespeople"],
     # Gerente (manager) starts with no default access — owner grants case-by-case.
     "gerente": [],
-    # Geral (yard / parts / maintenance staff) — defaults to maintenance and post-sales.
-    "geral": ["maintenance", "post_sales"],
+    # Geral (yard / parts / shop staff) — defaults to post-sales (handles repairs).
+    "geral": ["post_sales"],
 }
 
 

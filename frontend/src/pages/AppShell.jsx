@@ -9,7 +9,6 @@ import PhotoUploader from "@/components/PhotoUploader";
 import ExpenseManager from "@/components/ExpenseManager";
 import Financial from "@/pages/Financial";
 import LeadsPage from "@/pages/LeadsPage";
-import Maintenance from "@/pages/Maintenance";
 import PostSales from "@/pages/PostSales";
 import VehicleHistoryModal from "@/components/VehicleHistoryModal";
 import NameWithAvatar, { useTeamPhotos } from "@/components/NameWithAvatar";
@@ -69,7 +68,6 @@ export default function AppShell() {
     { id: "leads", label: t("leads_title"), icon: Headphones },
     { id: "salespeople", label: t("salespeople"), icon: Users },
     { id: "financial", label: t("financial"), icon: DollarSign },
-    { id: "maintenance", label: t("maintenance_tab"), icon: Wrench },
     { id: "post_sales", label: t("post_sales_tab"), icon: ShieldCheck },
     { id: "settings", label: t("settings"), icon: Settings, ownerOnly: true },
   ];
@@ -221,7 +219,6 @@ export default function AppShell() {
         {tab === "leads" && canAccess("leads") && <LeadsPage t={t} role={user?.role || "owner"} currentSpId={user?.salesperson_id || ""} salespeople={salespeople} />}
         {tab === "salespeople" && canAccess("salespeople") && <SalespeopleTab salespeople={salespeople} t={t} onReload={reload} isSalesperson={isSalesperson} currentSpId={user?.salesperson_id || ""} />}
         {tab === "financial" && canAccess("financial") && <Financial t={t} />}
-        {tab === "maintenance" && canAccess("maintenance") && <Maintenance t={t} onHistory={setHistoryVid} />}
         {tab === "post_sales" && canAccess("post_sales") && <PostSales t={t} />}
         {tab === "settings" && isOwner && <SettingsTab dealership={dealership} t={t} onRefresh={refreshDealership} />}
 
@@ -1226,7 +1223,6 @@ const PERMISSION_LABELS = {
   leads: { key: "leads_title", icon: "📞" },
   salespeople: { key: "salespeople", icon: "🏆" },
   financial: { key: "financial", icon: "💰" },
-  maintenance: { key: "maintenance_tab", icon: "🔧" },
   post_sales: { key: "post_sales_tab", icon: "🛠️" },
 };
 
