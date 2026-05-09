@@ -457,6 +457,81 @@ function FloorPlanAlertBanner({ alerts, onGoTo, t }) {
   );
 }
 
+// ============================================================
+// PodiumCard — Top 3 leaderboard winner card with metallic gold/silver/bronze treatment
+// ============================================================
+function PodiumCard({ rank, row, accent, featured = false, t }) {
+  const PRESETS = {
+    gold: {
+      borderClass: "border-yellow-400/50",
+      gradient: "linear-gradient(180deg, rgba(250,204,21,0.18) 0%, rgba(202,138,4,0.05) 70%, rgba(0,0,0,0) 100%)",
+      color: "text-yellow-400",
+      glow: "shadow-[0_0_40px_-10px_rgba(250,204,21,0.4)]",
+      ribbon: t?.("vendedor_do_mes") || "VENDEDOR DO MÊS",
+    },
+    silver: {
+      borderClass: "border-slate-300/40",
+      gradient: "linear-gradient(180deg, rgba(203,213,225,0.14) 0%, rgba(100,116,139,0.04) 70%, rgba(0,0,0,0) 100%)",
+      color: "text-slate-300",
+      glow: "",
+      ribbon: "",
+    },
+    bronze: {
+      borderClass: "border-amber-700/40",
+      gradient: "linear-gradient(180deg, rgba(180,83,9,0.18) 0%, rgba(120,53,15,0.04) 70%, rgba(0,0,0,0) 100%)",
+      color: "text-amber-600",
+      glow: "",
+      ribbon: "",
+    },
+  };
+  const cfg = PRESETS[accent] || PRESETS.silver;
+  const Icon = rank === 1 ? Crown : Medal;
+
+  return (
+    <div
+      data-testid={`lb-podium-${rank}`}
+      className={`relative border ${cfg.borderClass} ${cfg.glow} ${featured ? "py-7 px-3" : "py-5 px-3"} flex flex-col items-center text-center ${featured ? "" : "mt-4"}`}
+      style={{ background: cfg.gradient }}
+    >
+      {/* Ribbon for #1 */}
+      {featured && cfg.ribbon && (
+        <div className={`absolute -top-2.5 left-1/2 -translate-x-1/2 ${cfg.color} text-[9px] tracking-[0.2em] font-display font-black bg-background border ${cfg.borderClass} px-2.5 py-1 whitespace-nowrap`}>
+          ★ {cfg.ribbon} ★
+        </div>
+      )}
+
+      {/* Icon */}
+      <Icon size={featured ? 28 : 22} className={`${cfg.color} mb-2`} />
+
+      {/* Avatar */}
+      <Avatar
+        src={row.photo_url}
+        name={row.salesperson_name}
+        size={featured ? "xl" : "lg"}
+        ring={featured}
+      />
+
+      {/* Name */}
+      <p className={`mt-2.5 font-display font-bold uppercase ${featured ? "text-sm" : "text-xs"} truncate w-full tracking-wide`}>
+        {row.salesperson_name}
+      </p>
+
+      {/* Count */}
+      <p className={`font-display font-black ${featured ? "text-5xl mt-2" : "text-3xl mt-1.5"} ${cfg.color} leading-none`}>
+        {row.count}
+      </p>
+      <p className="text-[9px] uppercase tracking-[0.2em] text-text-secondary mt-1">
+        {(t?.("sales_count") || "Vendas")}
+      </p>
+
+      {/* Rank pill at bottom */}
+      <div className={`mt-3 inline-flex items-center gap-1 border ${cfg.borderClass} ${cfg.color} text-[9px] font-display font-black tracking-widest px-2 py-0.5`}>
+        #{rank}º LUGAR
+      </div>
+    </div>
+  );
+}
+
 function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, onGoToFinancial }) {
   const [leaderboard, setLeaderboard] = useState({ rows: [], total_sold: 0 });
   const [promotion, setPromotion] = useState(null);
@@ -529,52 +604,85 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, onGoToFinancial })
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-border border border-border mb-10">
-        {/* Leaderboard */}
-        <div className="bg-background p-6 lg:col-span-2">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-2">
-              <Trophy size={18} className="text-primary" />
-              <p className="label-eyebrow text-primary">{t("leaderboard_title")}</p>
+        {/* Leaderboard — professional podium + list */}
+        <div className="bg-background p-6 lg:col-span-2 relative overflow-hidden">
+          {/* Background flair */}
+          <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-48 h-48 bg-yellow-500/5 rounded-full blur-3xl pointer-events-none" />
+
+          {/* Header */}
+          <div className="flex items-center justify-between mb-6 relative">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 bg-primary/10 border border-primary/40 flex items-center justify-center">
+                <Trophy size={20} className="text-primary" />
+              </div>
+              <div>
+                <p className="label-eyebrow text-primary">{t("leaderboard_title")}</p>
+                <p className="text-[10px] text-text-secondary uppercase tracking-widest mt-0.5">{monthLabel}</p>
+              </div>
             </div>
-            <span className="text-xs text-text-secondary">{leaderboard.total_sold} {t("sales_count").toLowerCase()}</span>
+            <div className="text-right">
+              <p className="font-display font-black text-3xl">{leaderboard.total_sold}</p>
+              <p className="text-[10px] text-text-secondary uppercase tracking-widest">{t("sales_count")}</p>
+            </div>
           </div>
+
           {leaderboard.rows.length === 0 || leaderboard.total_sold === 0 ? (
-            <p className="text-text-secondary text-sm text-center py-12 border border-dashed border-border">
-              {t("leaderboard_empty")}
-            </p>
+            <div className="text-center py-14 border border-dashed border-border relative">
+              <Trophy size={36} className="mx-auto text-text-secondary/30 mb-3" />
+              <p className="text-text-secondary text-sm">{t("leaderboard_empty")}</p>
+            </div>
           ) : (
-            <div className="space-y-2">
-              {leaderboard.rows.slice(0, 10).map((r, i) => {
-                const max = leaderboard.rows[0]?.count || 1;
-                const pct = max > 0 ? (r.count / max) * 100 : 0;
-                const medalColor = r.rank === 1 ? "text-yellow-400" : r.rank === 2 ? "text-gray-300" : r.rank === 3 ? "text-amber-700" : "text-text-secondary";
-                const isPodium = r.rank <= 3;
-                return (
-                  <div
-                    key={r.salesperson_id || i}
-                    data-testid={`lb-row-${r.salesperson_id || "unassigned"}`}
-                    className={`flex items-center gap-3 p-3 border transition-colors ${isPodium ? "border-primary/30 bg-primary/5" : "border-border"}`}
-                  >
-                    <div className="w-8 flex items-center justify-center shrink-0">
-                      {isPodium ? (
-                        <Medal size={22} className={medalColor} />
-                      ) : (
-                        <span className="font-display font-black text-text-secondary">#{r.rank}</span>
-                      )}
-                    </div>
-                    <Avatar src={r.photo_url} name={r.salesperson_name} size="md" ring={r.rank === 1} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2 mb-1.5">
-                        <p className="font-display font-bold uppercase truncate text-sm">{r.salesperson_name}</p>
-                        <p className="font-display font-black text-lg shrink-0">{r.count}</p>
-                      </div>
-                      <div className="bg-surface h-1.5 relative overflow-hidden">
-                        <div className={`absolute inset-y-0 left-0 ${isPodium ? "bg-primary" : "bg-text-secondary/40"} transition-all`} style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
+            <div className="relative">
+              {/* Podium for top 3 (or 1-2 if less) */}
+              {leaderboard.rows.length >= 3 ? (
+                <div className="grid grid-cols-3 gap-3 mb-5 items-end">
+                  <PodiumCard rank={2} row={leaderboard.rows[1]} accent="silver" t={t} />
+                  <PodiumCard rank={1} row={leaderboard.rows[0]} accent="gold" featured t={t} />
+                  <PodiumCard rank={3} row={leaderboard.rows[2]} accent="bronze" t={t} />
+                </div>
+              ) : (
+                <div className={`grid ${leaderboard.rows.length === 2 ? "grid-cols-2" : "grid-cols-1 max-w-xs mx-auto"} gap-3 mb-5`}>
+                  {leaderboard.rows.slice(0, 2).map((r, i) => (
+                    <PodiumCard
+                      key={r.salesperson_id || i}
+                      rank={r.rank}
+                      row={r}
+                      accent={r.rank === 1 ? "gold" : "silver"}
+                      featured={r.rank === 1}
+                      t={t}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* Rest of leaderboard (ranks 4+) */}
+              {leaderboard.rows.length > 3 && (
+                <div className="pt-4 border-t border-border">
+                  <p className="label-eyebrow text-text-secondary mb-3">{t("leaderboard_others") || "Demais vendedores"}</p>
+                  <div className="space-y-1">
+                    {leaderboard.rows.slice(3, 10).map((r, i) => {
+                      const max = leaderboard.rows[0]?.count || 1;
+                      const pct = max > 0 ? (r.count / max) * 100 : 0;
+                      return (
+                        <div
+                          key={r.salesperson_id || i}
+                          data-testid={`lb-row-${r.salesperson_id || "unassigned"}`}
+                          className="flex items-center gap-3 py-2.5 px-3 hover:bg-surface/60 transition-colors border border-transparent hover:border-border"
+                        >
+                          <span className="w-6 text-center font-display font-black text-text-secondary text-xs">#{r.rank}</span>
+                          <Avatar src={r.photo_url} name={r.salesperson_name} size="sm" />
+                          <p className="flex-1 min-w-0 text-xs font-display font-bold uppercase tracking-wide truncate">{r.salesperson_name}</p>
+                          <div className="hidden sm:block w-28 bg-surface h-1 relative overflow-hidden">
+                            <div className="absolute inset-y-0 left-0 bg-text-secondary/40" style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="font-display font-black text-base w-8 text-right">{r.count}</span>
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -55,9 +55,9 @@ body {
   inset: 0;
   background-image: var(--shield-url);
   background-repeat: no-repeat;
-  background-position: right -80px center;
-  background-size: 480px 480px;
-  opacity: 0.04;
+  background-position: center center;
+  background-size: contain;
+  opacity: 0.10;
   pointer-events: none;
   z-index: 0;
   filter: grayscale(0.1);
