@@ -2754,6 +2754,11 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
                               {r.commission_paid ? <CheckCircle2 size={14} /> : <Clock size={14} />}
                               {r.commission_paid ? t("paid") : t("pending")}
                             </button>
+                            {r.commission_paid && r.commission_paid_at && (
+                              <p data-testid={`paid-at-${r.vehicle_id}`} className="text-[10px] text-text-secondary mt-1">
+                                {new Date(r.commission_paid_at).toLocaleDateString()}
+                              </p>
+                            )}
                           </td>
                         </tr>
                       ))}

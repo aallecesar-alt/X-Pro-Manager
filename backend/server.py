@@ -605,6 +605,8 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
             "amount": float(upd.get("commission_amount") or existing.get("commission_amount") or 0),
             "salesperson_name": upd.get("salesperson_name") or existing.get("salesperson_name") or "",
         })
+        # Track when it was paid (or clear when toggled back to unpaid)
+        upd["commission_paid_at"] = now_iso if upd.get("commission_paid") else ""
     # Log salesperson swap
     if "salesperson_id" in upd and existing and upd.get("salesperson_id") and upd.get("salesperson_id") != existing.get("salesperson_id"):
         push_events.append({
@@ -2353,6 +2355,7 @@ async def sales_report(
             "salesperson_name": v.get("salesperson_name", "") or "—",
             "commission_amount": float(v.get("commission_amount") or 0),
             "commission_paid": bool(v.get("commission_paid", False)),
+            "commission_paid_at": v.get("commission_paid_at", "") or "",
             "image": (v.get("images") or [None])[0] if v.get("images") else None,
         }
         if not sp_view:
@@ -2926,11 +2929,12 @@ async def create_closing(payload: MonthlyCloseRequest, current: dict = Depends(g
     if payload.mark_commissions_paid and snap["vehicles_sold"]:
         ids = [v["vehicle_id"] for v in snap["vehicles_sold"] if not v["commission_paid"] and v["commission_amount"] > 0]
         if ids:
+            now_iso = datetime.now(timezone.utc).isoformat()
             res = await db.vehicles.update_many(
                 {"id": {"$in": ids}, "dealership_id": did},
-                {"$set": {"commission_paid": True}, "$push": {"history": {
+                {"$set": {"commission_paid": True, "commission_paid_at": now_iso}, "$push": {"history": {
                     "type": "commission_paid",
-                    "at": datetime.now(timezone.utc).isoformat(),
+                    "at": now_iso,
                     "by": current.get("full_name") or current.get("email") or "",
                     "via": "monthly_closing",
                 }}},
