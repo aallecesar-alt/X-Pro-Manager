@@ -3617,7 +3617,7 @@ async def public_inventory(token: str = Query(...)):
 
 @api_router.get("/")
 async def root():
-    return {"name": "Inter Car Auto Manager API", "status": "online"}
+    return {"name": "Intercar Manager API", "status": "online"}
 
 
 # ============================================================

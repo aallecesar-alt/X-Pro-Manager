@@ -1,7 +1,7 @@
 // Simple i18n
 const TRANSLATIONS = {
   pt: {
-    app_name: "Auto Manager",
+    app_name: "Intercar Manager",
     tagline: "Gestão completa para sua revenda",
     welcome_back: "Bem-vindo de volta",
     create_account_title: "Crie sua conta e revenda",
@@ -448,7 +448,7 @@ const TRANSLATIONS = {
     loading: "Carregando...",
   },
   en: {
-    app_name: "Auto Manager",
+    app_name: "Intercar Manager",
     tagline: "Complete management for your dealership",
     welcome_back: "Welcome back",
     create_account_title: "Create your account and dealership",
@@ -892,7 +892,7 @@ const TRANSLATIONS = {
     loading: "Loading...",
   },
   es: {
-    app_name: "Auto Manager",
+    app_name: "Intercar Manager",
     tagline: "Gestión completa para tu concesionaria",
     welcome_back: "Bienvenido de vuelta",
     create_account_title: "Crea tu cuenta y concesionaria",

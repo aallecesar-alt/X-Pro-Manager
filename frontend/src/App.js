@@ -28,7 +28,7 @@ function PublicGate({ children }) {
 }
 
 function App() {
-  useEffect(() => { document.title = "Inter Car · Auto Manager"; }, []);
+  useEffect(() => { document.title = "Intercar Manager"; }, []);
   return (
     <I18nProvider>
       <AuthProvider>
