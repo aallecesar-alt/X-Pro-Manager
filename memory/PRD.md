@@ -102,6 +102,14 @@ Per-car features:
   - Banner at the top of the Delivery tab with "X carros parados há mais de 45 dias" + toggle "Ver só os parados".
   - Each stuck car card highlighted with red border and chip "⚠ Parado há N dias".
 
+### Inventory advanced filters (Feb 9 2026)
+- Inventory tab now has 3 dropdowns next to the search bar: **Marca**, **Modelo** (dependent on selected Marca), **Carroceria**.
+- Dropdown options auto-populated from current stock — only values that actually exist appear.
+- Active-filter chips with one-click remove + "limpar filtros" button.
+- New **Carroceria** selector in Add/Edit Vehicle form with 8 options: Sedan · SUV · Truck · Coupe · Hatch · Convertible · Wagon · Van.
+- Backend `GET /api/vehicles` now accepts optional `make`, `model`, `body_type` query params (case-insensitive exact match).
+- Translations added in PT/EN/ES (`filter_all_makes`, `filter_all_models`, `filter_all_bodies`, `active_filters`, `clear_filters`).
+
 ## Test credentials
 - **Owner** — Email: `carlos@intercar.com` · Password: `senha123` (sees everything)
 - **Salesperson** — Email: `joao@intercar.com` · Password: `senha456` (restricted view)

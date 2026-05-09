@@ -9,6 +9,7 @@ import uuid
 import secrets
 import logging
 import base64
+import re
 import bcrypt
 import jwt
 from datetime import datetime, timezone, timedelta
@@ -353,6 +354,9 @@ async def me(current: dict = Depends(get_current_user)):
 async def list_vehicles(
     status: Optional[str] = None,
     search: Optional[str] = None,
+    make: Optional[str] = None,
+    model: Optional[str] = None,
+    body_type: Optional[str] = None,
     current: dict = Depends(get_current_user),
 ):
     require_tab(current, "inventory")
@@ -362,6 +366,12 @@ async def list_vehicles(
     if search:
         rx = {"$regex": search, "$options": "i"}
         q["$or"] = [{"make": rx}, {"model": rx}, {"plate": rx}, {"vin": rx}]
+    if make:
+        q["make"] = {"$regex": f"^{re.escape(make)}$", "$options": "i"}
+    if model:
+        q["model"] = {"$regex": f"^{re.escape(model)}$", "$options": "i"}
+    if body_type:
+        q["body_type"] = {"$regex": f"^{re.escape(body_type)}$", "$options": "i"}
     items = await db.vehicles.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
     if is_salesperson(current):
         items = [strip_vehicle_for_salesperson(v) for v in items]

@@ -1666,6 +1666,7 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
           <Input label={t("vin")} value={form.vin} set={(v) => set("vin", v)} testid="f-vin" />
           <Select label={t("transmission")} value={form.transmission} set={(v) => set("transmission", v)} options={["Automatic", "Manual"]} testid="f-trans" />
           <Select label={t("fuel_type")} value={form.fuel_type} set={(v) => set("fuel_type", v)} options={["Gasoline", "Diesel", "Hybrid", "Electric", "Flex"]} testid="f-fuel" />
+          <Select label={t("body_type")} value={form.body_type} set={(v) => set("body_type", v)} options={["Sedan", "SUV", "Truck", "Coupe", "Hatch", "Convertible", "Wagon", "Van"]} testid="f-body" />
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-2 gap-4 pt-4 border-t border-border">
