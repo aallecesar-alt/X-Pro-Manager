@@ -11,6 +11,7 @@ import Financial from "@/pages/Financial";
 import LeadsPage from "@/pages/LeadsPage";
 import PostSales from "@/pages/PostSales";
 import VehicleHistoryModal from "@/components/VehicleHistoryModal";
+import ChatWidget from "@/components/ChatWidget";
 import NameWithAvatar, { useTeamPhotos } from "@/components/NameWithAvatar";
 import ImportInventoryPageModal from "@/components/ImportInventoryPageModal";
 import Avatar from "@/components/Avatar";
@@ -239,6 +240,7 @@ export default function AppShell() {
       </main>
       {historyVid && <VehicleHistoryModal vehicleId={historyVid} onClose={() => setHistoryVid(null)} />}
       {importPageOpen && <ImportInventoryPageModal t={t} onClose={() => setImportPageOpen(false)} onImported={() => reload()} />}
+      <ChatWidget />
     </div>
   );
 }

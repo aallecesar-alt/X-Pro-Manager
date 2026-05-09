@@ -65,12 +65,14 @@ def _wipe_test_residue(db):
         {"work_to_do": {"$regex": "TEST_", "$options": "i"}},
         {"customer_name": {"$regex": "^TEST ", "$options": "i"}},
     ]})
+    r9 = db.chat_messages.delete_many({"content": {"$regex": "TEST_", "$options": "i"}})
 
     return {
         "lost_sales": r1.deleted_count, "vehicles": r2.deleted_count,
         "salespeople": r3.deleted_count, "operational_expenses": r4.deleted_count,
         "users": r5.deleted_count, "leads": r6.deleted_count,
         "dealerships": r7.deleted_count, "post_sales": r8.deleted_count,
+        "chat_messages": r9.deleted_count,
     }
 
 

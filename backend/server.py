@@ -1049,6 +1049,257 @@ async def delete_post_sale(ps_id: str, current: dict = Depends(get_current_user)
 
 
 # ============================================================
+# CHAT — internal team messaging.
+# Two room types per dealership:
+#   - "team"           → group chat seen by everyone in the dealership
+#   - "dm:idA_idB"     → 1-on-1 between two users (ids sorted lexically)
+# All messages scoped by dealership_id. Polling-based: clients fetch
+# /api/chat/poll every 5s. Each call also updates chat_last_seen so we
+# can show online dots.
+# ============================================================
+ONLINE_WINDOW_SECONDS = 120  # user is "online" if seen within 2 min
+
+
+def _dm_room_id(user_a: str, user_b: str) -> str:
+    a, b = sorted([user_a, user_b])
+    return f"dm:{a}_{b}"
+
+
+def _can_access_room(user: dict, room_id: str) -> bool:
+    if room_id == "team":
+        return True
+    if room_id.startswith("dm:"):
+        rest = room_id[3:]
+        try:
+            a, b = rest.split("_", 1)
+        except ValueError:
+            return False
+        return user["id"] in (a, b)
+    return False
+
+
+def _other_user_in_dm(room_id: str, me_id: str) -> Optional[str]:
+    if not room_id.startswith("dm:"):
+        return None
+    rest = room_id[3:]
+    try:
+        a, b = rest.split("_", 1)
+    except ValueError:
+        return None
+    return b if a == me_id else a
+
+
+async def _heartbeat(user: dict):
+    """Update chat_last_seen on the user so others see them as online."""
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"chat_last_seen": datetime.now(timezone.utc).isoformat()}},
+    )
+
+
+def _msg_view(m: dict) -> dict:
+    return {k: v for k, v in m.items() if k != "_id"}
+
+
+class ChatSendPayload(BaseModel):
+    room_id: str
+    content: str = ""
+    attachments: List[Dict] = Field(default_factory=list)
+
+
+class ChatEditPayload(BaseModel):
+    content: str
+
+
+@api_router.get("/chat/users")
+async def chat_users(current: dict = Depends(get_current_user)):
+    """All registered users for this dealership + online status."""
+    await _heartbeat(current)
+    users = await db.users.find(
+        {"dealership_id": current["dealership_id"]}, {"_id": 0, "password_hash": 0}
+    ).to_list(500)
+    now = datetime.now(timezone.utc)
+    out = []
+    for u in users:
+        last_seen = u.get("chat_last_seen") or ""
+        online = False
+        if last_seen:
+            try:
+                seen_dt = datetime.fromisoformat(last_seen)
+                online = (now - seen_dt).total_seconds() < ONLINE_WINDOW_SECONDS
+            except Exception:
+                online = False
+        out.append({
+            "id": u.get("id"),
+            "full_name": u.get("full_name") or u.get("email") or "",
+            "email": u.get("email", ""),
+            "role": u.get("role", ""),
+            "photo_url": u.get("photo_url", ""),
+            "last_seen_at": last_seen,
+            "online": online,
+            "is_self": u.get("id") == current["id"],
+        })
+    out.sort(key=lambda x: (not x["online"], x["full_name"].lower()))
+    return out
+
+
+@api_router.get("/chat/messages")
+async def chat_messages(
+    room_id: str,
+    limit: int = 100,
+    current: dict = Depends(get_current_user),
+):
+    """List messages for a room, oldest → newest. Capped at 200."""
+    if not _can_access_room(current, room_id):
+        raise HTTPException(403, "No access to this room")
+    await _heartbeat(current)
+    cap = max(1, min(int(limit or 100), 200))
+    msgs = await db.chat_messages.find(
+        {"dealership_id": current["dealership_id"], "room_id": room_id},
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(cap)
+    msgs.reverse()  # oldest first for UI
+    return [_msg_view(m) for m in msgs]
+
+
+@api_router.post("/chat/messages")
+async def chat_send(payload: ChatSendPayload, current: dict = Depends(get_current_user)):
+    if not _can_access_room(current, payload.room_id):
+        raise HTTPException(403, "No access to this room")
+    content = (payload.content or "").strip()
+    atts = payload.attachments or []
+    if not content and not atts:
+        raise HTTPException(400, "Empty message")
+    msg = {
+        "id": str(uuid.uuid4()),
+        "dealership_id": current["dealership_id"],
+        "room_id": payload.room_id,
+        "sender_id": current["id"],
+        "sender_name": current.get("full_name") or current.get("email") or "",
+        "sender_photo_url": current.get("photo_url") or "",
+        "sender_role": current.get("role") or "",
+        "content": content,
+        "attachments": atts,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "edited_at": None,
+        "deleted": False,
+    }
+    await db.chat_messages.insert_one(msg)
+    await _heartbeat(current)
+    return _msg_view(msg)
+
+
+@api_router.put("/chat/messages/{msg_id}")
+async def chat_edit(msg_id: str, payload: ChatEditPayload, current: dict = Depends(get_current_user)):
+    msg = await db.chat_messages.find_one(
+        {"id": msg_id, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not msg:
+        raise HTTPException(404, "Message not found")
+    if msg.get("sender_id") != current["id"]:
+        raise HTTPException(403, "You can only edit your own messages")
+    if msg.get("deleted"):
+        raise HTTPException(400, "Message was deleted")
+    new_content = (payload.content or "").strip()
+    if not new_content:
+        raise HTTPException(400, "Empty message")
+    await db.chat_messages.update_one(
+        {"id": msg_id, "dealership_id": current["dealership_id"]},
+        {"$set": {"content": new_content, "edited_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    msg["content"] = new_content
+    msg["edited_at"] = datetime.now(timezone.utc).isoformat()
+    await _heartbeat(current)
+    return _msg_view(msg)
+
+
+@api_router.delete("/chat/messages/{msg_id}")
+async def chat_delete(msg_id: str, current: dict = Depends(get_current_user)):
+    msg = await db.chat_messages.find_one(
+        {"id": msg_id, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not msg:
+        raise HTTPException(404, "Message not found")
+    if msg.get("sender_id") != current["id"] and current.get("role") != "owner":
+        raise HTTPException(403, "You can only delete your own messages")
+    await db.chat_messages.update_one(
+        {"id": msg_id, "dealership_id": current["dealership_id"]},
+        {"$set": {"deleted": True, "content": "", "attachments": []}},
+    )
+    await _heartbeat(current)
+    return {"deleted": True}
+
+
+@api_router.get("/chat/unread")
+async def chat_unread(current: dict = Depends(get_current_user)):
+    """Compute unread counts per room for the current user.
+
+    A message is "unread" if its created_at > the user's last_read_at for
+    that room AND the sender is not the current user.
+    Returns: { team: N, dms: { other_user_id: N }, total: N }
+    """
+    await _heartbeat(current)
+    reads = await db.chat_reads.find(
+        {"user_id": current["id"], "dealership_id": current["dealership_id"]},
+        {"_id": 0},
+    ).to_list(500)
+    last_read_by_room = {r["room_id"]: r.get("last_read_at") or "" for r in reads}
+
+    # Group all messages of this dealership by room_id and count "newer than last_read".
+    pipeline = [
+        {"$match": {"dealership_id": current["dealership_id"], "deleted": {"$ne": True}}},
+        {"$group": {
+            "_id": "$room_id",
+            "messages": {"$push": {"created_at": "$created_at", "sender_id": "$sender_id"}},
+        }},
+    ]
+    rooms = await db.chat_messages.aggregate(pipeline).to_list(500)
+
+    team_unread = 0
+    dms_unread: Dict[str, int] = {}
+    total = 0
+    me = current["id"]
+
+    for r in rooms:
+        room_id = r["_id"]
+        last_read = last_read_by_room.get(room_id) or ""
+        # Count messages newer than last_read AND not from me
+        n = 0
+        for m in r["messages"]:
+            if m["sender_id"] == me:
+                continue
+            if not last_read or m["created_at"] > last_read:
+                n += 1
+        if n == 0:
+            continue
+        total += n
+        if room_id == "team":
+            team_unread = n
+        elif room_id.startswith("dm:"):
+            other = _other_user_in_dm(room_id, me)
+            if other:
+                dms_unread[other] = n
+
+    return {"team": team_unread, "dms": dms_unread, "total": total}
+
+
+@api_router.post("/chat/read")
+async def chat_mark_read(payload: Dict[str, str], current: dict = Depends(get_current_user)):
+    room_id = (payload or {}).get("room_id") or ""
+    if not _can_access_room(current, room_id):
+        raise HTTPException(403, "No access to this room")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.chat_reads.update_one(
+        {"user_id": current["id"], "dealership_id": current["dealership_id"], "room_id": room_id},
+        {"$set": {"last_read_at": now_iso}},
+        upsert=True,
+    )
+    await _heartbeat(current)
+    return {"ok": True, "last_read_at": now_iso}
+
+
+
+# ============================================================
 # CUSTOMER DATABASE — aggregated buyers from sold vehicles
 # ============================================================
 @api_router.get("/customers")
@@ -1463,12 +1714,14 @@ async def cloudinary_signature(
         f"vehicles/{dealership_id}/",
         f"delivery/{dealership_id}/",
         f"profiles/{dealership_id}/",
+        f"chat/{dealership_id}/",
     )
     # Auto-namespace bare prefixes
     bare_to_ns = {
         "profiles/": f"profiles/{dealership_id}/",
         "vehicles/": f"vehicles/{dealership_id}/",
         "delivery/": f"delivery/{dealership_id}/",
+        "chat/": f"chat/{dealership_id}/",
     }
     if folder in bare_to_ns:
         folder = bare_to_ns[folder]

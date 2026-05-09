@@ -120,9 +120,28 @@ Per-car features:
 - Summary cards: Em aberto / Concluídos / Total de reparos / Custo total.
 - Filters: search box + 4 status pills (Todos / Aberto / Em andamento / Concluído) with live counts.
 - New endpoints: `GET /api/post-sales`, `GET /api/post-sales/lookup-vin?vin=...`, `POST /api/post-sales`, `PUT /api/post-sales/{id}`, `DELETE /api/post-sales/{id}`.
-- New permission `post_sales` added to `ALL_TAB_PERMISSIONS`. Default role mapping: owner=all, geral=[maintenance, post_sales], gerente=opt-in via Settings.
+- New permission `post_sales` added to `ALL_TAB_PERMISSIONS`. Default role mapping: owner=all, geral=[post_sales], gerente=opt-in via Settings.
 - New collection: `post_sales`.
 - 9 pytest tests cover RBAC, VIN lookup (found/not_found/case-insensitive), full CRUD lifecycle, mirror expense sync, invalid status rejection, manual entry without vehicle_id.
+- Maintenance tab REMOVED in favor of Pós-Vendas (per user request); maintenance permission removed from system. Old expense_items with category="maintenance" still appear in vehicle history & Financial.
+
+### Internal Team Chat (Feb 9 2026)
+- Floating button bottom-right of every screen → opens 380×560 chat panel (Messenger-style).
+- Two room types per dealership:
+  - **Team** room: group chat seen by everyone in the dealership.
+  - **DM** rooms: 1-on-1 between two users (room_id `dm:{idA}_{idB}` with sorted ids — automatic & idempotent).
+- All authenticated users (owner / gerente / salesperson / bdc / geral) can use chat.
+- Features:
+  - Unread badge with count on the floating button (red, pulsing) + per-room badges in the list.
+  - Online indicator (green dot) using `chat_last_seen` heartbeat updated on every chat API call. Considered online if seen within 120s.
+  - Attachments via Cloudinary signed upload (`chat/{dealership_id}/` folder, max 8MB). Image preview inline; non-images shown as link with paperclip.
+  - Edit/delete own messages (owner can also delete anyone's). Soft delete leaves "mensagem excluída" marker visible to all.
+  - Relative timestamps ("agora", "5 min", "2 h", date for older).
+  - Read receipts via `chat_reads` collection: marking a room read writes `last_read_at` for that user; unread = messages newer than last_read AND not from me.
+- Polling: 5s for active room messages, 30s for users + unread. Each call double-acts as a heartbeat to keep online dot fresh.
+- New endpoints: `GET /api/chat/users`, `GET/POST /api/chat/messages`, `PUT/DELETE /api/chat/messages/{id}`, `GET /api/chat/unread`, `POST /api/chat/read`. Cloudinary signature endpoint extended to allow `chat/` folder.
+- New collections: `chat_messages`, `chat_reads`. New user field: `chat_last_seen`.
+- 6 pytest tests cover user list + heartbeat presence, send/list/edit/delete with permission checks, DM membership enforcement, unread tracking + mark-read.
 
 ## Test credentials
 - **Owner** — Email: `carlos@intercar.com` · Password: `senha123` (sees everything)
