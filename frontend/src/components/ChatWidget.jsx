@@ -1,11 +1,42 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MessageCircle, X, Send, Paperclip, Edit2, Trash2, Users, Check, ArrowLeft, Image as ImageIcon } from "lucide-react";
+import { MessageCircle, X, Send, Paperclip, Edit2, Trash2, Users, Check, ArrowLeft, Image as ImageIcon, Volume2, VolumeX } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 
 const POLL_MS = 5000;          // refresh active room every 5s
 const HEARTBEAT_MS = 30000;    // refresh users + unread every 30s
+const MUTE_KEY = "intercar_chat_muted";
+
+// Subtle "pim" tone played when a new message arrives.
+// Uses Web Audio so we don't need an external file. Two short overlapping
+// sine bursts give a soft, classy chime — nothing like WhatsApp's loud ding.
+function playChime() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const now = ctx.currentTime;
+    const tones = [
+      { freq: 880, start: 0, dur: 0.18, gain: 0.18 },   // higher
+      { freq: 660, start: 0.04, dur: 0.22, gain: 0.12 }, // softer overlay
+    ];
+    for (const t of tones) {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = t.freq;
+      g.gain.setValueAtTime(0, now + t.start);
+      g.gain.linearRampToValueAtTime(t.gain, now + t.start + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + t.start + t.dur);
+      osc.connect(g).connect(ctx.destination);
+      osc.start(now + t.start);
+      osc.stop(now + t.start + t.dur + 0.02);
+    }
+    // Auto close to free resources
+    setTimeout(() => { try { ctx.close(); } catch { /* ignore */ } }, 800);
+  } catch {/* silent */}
+}
 
 function relativeTime(iso) {
   if (!iso) return "";
@@ -44,8 +75,14 @@ export default function ChatWidget() {
   const [uploading, setUploading] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState("");
+  const [muted, setMuted] = useState(() => localStorage.getItem(MUTE_KEY) === "1");
   const fileRef = useRef(null);
   const scrollRef = useRef(null);
+  // Track previous unread total so we only chime on INCREASES (not on reads/clears)
+  const prevTotalRef = useRef(null);
+  // Suppress chime on initial mount (first heartbeat) — we don't want to ring
+  // when the user just refreshed the page and already had unread messages.
+  const initializedRef = useRef(false);
 
   const me = user?.id;
 
@@ -57,8 +94,25 @@ export default function ChatWidget() {
         api.get("/chat/unread"),
       ]);
       setUsers(u.data || []);
-      setUnread(n.data || { team: 0, dms: {}, total: 0 });
+      const nextUnread = n.data || { team: 0, dms: {}, total: 0 };
+      const prev = prevTotalRef.current;
+      // Chime when total unread WENT UP — and only after first load
+      if (initializedRef.current && !muted && prev != null && nextUnread.total > prev) {
+        playChime();
+      }
+      prevTotalRef.current = nextUnread.total;
+      initializedRef.current = true;
+      setUnread(nextUnread);
     } catch {/* silent */}
+  };
+
+  const toggleMute = () => {
+    setMuted(m => {
+      const next = !m;
+      if (next) localStorage.setItem(MUTE_KEY, "1");
+      else localStorage.removeItem(MUTE_KEY);
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -73,7 +127,15 @@ export default function ChatWidget() {
   const loadMessages = async (roomId) => {
     try {
       const r = await api.get("/chat/messages", { params: { room_id: roomId } });
-      setMessages(r.data || []);
+      const next = r.data || [];
+      // If a NEW message from someone else arrived while the panel is open,
+      // also chime so the user notices without waiting for the next heartbeat.
+      const prevIds = new Set(messages.map(m => m.id));
+      const incoming = next.filter(m => !prevIds.has(m.id) && m.sender_id !== me && !m.deleted);
+      if (initializedRef.current && !muted && incoming.length > 0 && messages.length > 0) {
+        playChime();
+      }
+      setMessages(next);
       // Mark as read
       api.post("/chat/read", { room_id: roomId }).catch(() => {});
     } catch (e) {
@@ -249,6 +311,18 @@ export default function ChatWidget() {
             </div>
             <button data-testid="chat-close-btn" onClick={() => setOpen(false)} className="text-text-secondary hover:text-primary">
               <X size={18} />
+            </button>
+          </div>
+          {/* Mute toggle pill — sits below the header bar */}
+          <div className="flex items-center justify-end px-4 py-1.5 border-b border-border bg-surface/40">
+            <button
+              data-testid="chat-mute-btn"
+              onClick={toggleMute}
+              title={muted ? "Ativar som" : "Silenciar som"}
+              className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-text-secondary hover:text-primary"
+            >
+              {muted ? <VolumeX size={12} /> : <Volume2 size={12} />}
+              {muted ? "Som desligado" : "Som ligado"}
             </button>
           </div>
 
