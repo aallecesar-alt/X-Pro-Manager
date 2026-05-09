@@ -871,21 +871,29 @@ def _post_sale_to_view(doc: dict) -> dict:
 
 
 async def _sync_post_sale_expense_on_vehicle(post_sale: dict, dealership_id: str):
-    """Mirror this post-sale onto the vehicle's expense_items so the Financial
-    dashboard counts it. Idempotent — uses post_sale id as the expense_item id.
-    Removes the mirror when post_sale has no vehicle_id or zero cost."""
+    """Mirror this post-sale onto operational_expenses (category="post_sale").
+
+    Per the dealership's request, the cost of every paid repair counts as an
+    operational expense for the month — not as a hidden cost on the original
+    car. Idempotent: uses post_sale.id as the operational_expense.id, so updates
+    replace the previous mirror and deletes remove it cleanly.
+
+    Also tears down any legacy mirror that may still live inside the linked
+    vehicle's `expense_items` (from the previous version of this feature).
+    """
     ps_id = post_sale.get("id")
     if not ps_id:
         return
-    veh_id = post_sale.get("vehicle_id") or ""
-    cost = float(post_sale.get("cost") or 0)
 
-    # Remove any existing mirror from EVERY vehicle in this dealership (handles vehicle change).
+    # 1) Always remove the existing operational_expense mirror first.
+    await db.operational_expenses.delete_one({"id": ps_id, "dealership_id": dealership_id})
+
+    # 2) Tear down any legacy vehicle-expense-items mirror created by the old
+    #    version of this function and recompute the affected vehicle totals.
     await db.vehicles.update_many(
         {"dealership_id": dealership_id, "expense_items.id": ps_id},
         {"$pull": {"expense_items": {"id": ps_id}}},
     )
-    # Recompute totals for every vehicle that lost a mirror item
     affected = await db.vehicles.find(
         {"dealership_id": dealership_id}, {"_id": 0, "id": 1, "expense_items": 1}
     ).to_list(2000)
@@ -896,29 +904,37 @@ async def _sync_post_sale_expense_on_vehicle(post_sale: dict, dealership_id: str
             {"$set": {"expenses": new_total}},
         )
 
-    # Add mirror expense to current vehicle if both a vehicle AND a cost are set.
-    if not veh_id or cost <= 0:
+    cost = float(post_sale.get("cost") or 0)
+    if cost <= 0:
         return
-    veh = await db.vehicles.find_one(
-        {"id": veh_id, "dealership_id": dealership_id}, {"_id": 0}
-    )
-    if not veh:
-        return
-    items = list(veh.get("expense_items") or [])
-    items.append({
+
+    # Description: "Pós-venda · 2020 Acura RDX · trocar correia"
+    veh_label_bits = [str(post_sale.get("year") or ""), post_sale.get("make") or "", post_sale.get("model") or ""]
+    veh_label = " ".join(b for b in veh_label_bits if b).strip()
+    work = post_sale.get("work_to_do") or post_sale.get("problem") or ""
+    bits = ["Pós-venda"]
+    if veh_label:
+        bits.append(veh_label)
+    elif post_sale.get("vin"):
+        bits.append(f"VIN {post_sale['vin']}")
+    if work:
+        bits.append(work[:60])
+    description = " · ".join(bits)[:200]
+
+    date_iso = post_sale.get("exit_date") or post_sale.get("entry_date") or datetime.now(timezone.utc).date().isoformat()
+
+    await db.operational_expenses.insert_one({
         "id": ps_id,
-        "description": (post_sale.get("work_to_do") or post_sale.get("problem") or "Pós-venda")[:200],
-        "amount": cost,
+        "dealership_id": dealership_id,
+        "date": date_iso,
         "category": "post_sale",
-        "date": post_sale.get("exit_date") or post_sale.get("entry_date") or datetime.now(timezone.utc).date().isoformat(),
-        "post_sale_id": ps_id,
+        "description": description,
+        "amount": cost,
+        "attachment_url": "",
+        "attachment_public_id": "",
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "post_sale_id": ps_id,
     })
-    new_total = sum(float(it.get("amount") or 0) for it in items)
-    await db.vehicles.update_one(
-        {"id": veh_id, "dealership_id": dealership_id},
-        {"$set": {"expense_items": items, "expenses": new_total}},
-    )
 
 
 @api_router.get("/post-sales/lookup-vin")
@@ -1042,20 +1058,10 @@ async def delete_post_sale(ps_id: str, current: dict = Depends(get_current_user)
     )
     if not existing:
         raise HTTPException(404, "Post-sale not found")
-    # Remove mirror from any vehicle
-    await db.vehicles.update_many(
-        {"dealership_id": current["dealership_id"], "expense_items.id": ps_id},
-        {"$pull": {"expense_items": {"id": ps_id}}},
-    )
-    affected = await db.vehicles.find(
-        {"dealership_id": current["dealership_id"]}, {"_id": 0, "id": 1, "expense_items": 1}
-    ).to_list(2000)
-    for v in affected:
-        new_total = sum(float(it.get("amount") or 0) for it in (v.get("expense_items") or []))
-        await db.vehicles.update_one(
-            {"id": v["id"], "dealership_id": current["dealership_id"]},
-            {"$set": {"expenses": new_total}},
-        )
+    # Remove operational_expense mirror + any legacy vehicle expense mirror.
+    # Force cost=0 so the sync helper just tears everything down.
+    cleared = {**existing, "cost": 0}
+    await _sync_post_sale_expense_on_vehicle(cleared, current["dealership_id"])
     await db.post_sales.delete_one({"id": ps_id, "dealership_id": current["dealership_id"]})
     return {"deleted": True}
 

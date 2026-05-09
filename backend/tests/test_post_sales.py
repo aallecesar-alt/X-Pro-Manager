@@ -184,15 +184,18 @@ class TestPostSalesLifecycle:
         # entry_date auto-stamped today
         assert ps["entry_date"] == datetime.now(timezone.utc).date().isoformat()
 
-        # 2) Vehicle should now have a mirror expense_item
-        r = requests.get(f"{API}/vehicles/{veh_id}", headers=_auth(owner_token), timeout=20)
+        # 2) Operational expenses should now have a mirror entry (category="post_sale")
+        r = requests.get(f"{API}/expenses", headers=_auth(owner_token), timeout=20)
         assert r.status_code == 200
+        ps_ops = [e for e in r.json() if e.get("id") == ps_id]
+        assert len(ps_ops) == 1
+        assert ps_ops[0]["amount"] == 350.0
+        assert ps_ops[0]["category"] == "post_sale"
+        # Vehicle expense_items should NOT contain a post_sale mirror anymore
+        r = requests.get(f"{API}/vehicles/{veh_id}", headers=_auth(owner_token), timeout=20)
         veh = r.json()
         ps_items = [it for it in veh.get("expense_items") or [] if it.get("category") == "post_sale"]
-        assert len(ps_items) == 1
-        assert ps_items[0]["amount"] == 350.0
-        assert ps_items[0]["id"] == ps_id
-        assert veh["expenses"] >= 350.0
+        assert ps_items == []
 
         # 3) Update status to in_progress, change cost to 420
         r = requests.put(
@@ -205,12 +208,11 @@ class TestPostSalesLifecycle:
         assert r.json()["status"] == "in_progress"
         assert r.json()["cost"] == 420.0
 
-        # 4) Vehicle expense should reflect the new amount (replaced, not duplicated)
-        r = requests.get(f"{API}/vehicles/{veh_id}", headers=_auth(owner_token), timeout=20)
-        veh = r.json()
-        ps_items = [it for it in veh.get("expense_items") or [] if it.get("category") == "post_sale"]
-        assert len(ps_items) == 1
-        assert ps_items[0]["amount"] == 420.0
+        # 4) Operational expense should reflect the new amount (replaced, not duplicated)
+        r = requests.get(f"{API}/expenses", headers=_auth(owner_token), timeout=20)
+        ps_ops = [e for e in r.json() if e.get("id") == ps_id]
+        assert len(ps_ops) == 1
+        assert ps_ops[0]["amount"] == 420.0
 
         # 5) Move to "done" without exit_date — backend should auto-stamp it
         r = requests.put(
@@ -224,15 +226,14 @@ class TestPostSalesLifecycle:
         assert d["status"] == "done"
         assert d["exit_date"] == datetime.now(timezone.utc).date().isoformat()
 
-        # 6) Delete — vehicle expense mirror should be wiped
+        # 6) Delete — operational expense mirror should be wiped
         r = requests.delete(f"{API}/post-sales/{ps_id}", headers=_auth(owner_token), timeout=20)
         assert r.status_code == 200
         assert r.json() == {"deleted": True}
 
-        r = requests.get(f"{API}/vehicles/{veh_id}", headers=_auth(owner_token), timeout=20)
-        veh = r.json()
-        ps_items = [it for it in veh.get("expense_items") or [] if it.get("category") == "post_sale"]
-        assert ps_items == []
+        r = requests.get(f"{API}/expenses", headers=_auth(owner_token), timeout=20)
+        ps_ops = [e for e in r.json() if e.get("id") == ps_id]
+        assert ps_ops == []
 
     def test_invalid_status_rejected(self, owner_token):
         r = requests.post(

@@ -236,13 +236,15 @@ class TestDmRooms:
 # ============================================================
 class TestUnread:
     def test_unread_counts_then_marks_read(self, owner_session, sales_session):
-        # Sales marks team as read FIRST so any old messages don't pollute
-        requests.post(
-            f"{API}/chat/read",
-            headers=_auth(sales_session["token"]),
-            json={"room_id": "team"},
-            timeout=20,
-        )
+        # Both users mark team as read FIRST so any old messages (incl. system
+        # notifications from past application submissions) don't pollute counts.
+        for sess in (owner_session, sales_session):
+            requests.post(
+                f"{API}/chat/read",
+                headers=_auth(sess["token"]),
+                json={"room_id": "team"},
+                timeout=20,
+            )
         time.sleep(0.5)
 
         # Owner sends 2 messages in team
