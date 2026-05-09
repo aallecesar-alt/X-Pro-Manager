@@ -824,12 +824,22 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onImportPa
   const setViewSticky = (v) => { setView(v); localStorage.setItem("inventory_view", v); };
 
   // Sold vehicles disappear from inventory — they live in Esteira de Entrega + Financeiro
-  const activeVehicles = vehicles.filter(v => v.status !== "sold");
+  // Sorted alphabetically by Marca (Make), then Model.
+  const activeVehicles = vehicles
+    .filter(v => v.status !== "sold")
+    .slice()
+    .sort((a, b) => {
+      const ma = (a.make || "").toLowerCase();
+      const mb = (b.make || "").toLowerCase();
+      if (ma !== mb) return ma.localeCompare(mb);
+      return (a.model || "").toLowerCase().localeCompare((b.model || "").toLowerCase());
+    });
 
   // Build dropdown options dynamically from current stock.
   // Models depend on the picked make so users see only relevant options.
   const allMakes = Array.from(new Set(activeVehicles.map(v => (v.make || "").trim()).filter(Boolean))).sort();
-  const allBodies = Array.from(new Set(activeVehicles.map(v => (v.body_type || "").trim()).filter(Boolean))).sort();
+  // Body types: fixed canonical list so users always see every option.
+  const allBodies = ["Sedan", "SUV", "Truck", "Coupe", "Hatch", "Convertible", "Wagon", "Van"];
   const modelsForMake = Array.from(new Set(
     activeVehicles
       .filter(v => !makeFilter || (v.make || "").toLowerCase() === makeFilter.toLowerCase())
