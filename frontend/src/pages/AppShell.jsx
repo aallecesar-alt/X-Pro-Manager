@@ -818,16 +818,40 @@ function PromotionForm({ promotion, t, onClose, onSaved }) {
 function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onImportPage, onEdit, onDelete, onHistory, isSalesperson }) {
   const [view, setView] = useState(() => localStorage.getItem("inventory_view") || "grid");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [makeFilter, setMakeFilter] = useState("");
+  const [modelFilter, setModelFilter] = useState("");
+  const [bodyFilter, setBodyFilter] = useState("");
   const setViewSticky = (v) => { setView(v); localStorage.setItem("inventory_view", v); };
 
   // Sold vehicles disappear from inventory — they live in Esteira de Entrega + Financeiro
   const activeVehicles = vehicles.filter(v => v.status !== "sold");
+
+  // Build dropdown options dynamically from current stock.
+  // Models depend on the picked make so users see only relevant options.
+  const allMakes = Array.from(new Set(activeVehicles.map(v => (v.make || "").trim()).filter(Boolean))).sort();
+  const allBodies = Array.from(new Set(activeVehicles.map(v => (v.body_type || "").trim()).filter(Boolean))).sort();
+  const modelsForMake = Array.from(new Set(
+    activeVehicles
+      .filter(v => !makeFilter || (v.make || "").toLowerCase() === makeFilter.toLowerCase())
+      .map(v => (v.model || "").trim()).filter(Boolean)
+  )).sort();
+
   const counts = {
     all: activeVehicles.length,
     in_stock: activeVehicles.filter(v => v.status === "in_stock").length,
     reserved: activeVehicles.filter(v => v.status === "reserved").length,
   };
-  const filtered = statusFilter === "all" ? activeVehicles : activeVehicles.filter(v => v.status === statusFilter);
+
+  const filtered = activeVehicles.filter(v => {
+    if (statusFilter !== "all" && v.status !== statusFilter) return false;
+    if (makeFilter && (v.make || "").toLowerCase() !== makeFilter.toLowerCase()) return false;
+    if (modelFilter && (v.model || "").toLowerCase() !== modelFilter.toLowerCase()) return false;
+    if (bodyFilter && (v.body_type || "").toLowerCase() !== bodyFilter.toLowerCase()) return false;
+    return true;
+  });
+
+  const hasFilters = makeFilter || modelFilter || bodyFilter;
+  const clearFilters = () => { setMakeFilter(""); setModelFilter(""); setBodyFilter(""); };
 
   return (
     <div data-testid="inventory-tab">
@@ -853,12 +877,40 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onImportPa
         )}
       </div>
 
-      {/* Search + View toggle */}
-      <div className="flex flex-wrap gap-3 mb-5">
+      {/* Search + dropdown filters + View toggle */}
+      <div className="flex flex-wrap gap-3 mb-3">
         <div className="border border-border flex items-center px-4 h-12 flex-1 min-w-[280px]">
           <Search size={16} className="text-text-secondary mr-3" />
           <input data-testid="inventory-search" type="text" placeholder={t("search")} value={search} onChange={(e) => setSearch(e.target.value)} className="bg-transparent w-full focus:outline-none text-sm" />
         </div>
+        <select
+          data-testid="filter-make"
+          value={makeFilter}
+          onChange={(e) => { setMakeFilter(e.target.value); setModelFilter(""); }}
+          className="bg-surface border border-border focus:border-primary focus:outline-none px-3 h-12 text-sm min-w-[140px]"
+        >
+          <option value="">{t("filter_all_makes")}</option>
+          {allMakes.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <select
+          data-testid="filter-model"
+          value={modelFilter}
+          onChange={(e) => setModelFilter(e.target.value)}
+          disabled={modelsForMake.length === 0}
+          className="bg-surface border border-border focus:border-primary focus:outline-none px-3 h-12 text-sm min-w-[140px] disabled:opacity-50"
+        >
+          <option value="">{t("filter_all_models")}</option>
+          {modelsForMake.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <select
+          data-testid="filter-body"
+          value={bodyFilter}
+          onChange={(e) => setBodyFilter(e.target.value)}
+          className="bg-surface border border-border focus:border-primary focus:outline-none px-3 h-12 text-sm min-w-[140px]"
+        >
+          <option value="">{t("filter_all_bodies")}</option>
+          {allBodies.map(b => <option key={b} value={b}>{b}</option>)}
+        </select>
         <div className="flex border border-border h-12">
           <button
             data-testid="view-grid"
@@ -878,6 +930,31 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onImportPa
           </button>
         </div>
       </div>
+
+      {/* Active filter chips */}
+      {hasFilters && (
+        <div className="flex flex-wrap gap-2 items-center mb-5">
+          <span className="text-[10px] uppercase tracking-widest text-text-secondary">{t("active_filters")}:</span>
+          {makeFilter && (
+            <button onClick={() => { setMakeFilter(""); setModelFilter(""); }} data-testid="chip-make" className="inline-flex items-center gap-1.5 border border-primary text-primary px-2 py-1 text-[11px] font-display font-bold uppercase tracking-wider hover:bg-primary/10">
+              {makeFilter} <X size={11} />
+            </button>
+          )}
+          {modelFilter && (
+            <button onClick={() => setModelFilter("")} data-testid="chip-model" className="inline-flex items-center gap-1.5 border border-primary text-primary px-2 py-1 text-[11px] font-display font-bold uppercase tracking-wider hover:bg-primary/10">
+              {modelFilter} <X size={11} />
+            </button>
+          )}
+          {bodyFilter && (
+            <button onClick={() => setBodyFilter("")} data-testid="chip-body" className="inline-flex items-center gap-1.5 border border-primary text-primary px-2 py-1 text-[11px] font-display font-bold uppercase tracking-wider hover:bg-primary/10">
+              {bodyFilter} <X size={11} />
+            </button>
+          )}
+          <button onClick={clearFilters} data-testid="chip-clear" className="text-[11px] uppercase tracking-widest text-text-secondary hover:text-primary">
+            {t("clear_filters")}
+          </button>
+        </div>
+      )}
 
       {/* Status filter pills (sold cars are excluded — they live in Esteira de Entrega + Financeiro) */}
       <div className="flex flex-wrap gap-2 mb-6">
