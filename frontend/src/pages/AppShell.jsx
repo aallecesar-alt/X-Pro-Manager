@@ -1161,7 +1161,7 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onImportPa
                     {v.images?.[0] ? (
                       <img src={v.images[0]} alt={`${v.make} ${v.model}`} className="w-16 h-12 object-cover" />
                     ) : (
-                      <div className="w-16 h-12 bg-surface flex items-center justify-center"><Car size={18} className="text-text-secondary" /></div>
+                      <img src="/no-photo-placeholder.png" alt="" className="w-16 h-12 object-cover" />
                     )}
                   </td>
                   <td className="p-3"><p className="font-display font-bold">{v.make} {v.model}</p><p className="text-xs text-text-secondary">{v.color}</p></td>
@@ -2018,10 +2018,7 @@ function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onRe
                   {v.images?.[0] ? (
                     <img src={v.images[0]} alt={`${v.make} ${v.model}`} className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-surface">
-                      <Car size={24} className="text-text-secondary" />
-                      <span className="text-[9px] text-text-secondary uppercase tracking-wider">{t("no_photo")}</span>
-                    </div>
+                    <img src="/no-photo-placeholder.png" alt="" className="w-full h-full object-cover" />
                   )}
                 </div>
 
