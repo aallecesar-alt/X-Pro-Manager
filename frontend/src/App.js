@@ -7,6 +7,7 @@ import { I18nProvider } from "@/lib/i18n.jsx";
 import { PhotoMapProvider } from "@/components/NameWithAvatar";
 import AuthPage from "@/pages/AuthPage";
 import AppShell from "@/pages/AppShell";
+import CreditApplicationPublic from "@/pages/CreditApplicationPublic";
 
 function Gate() {
   const { user } = useAuth();
@@ -36,6 +37,7 @@ function App() {
           <Toaster theme="dark" position="top-right" />
           <Routes>
             <Route path="/auth" element={<PublicGate><AuthPage /></PublicGate>} />
+            <Route path="/apply/:dealershipId" element={<CreditApplicationPublic />} />
             <Route path="/*" element={<Gate />} />
           </Routes>
         </BrowserRouter>

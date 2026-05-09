@@ -7,6 +7,7 @@ load_dotenv(ROOT_DIR / '.env')
 import os
 import uuid
 import secrets
+import hashlib
 import logging
 import base64
 import re
@@ -194,11 +195,12 @@ async def get_current_user(request: Request) -> dict:
 # All tab permissions in the system. Owner always has full access.
 ALL_TAB_PERMISSIONS = [
     "overview", "inventory", "pipeline", "delivery",
-    "leads", "salespeople", "financial", "post_sales",
+    "leads", "salespeople", "financial", "post_sales", "applications",
 ]
 ROLE_DEFAULT_PERMISSIONS = {
     "owner": ALL_TAB_PERMISSIONS,
-    "bdc": ["overview", "leads"],
+    # BDC handles incoming clients → can also see applications.
+    "bdc": ["overview", "leads", "applications"],
     "salesperson": ["overview", "inventory", "pipeline", "delivery", "leads", "salespeople"],
     # Gerente (manager) starts with no default access — owner grants case-by-case.
     "gerente": [],
@@ -1726,6 +1728,7 @@ async def cloudinary_signature(
         f"delivery/{dealership_id}/",
         f"profiles/{dealership_id}/",
         f"chat/{dealership_id}/",
+        f"applications/{dealership_id}/",
     )
     # Auto-namespace bare prefixes
     bare_to_ns = {
@@ -1733,6 +1736,7 @@ async def cloudinary_signature(
         "vehicles/": f"vehicles/{dealership_id}/",
         "delivery/": f"delivery/{dealership_id}/",
         "chat/": f"chat/{dealership_id}/",
+        "applications/": f"applications/{dealership_id}/",
     }
     if folder in bare_to_ns:
         folder = bare_to_ns[folder]
@@ -3686,8 +3690,302 @@ async def root():
 # ============================================================
 # REGISTER + CORS
 # ============================================================
+
+# ============================================================
+# CREDIT APPLICATIONS — vehicle financing application module.
+# Public POST endpoint (no auth, customer-facing) accepts applications.
+# Admin endpoints require `applications` tab permission (owner / gerente / bdc).
+# Side effects on submission:
+#   - Creates a Lead in the CRM automatically
+#   - Posts a notification message in the team chat room
+# ============================================================
+APPLICATION_STATUSES = {"new", "in_review", "approved", "declined", "archived"}
+
+
+class CreditApplicationPayload(BaseModel):
+    # Step 1 — Veículo
+    vehicle_interest: str = ""           # free text "2020 Acura RDX" or VIN
+    down_payment: str = ""               # we accept string so customer can write "$5,000" or "5000"
+
+    # Step 2 — Identificação
+    full_name: str = ""
+    email: str = ""
+    phone: str = ""
+    date_of_birth: str = ""              # YYYY-MM-DD
+    marital_status: str = ""             # single | married | divorced | widowed | other
+    license_status: str = ""             # ma_usa | other_state_usa | other_country | none
+    license_number: str = ""
+    document_type: str = ""              # itin | ssn | passport
+    document_number: str = ""
+    document_photo_front_url: str = ""   # cloudinary url (optional)
+    document_photo_back_url: str = ""
+
+    # Step 3 — Endereço
+    address_line: str = ""
+    city: str = ""
+    state: str = ""
+    zipcode: str = ""
+    time_at_address: str = ""            # free text like "3 years 2 months"
+    home_status: str = ""                # owned | rented | family
+    rent_amount: str = ""
+    previous_address: str = ""           # if at current < 2 years
+
+    # Step 4 — Trabalho & Renda
+    employment_type: str = ""            # employed | self_employed | owner | other
+    company_name: str = ""
+    profession: str = ""
+    time_in_profession: str = ""
+    income_amount: str = ""
+    income_period: str = ""              # weekly | biweekly | monthly | yearly
+    company_reference_name: str = ""
+    company_reference_phone: str = ""
+
+    # Step 5 — Confirmação
+    bank_statements_urls: List[str] = Field(default_factory=list)  # optional uploads
+    consent: bool = False                # LGPD / FCRA consent
+    truthful: bool = False               # confirms info is truthful
+    signature_data_url: str = ""         # PNG dataURL from canvas
+
+    # Misc
+    language: str = "pt"                 # pt | en | es
+
+
+def _application_to_view(app: dict, masked: bool = False) -> dict:
+    """Strip internal fields and optionally mask sensitive numbers for non-owners."""
+    out = {k: v for k, v in app.items() if k != "_id"}
+    if masked:
+        # Mask document number except last 4 digits
+        dn = out.get("document_number") or ""
+        if len(dn) >= 4:
+            out["document_number"] = "*" * (len(dn) - 4) + dn[-4:]
+    return out
+
+
+def _summary_line(app: dict) -> str:
+    """Short label used on the leads CRM and chat notification."""
+    bits = []
+    if app.get("full_name"):
+        bits.append(app["full_name"])
+    if app.get("vehicle_interest"):
+        bits.append(f"interesse: {app['vehicle_interest']}")
+    if app.get("down_payment"):
+        bits.append(f"entrada: {app['down_payment']}")
+    return " · ".join(bits) or "Aplicação de crédito"
+
+
+# ---------- Public submit (no auth) ----------
+@public_router.post("/applications/submit/{dealership_id}")
+async def submit_application(dealership_id: str, payload: CreditApplicationPayload):
+    """Customer-facing endpoint. The dealership_id is embedded in the public URL."""
+    deal = await db.dealerships.find_one({"id": dealership_id}, {"_id": 0, "id": 1, "name": 1})
+    if not deal:
+        raise HTTPException(404, "Dealership not found")
+
+    # Basic anti-spam validation
+    full_name = (payload.full_name or "").strip()
+    email = (payload.email or "").strip()
+    phone = (payload.phone or "").strip()
+    if not full_name or len(full_name) < 3:
+        raise HTTPException(400, "Full name is required")
+    if not (email or phone):
+        raise HTTPException(400, "Email or phone is required")
+    if not payload.consent or not payload.truthful:
+        raise HTTPException(400, "Consent and truthfulness confirmation are required")
+
+    app_doc = payload.model_dump()
+    app_id = str(uuid.uuid4())
+    now_iso = datetime.now(timezone.utc).isoformat()
+    app_doc.update({
+        "id": app_id,
+        "dealership_id": dealership_id,
+        "status": "new",
+        "created_at": now_iso,
+        "updated_at": now_iso,
+        "lead_id": "",            # filled on auto-lead creation below
+    })
+    await db.applications.insert_one(app_doc)
+
+    # Auto-create a Lead in the CRM so the team can work the prospect immediately
+    try:
+        lead_id = str(uuid.uuid4())
+        lead_doc = {
+            "id": lead_id,
+            "dealership_id": dealership_id,
+            "name": full_name,
+            "phone": phone,
+            "email": email,
+            "source": "credit_application",
+            "status": "new",
+            "interest_make_model": payload.vehicle_interest or "",
+            "budget": 0,
+            "payment_type": "financing",
+            "notes": f"Aplicação de crédito recebida\n{_summary_line(app_doc)}",
+            "language": payload.language or "",
+            "last_contact_at": "",
+            "salesperson_id": "",
+            "salesperson_name": "",
+            "attachments": [],
+            "monday_item_id": "",
+            "created_by_id": "",
+            "created_by_name": "Aplicação de crédito (público)",
+            "created_at": now_iso,
+            "application_id": app_id,
+        }
+        await db.leads.insert_one(lead_doc)
+        await db.applications.update_one(
+            {"id": app_id, "dealership_id": dealership_id},
+            {"$set": {"lead_id": lead_id}},
+        )
+        app_doc["lead_id"] = lead_id
+    except Exception as e:
+        logging.warning(f"Auto-lead creation failed for application {app_id}: {e}")
+
+    # Post a chat notification in the team room so everyone sees it instantly
+    try:
+        await db.chat_messages.insert_one({
+            "id": str(uuid.uuid4()),
+            "dealership_id": dealership_id,
+            "room_id": "team",
+            "sender_id": "system",
+            "sender_name": "🔔 Sistema",
+            "sender_photo_url": "",
+            "sender_role": "system",
+            "content": f"📝 Nova aplicação de crédito: {_summary_line(app_doc)}",
+            "attachments": [],
+            "created_at": now_iso,
+            "edited_at": None,
+            "deleted": False,
+        })
+    except Exception as e:
+        logging.warning(f"Chat notification failed for application {app_id}: {e}")
+
+    return {"ok": True, "id": app_id}
+
+
+# ---------- Admin endpoints ----------
+@api_router.get("/applications")
+async def list_applications(
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    current: dict = Depends(get_current_user),
+):
+    require_tab(current, "applications")
+    q = {"dealership_id": current["dealership_id"]}
+    if status and status in APPLICATION_STATUSES:
+        q["status"] = status
+    if search:
+        rx = {"$regex": search, "$options": "i"}
+        q["$or"] = [{"full_name": rx}, {"email": rx}, {"phone": rx}, {"vehicle_interest": rx}]
+    items = await db.applications.find(q, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    masked = current.get("role") != "owner"
+    return [_application_to_view(it, masked=masked) for it in items]
+
+
+@api_router.get("/applications/stats")
+async def applications_stats(current: dict = Depends(get_current_user)):
+    require_tab(current, "applications")
+    pipeline = [
+        {"$match": {"dealership_id": current["dealership_id"]}},
+        {"$group": {"_id": "$status", "n": {"$sum": 1}}},
+    ]
+    rows = await db.applications.aggregate(pipeline).to_list(20)
+    out = {s: 0 for s in APPLICATION_STATUSES}
+    for r in rows:
+        s = r["_id"] or "new"
+        out[s] = r["n"]
+    out["total"] = sum(out.values())
+    return out
+
+
+@api_router.get("/applications/{aid}")
+async def get_application(aid: str, current: dict = Depends(get_current_user)):
+    require_tab(current, "applications")
+    app_doc = await db.applications.find_one(
+        {"id": aid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not app_doc:
+        raise HTTPException(404, "Application not found")
+    masked = current.get("role") != "owner"
+    return _application_to_view(app_doc, masked=masked)
+
+
+@api_router.put("/applications/{aid}/status")
+async def update_application_status(
+    aid: str,
+    payload: Dict[str, str],
+    current: dict = Depends(get_current_user),
+):
+    require_tab(current, "applications")
+    new_status = (payload or {}).get("status", "")
+    if new_status not in APPLICATION_STATUSES:
+        raise HTTPException(400, "Invalid status")
+    res = await db.applications.update_one(
+        {"id": aid, "dealership_id": current["dealership_id"]},
+        {"$set": {
+            "status": new_status,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_by_id": current.get("id", ""),
+            "updated_by_name": current.get("full_name") or current.get("email") or "",
+        }},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Application not found")
+    return {"ok": True, "status": new_status}
+
+
+@api_router.delete("/applications/{aid}")
+async def delete_application(aid: str, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    res = await db.applications.delete_one(
+        {"id": aid, "dealership_id": current["dealership_id"]}
+    )
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Application not found")
+    return {"deleted": True}
+
+
+@public_router.get("/dealership-info/{dealership_id}")
+async def public_dealership_info(dealership_id: str):
+    """Public lookup so the application form can show dealership name + logo."""
+    deal = await db.dealerships.find_one(
+        {"id": dealership_id}, {"_id": 0, "id": 1, "name": 1, "logo_url": 1}
+    )
+    if not deal:
+        raise HTTPException(404, "Not found")
+    return deal
+
+
+@public_router.get("/applications/upload-signature/{dealership_id}")
+async def public_application_upload_signature(dealership_id: str):
+    """Cloudinary signature locked to the applications/{dealership_id}/ folder.
+    Used by the public credit application form so customers can upload docs
+    without needing a login."""
+    deal = await db.dealerships.find_one({"id": dealership_id}, {"_id": 0, "id": 1})
+    if not deal:
+        raise HTTPException(404, "Not found")
+    cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME") or ""
+    api_key = os.environ.get("CLOUDINARY_API_KEY") or ""
+    api_secret = os.environ.get("CLOUDINARY_API_SECRET") or ""
+    if not (cloud_name and api_key and api_secret):
+        raise HTTPException(500, "Cloudinary not configured")
+    timestamp = int(datetime.now(timezone.utc).timestamp())
+    folder = f"applications/{dealership_id}"
+    # Sign the upload params (folder + timestamp), per Cloudinary docs
+    to_sign = f"folder={folder}&timestamp={timestamp}{api_secret}"
+    signature = hashlib.sha1(to_sign.encode("utf-8")).hexdigest()
+    return {
+        "cloud_name": cloud_name,
+        "api_key": api_key,
+        "timestamp": timestamp,
+        "signature": signature,
+        "folder": folder,
+    }
+
+
+# Register routers AFTER all routes are declared (FastAPI requirement).
 app.include_router(api_router)
 app.include_router(public_router)
+
 
 app.add_middleware(
     CORSMiddleware,

@@ -10,6 +10,7 @@ import ExpenseManager from "@/components/ExpenseManager";
 import Financial from "@/pages/Financial";
 import LeadsPage from "@/pages/LeadsPage";
 import PostSales from "@/pages/PostSales";
+import CreditApplications from "@/pages/CreditApplications";
 import VehicleHistoryModal from "@/components/VehicleHistoryModal";
 import ChatWidget from "@/components/ChatWidget";
 import InstallPrompt from "@/components/InstallPrompt";
@@ -71,6 +72,7 @@ export default function AppShell() {
     { id: "salespeople", label: t("salespeople"), icon: Users },
     { id: "financial", label: t("financial"), icon: DollarSign },
     { id: "post_sales", label: t("post_sales_tab"), icon: ShieldCheck },
+    { id: "applications", label: t("applications_tab"), icon: FileText },
     { id: "settings", label: t("settings"), icon: Settings, ownerOnly: true },
   ];
   const tabs = allTabs.filter(tb => tb.ownerOnly ? isOwner : canAccess(tb.id));
@@ -222,6 +224,7 @@ export default function AppShell() {
         {tab === "salespeople" && canAccess("salespeople") && <SalespeopleTab salespeople={salespeople} t={t} onReload={reload} isSalesperson={isSalesperson} currentSpId={user?.salesperson_id || ""} />}
         {tab === "financial" && canAccess("financial") && <Financial t={t} />}
         {tab === "post_sales" && canAccess("post_sales") && <PostSales t={t} />}
+        {tab === "applications" && canAccess("applications") && <CreditApplications />}
         {tab === "settings" && isOwner && <SettingsTab dealership={dealership} t={t} onRefresh={refreshDealership} />}
 
         {editing && (
@@ -1336,6 +1339,7 @@ const PERMISSION_LABELS = {
   salespeople: { key: "salespeople", icon: "🏆" },
   financial: { key: "financial", icon: "💰" },
   post_sales: { key: "post_sales_tab", icon: "🛠️" },
+  applications: { key: "applications_tab", icon: "📝" },
 };
 
 function TeamMemberAvatarUploader({ member, t, onChanged, disabled = false }) {

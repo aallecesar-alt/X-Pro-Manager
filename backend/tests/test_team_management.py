@@ -178,14 +178,14 @@ class TestListTeam:
         assert isinstance(body["members"], list)
         # all_permissions must contain all known tabs
         assert set(body["all_permissions"]) == {
-            "overview", "inventory", "pipeline", "delivery", "leads", "salespeople", "financial", "post_sales"
+            "overview", "inventory", "pipeline", "delivery", "leads", "salespeople", "financial", "post_sales", "applications"
         }
-        # role_defaults: salesperson default has no financial, bdc=overview+leads
+        # role_defaults: salesperson default has no financial, bdc=overview+leads+applications
         assert "financial" not in body["role_defaults"]["salesperson"]
         assert set(body["role_defaults"]["salesperson"]) == {
             "overview", "inventory", "pipeline", "delivery", "leads", "salespeople"
         }
-        assert set(body["role_defaults"]["bdc"]) == {"overview", "leads"}
+        assert set(body["role_defaults"]["bdc"]) == {"overview", "leads", "applications"}
         assert set(body["role_defaults"]["owner"]) == set(body["all_permissions"])
 
     def test_salesperson_cannot_list_team(self, sales_headers):
@@ -270,8 +270,8 @@ class TestCreateTeamMember:
         u = r.json()
         _created_user_ids.append(u["id"])
         assert u["role"] == "bdc"
-        # BDC default permissions = overview + leads
-        assert set(u["effective_permissions"]) == {"overview", "leads"}
+        # BDC default permissions = overview + leads + applications
+        assert set(u["effective_permissions"]) == {"overview", "leads", "applications"}
 
     def test_create_duplicate_email_returns_400(self, owner_headers):
         email = _make_email("dupemail")
@@ -482,7 +482,7 @@ class TestDefaultPermissions:
         rd = r.json()["role_defaults"]
         assert set(rd["salesperson"]) == {"overview", "inventory", "pipeline", "delivery", "leads", "salespeople"}
         assert "financial" not in rd["salesperson"]
-        assert set(rd["bdc"]) == {"overview", "leads"}
+        assert set(rd["bdc"]) == {"overview", "leads", "applications"}
 
     def test_seeded_salesperson_default_perms(self, sales_login):
         # joao@intercar.com has permissions=null -> defaults applied
