@@ -274,6 +274,8 @@ async def startup():
     await db.salespeople.create_index("dealership_id")
     await db.operational_expenses.create_index("id", unique=True)
     await db.operational_expenses.create_index([("dealership_id", 1), ("date", -1)])
+    await db.operational_credits.create_index("id", unique=True)
+    await db.operational_credits.create_index([("dealership_id", 1), ("date", -1)])
     await db.lost_sales.create_index("id", unique=True)
     await db.lost_sales.create_index([("dealership_id", 1), ("date", -1)])
     await db.leads.create_index("id", unique=True)
@@ -2615,6 +2617,82 @@ async def delete_expense(eid: str, current: dict = Depends(get_current_user)):
 
 
 # ============================================================
+# OPERATIONAL CREDITS — money received that offsets monthly expenses.
+# Same shape as expenses but stored in a separate collection so totals can be
+# computed independently and shown side-by-side in the Financial dashboard.
+# Examples: rent received from sublessees, refunds, partner commissions.
+# ============================================================
+class OperationalCreditBase(BaseModel):
+    date: str  # YYYY-MM-DD
+    category: str = "sublease"
+    description: str = ""
+    amount: float = 0
+    attachment_url: str = ""
+    attachment_public_id: str = ""
+
+
+class OperationalCredit(OperationalCreditBase):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    dealership_id: str
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class OperationalCreditUpdate(BaseModel):
+    date: Optional[str] = None
+    category: Optional[str] = None
+    description: Optional[str] = None
+    amount: Optional[float] = None
+    attachment_url: Optional[str] = None
+    attachment_public_id: Optional[str] = None
+
+
+@api_router.get("/credits", response_model=List[OperationalCredit])
+async def list_credits(
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    current: dict = Depends(get_current_user),
+):
+    require_owner(current)
+    q = {"dealership_id": current["dealership_id"]}
+    if year and month:
+        start, end = _month_range(year, month)
+        q["date"] = {"$gte": start, "$lt": end}
+    items = await db.operational_credits.find(q, {"_id": 0}).sort("date", -1).to_list(2000)
+    return items
+
+
+@api_router.post("/credits", response_model=OperationalCredit)
+async def create_credit(payload: OperationalCreditBase, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    e = OperationalCredit(dealership_id=current["dealership_id"], **payload.model_dump())
+    await db.operational_credits.insert_one(e.model_dump())
+    return e
+
+
+@api_router.put("/credits/{cid}", response_model=OperationalCredit)
+async def update_credit(cid: str, payload: OperationalCreditUpdate, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not upd:
+        raise HTTPException(400, "Nothing to update")
+    res = await db.operational_credits.update_one(
+        {"id": cid, "dealership_id": current["dealership_id"]}, {"$set": upd}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Credit not found")
+    return await db.operational_credits.find_one({"id": cid}, {"_id": 0})
+
+
+@api_router.delete("/credits/{cid}")
+async def delete_credit(cid: str, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    res = await db.operational_credits.delete_one({"id": cid, "dealership_id": current["dealership_id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Credit not found")
+    return {"deleted": True}
+
+
+# ============================================================
 # LOST SALES — when a sale fell through and the car returns to inventory
 # ============================================================
 class RevertSaleRequest(BaseModel):
@@ -2775,7 +2853,15 @@ async def financial_closing(
     ).sort("date", -1).to_list(2000)
     operational_total = sum(float(e.get("amount") or 0) for e in exp_items)
 
-    net_profit = gross_profit - operational_total - paid_commissions
+    # Operational credits in the month — money received that offsets expenses.
+    credit_items = await db.operational_credits.find(
+        {"dealership_id": did, "date": {"$gte": start, "$lt": end}}, {"_id": 0}
+    ).sort("date", -1).to_list(2000)
+    credits_total = sum(float(c.get("amount") or 0) for c in credit_items)
+
+    # Net operational = expenses - credits
+    operational_net = operational_total - credits_total
+    net_profit = gross_profit - operational_net - paid_commissions
 
     return {
         "year": y,
@@ -2787,6 +2873,9 @@ async def financial_closing(
         "gross_profit": gross_profit,
         "operational_expenses": exp_items,
         "operational_total": operational_total,
+        "operational_credits": credit_items,
+        "credits_total": credits_total,
+        "operational_net": operational_net,
         "paid_commissions": paid_commissions,
         "net_profit": net_profit,
     }
@@ -2846,6 +2935,8 @@ def _build_closing_pdf(dealership_name: str, snapshot: dict) -> bytes:
     kpi_data = [
         ["Lucro bruto dos carros", money(snapshot["gross_profit"])],
         ["Despesas operacionais", money(snapshot["operational_total"])],
+        ["Créditos operacionais (-)", money(-snapshot.get("credits_total", 0))],
+        ["Despesas líquidas", money(snapshot.get("operational_net", snapshot["operational_total"]))],
         ["Comissões pagas", money(snapshot["paid_commissions"])],
         ["LUCRO LÍQUIDO", money(snapshot["net_profit"])],
     ]
@@ -2924,6 +3015,35 @@ def _build_closing_pdf(dealership_name: str, snapshot: dict) -> bytes:
         elements.append(t)
     else:
         elements.append(Paragraph("Sem despesas operacionais neste mês.", body))
+
+    # Operational credits
+    elements.append(Paragraph(f"Créditos operacionais ({len(snapshot.get('operational_credits', []))})", h2))
+    if snapshot.get("operational_credits"):
+        rows = [["Data", "Categoria", "Descrição", "Valor"]]
+        for c in snapshot["operational_credits"]:
+            rows.append([
+                c.get("date") or "—",
+                c.get("category") or "—",
+                (c.get("description") or "")[:60],
+                money(c.get("amount")),
+            ])
+        t = Table(rows, colWidths=[2.5 * cm, 3 * cm, 8.5 * cm, 3 * cm], repeatRows=1)
+        t.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0E7C3F")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("ALIGN", (-1, 0), (-1, -1), "RIGHT"),
+            ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#cccccc")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#eeeeee")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        elements.append(t)
+    else:
+        elements.append(Paragraph("Sem créditos operacionais neste mês.", body))
 
     # Footer
     elements.append(Spacer(1, 0.8 * cm))

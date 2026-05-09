@@ -70,7 +70,9 @@ export default function Financial({ t }) {
   const [monthly, setMonthly] = useState([]);
   const [allSold, setAllSold] = useState([]);
   const [lost, setLost] = useState({ rows: [], by_reason: [], total_count: 0, total_lost_revenue: 0 });
-  const [editing, setEditing] = useState(null); // {} for new, expense object for edit
+  const [editing, setEditing] = useState(null); // {} for new expense, expense object for edit
+  const [editingCredit, setEditingCredit] = useState(null); // {} for new credit, credit object for edit
+  const [opTab, setOpTab] = useState("expenses"); // "expenses" | "credits"
   const [detailVid, setDetailVid] = useState(null); // vehicle id to show details for
   const [closings, setClosings] = useState([]);
   const [closingMonth, setClosingMonth] = useState(false); // confirmation modal open
@@ -111,6 +113,15 @@ export default function Financial({ t }) {
     if (!window.confirm(t("confirm_delete"))) return;
     try {
       await api.delete(`/expenses/${id}`);
+      toast.success(t("saved"));
+      reload();
+    } catch { toast.error(t("error_generic")); }
+  };
+
+  const removeCredit = async (id) => {
+    if (!window.confirm(t("confirm_delete"))) return;
+    try {
+      await api.delete(`/credits/${id}`);
       toast.success(t("saved"));
       reload();
     } catch { toast.error(t("error_generic")); }
@@ -375,62 +386,159 @@ export default function Financial({ t }) {
         </div>
       )}
 
-      {/* Operational expenses */}
+      {/* Operational expenses + credits (tabbed) */}
       <div className="border border-border mb-10">
-        <div className="bg-surface px-4 py-3 border-b border-border flex items-center justify-between">
-          <p className="label-eyebrow text-primary">{t("operational_expenses")}</p>
-          <button
-            data-testid="add-expense"
-            onClick={() => setEditing({})}
-            className="bg-primary hover:bg-primary-hover px-4 py-2 font-display font-bold uppercase text-xs tracking-widest inline-flex items-center gap-2"
-          >
-            <Plus size={14} /> {t("add_expense")}
-          </button>
-        </div>
-        {closing.operational_expenses.length === 0 ? (
-          <p className="text-text-secondary text-sm text-center py-12">{t("no_expenses")}</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b border-border">
-                <tr>
-                  <th className="text-left p-3 label-eyebrow">{t("expense_date")}</th>
-                  <th className="text-left p-3 label-eyebrow">{t("expense_category")}</th>
-                  <th className="text-left p-3 label-eyebrow">{t("expense_description")}</th>
-                  <th className="text-left p-3 label-eyebrow">{t("expense_attachment")}</th>
-                  <th className="text-right p-3 label-eyebrow">{t("expense_amount")}</th>
-                  <th className="text-right p-3 label-eyebrow"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {closing.operational_expenses.map((e) => (
-                  <tr key={e.id} data-testid={`expense-row-${e.id}`} className="border-b border-border hover:bg-surface transition-colors">
-                    <td className="p-3 font-mono text-xs">{e.date}</td>
-                    <td className="p-3">
-                      <span className="text-xs uppercase tracking-wider px-2 py-1 border border-border">
-                        {t(`cat_${e.category}`) || e.category}
-                      </span>
-                    </td>
-                    <td className="p-3">{e.description || "—"}</td>
-                    <td className="p-3">
-                      {e.attachment_url ? (
-                        <a href={e.attachment_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline text-xs">
-                          <Paperclip size={12} /> {t("view")}
-                        </a>
-                      ) : "—"}
-                    </td>
-                    <td className="p-3 text-right font-display font-bold text-warning">−{formatCurrency(e.amount)}</td>
-                    <td className="p-3 text-right">
-                      <div className="inline-flex gap-1">
-                        <button data-testid={`edit-expense-${e.id}`} onClick={() => setEditing(e)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Edit2 size={14} /></button>
-                        <button data-testid={`del-expense-${e.id}`} onClick={() => removeExpense(e.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Trash2 size={14} /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div className="bg-surface px-4 py-3 border-b border-border flex flex-wrap items-center justify-between gap-3">
+          {/* Tab pills */}
+          <div className="flex gap-2">
+            <button
+              data-testid="op-tab-expenses"
+              onClick={() => setOpTab("expenses")}
+              className={`px-4 py-2 text-xs font-display font-bold uppercase tracking-widest border transition-colors ${
+                opTab === "expenses" ? "bg-warning border-warning text-black" : "border-border text-text-secondary hover:border-warning hover:text-warning"
+              }`}
+            >
+              − {t("operational_expenses")} ({(closing.operational_expenses || []).length})
+            </button>
+            <button
+              data-testid="op-tab-credits"
+              onClick={() => setOpTab("credits")}
+              className={`px-4 py-2 text-xs font-display font-bold uppercase tracking-widest border transition-colors ${
+                opTab === "credits" ? "bg-success border-success text-white" : "border-border text-text-secondary hover:border-success hover:text-success"
+              }`}
+            >
+              + {t("operational_credits")} ({(closing.operational_credits || []).length})
+            </button>
           </div>
+
+          {/* Add buttons */}
+          {opTab === "expenses" ? (
+            <button
+              data-testid="add-expense"
+              onClick={() => setEditing({})}
+              className="bg-primary hover:bg-primary-hover px-4 py-2 font-display font-bold uppercase text-xs tracking-widest inline-flex items-center gap-2"
+            >
+              <Plus size={14} /> {t("add_expense")}
+            </button>
+          ) : (
+            <button
+              data-testid="add-credit"
+              onClick={() => setEditingCredit({})}
+              className="bg-success hover:opacity-90 text-white px-4 py-2 font-display font-bold uppercase text-xs tracking-widest inline-flex items-center gap-2"
+            >
+              <Plus size={14} /> {t("add_credit")}
+            </button>
+          )}
+        </div>
+
+        {/* Net summary bar — shows credit reduces expense */}
+        <div className="bg-background/40 px-4 py-2 border-b border-border flex flex-wrap items-center justify-between gap-3 text-xs">
+          <span className="text-text-secondary uppercase tracking-widest">
+            {t("operational_total")}: <span className="font-display font-bold text-warning">−{formatCurrency(closing.operational_total)}</span>
+            {" · "}
+            {t("operational_credits")}: <span className="font-display font-bold text-success">+{formatCurrency(closing.credits_total || 0)}</span>
+          </span>
+          <span className="font-display font-bold uppercase tracking-widest">
+            {t("net_operational")}: <span className="text-primary">−{formatCurrency(closing.operational_net || closing.operational_total)}</span>
+          </span>
+        </div>
+
+        {/* Expenses table */}
+        {opTab === "expenses" && (
+          (closing.operational_expenses || []).length === 0 ? (
+            <p className="text-text-secondary text-sm text-center py-12">{t("no_expenses")}</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border">
+                  <tr>
+                    <th className="text-left p-3 label-eyebrow">{t("expense_date")}</th>
+                    <th className="text-left p-3 label-eyebrow">{t("expense_category")}</th>
+                    <th className="text-left p-3 label-eyebrow">{t("expense_description")}</th>
+                    <th className="text-left p-3 label-eyebrow">{t("expense_attachment")}</th>
+                    <th className="text-right p-3 label-eyebrow">{t("expense_amount")}</th>
+                    <th className="text-right p-3 label-eyebrow"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {closing.operational_expenses.map((e) => (
+                    <tr key={e.id} data-testid={`expense-row-${e.id}`} className="border-b border-border hover:bg-surface transition-colors">
+                      <td className="p-3 font-mono text-xs">{e.date}</td>
+                      <td className="p-3">
+                        <span className="text-xs uppercase tracking-wider px-2 py-1 border border-border">
+                          {t(`cat_${e.category}`) || e.category}
+                        </span>
+                      </td>
+                      <td className="p-3">{e.description || "—"}</td>
+                      <td className="p-3">
+                        {e.attachment_url ? (
+                          <a href={e.attachment_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline text-xs">
+                            <Paperclip size={12} /> {t("view")}
+                          </a>
+                        ) : "—"}
+                      </td>
+                      <td className="p-3 text-right font-display font-bold text-warning">−{formatCurrency(e.amount)}</td>
+                      <td className="p-3 text-right">
+                        <div className="inline-flex gap-1">
+                          <button data-testid={`edit-expense-${e.id}`} onClick={() => setEditing(e)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Edit2 size={14} /></button>
+                          <button data-testid={`del-expense-${e.id}`} onClick={() => removeExpense(e.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Trash2 size={14} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        )}
+
+        {/* Credits table */}
+        {opTab === "credits" && (
+          (closing.operational_credits || []).length === 0 ? (
+            <p className="text-text-secondary text-sm text-center py-12">{t("no_credits")}</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border">
+                  <tr>
+                    <th className="text-left p-3 label-eyebrow">{t("expense_date")}</th>
+                    <th className="text-left p-3 label-eyebrow">{t("expense_category")}</th>
+                    <th className="text-left p-3 label-eyebrow">{t("expense_description")}</th>
+                    <th className="text-left p-3 label-eyebrow">{t("expense_attachment")}</th>
+                    <th className="text-right p-3 label-eyebrow">{t("expense_amount")}</th>
+                    <th className="text-right p-3 label-eyebrow"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {closing.operational_credits.map((c) => (
+                    <tr key={c.id} data-testid={`credit-row-${c.id}`} className="border-b border-border hover:bg-surface transition-colors">
+                      <td className="p-3 font-mono text-xs">{c.date}</td>
+                      <td className="p-3">
+                        <span className="text-xs uppercase tracking-wider px-2 py-1 border border-success/40 text-success bg-success/5">
+                          {t(`credit_cat_${c.category}`) || c.category}
+                        </span>
+                      </td>
+                      <td className="p-3">{c.description || "—"}</td>
+                      <td className="p-3">
+                        {c.attachment_url ? (
+                          <a href={c.attachment_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline text-xs">
+                            <Paperclip size={12} /> {t("view")}
+                          </a>
+                        ) : "—"}
+                      </td>
+                      <td className="p-3 text-right font-display font-bold text-success">+{formatCurrency(c.amount)}</td>
+                      <td className="p-3 text-right">
+                        <div className="inline-flex gap-1">
+                          <button data-testid={`edit-credit-${c.id}`} onClick={() => setEditingCredit(c)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Edit2 size={14} /></button>
+                          <button data-testid={`del-credit-${c.id}`} onClick={() => removeCredit(c.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Trash2 size={14} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         )}
       </div>
 
@@ -566,6 +674,15 @@ export default function Financial({ t }) {
         />
       )}
 
+      {editingCredit && (
+        <CreditForm
+          credit={editingCredit.id ? editingCredit : null}
+          t={t}
+          onClose={() => setEditingCredit(null)}
+          onSaved={() => { setEditingCredit(null); reload(); }}
+        />
+      )}
+
       {detailVid && (
         <VehicleExpensesModal
           vehicleId={detailVid}
@@ -673,6 +790,99 @@ function ExpenseForm({ expense, t, onClose, onSaved }) {
     </div>
   );
 }
+
+function CreditForm({ credit, t, onClose, onSaved }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const CREDIT_CATEGORIES = ["sublease", "refund", "commission", "other"];
+  const [form, setForm] = useState(credit || { date: today, category: "sublease", description: "", amount: 0, attachment_url: "", attachment_public_id: "" });
+  const [saving, setSaving] = useState(false);
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const onFileSelected = async (file) => {
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { toast.error(t("file_too_large")); return; }
+    try {
+      const sig = (await api.get("/cloudinary/signature", { params: { folder: `vehicles/expenses/` } })).data;
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("api_key", sig.api_key);
+      fd.append("timestamp", sig.timestamp);
+      fd.append("signature", sig.signature);
+      fd.append("folder", sig.folder);
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${sig.cloud_name}/auto/upload`, { method: "POST", body: fd });
+      const json = await res.json();
+      if (!json.secure_url) throw new Error(json.error?.message || "upload failed");
+      set("attachment_url", json.secure_url);
+      set("attachment_public_id", json.public_id);
+    } catch (err) {
+      toast.error(err.message || t("error_generic"));
+    }
+  };
+
+  const save = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    const payload = { ...form, amount: Number(form.amount) || 0 };
+    try {
+      if (credit) await api.put(`/credits/${credit.id}`, payload);
+      else await api.post("/credits", payload);
+      toast.success(t("saved"));
+      onSaved();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || t("error_generic"));
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-12 px-4">
+      <form onSubmit={save} className="bg-background border border-success w-full max-w-lg p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-display font-black text-xl uppercase tracking-tight inline-flex items-center gap-2">
+            <Plus size={18} className="text-success" /> {credit ? t("edit_credit") : t("add_credit")}
+          </h2>
+          <button type="button" onClick={onClose}><X size={20} className="text-text-secondary hover:text-primary" /></button>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <Input label={t("expense_date")} type="date" value={form.date} set={(v) => set("date", v)} required testid="cr-date" />
+          <div>
+            <label className="label-eyebrow block mb-2">{t("expense_category")}</label>
+            <select
+              data-testid="cr-category"
+              value={form.category}
+              onChange={(e) => set("category", e.target.value)}
+              className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm"
+            >
+              {CREDIT_CATEGORIES.map(c => <option key={c} value={c}>{t(`credit_cat_${c}`)}</option>)}
+            </select>
+          </div>
+        </div>
+        <Input label={t("expense_description")} value={form.description} set={(v) => set("description", v)} testid="cr-description" />
+        <Input label={t("expense_amount")} type="number" value={form.amount} set={(v) => set("amount", v)} required testid="cr-amount" />
+        <div>
+          <label className="label-eyebrow block mb-2">{t("expense_attachment")}</label>
+          <div className="flex items-center gap-3">
+            <label className="cursor-pointer border border-border hover:border-primary px-3 h-11 inline-flex items-center gap-2 text-xs uppercase tracking-wider">
+              <Paperclip size={14} /> {t("expense_attachment")}
+              <input data-testid="cr-attachment" type="file" accept="image/*,application/pdf" onChange={(e) => onFileSelected(e.target.files?.[0])} className="hidden" />
+            </label>
+            {form.attachment_url && (
+              <a href={form.attachment_url} target="_blank" rel="noreferrer" className="text-xs text-primary inline-flex items-center gap-1">
+                {form.attachment_url.match(/\.(pdf)$/i) ? <FileText size={14} /> : <ImageIcon size={14} />} {t("view")}
+              </a>
+            )}
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 pt-4 border-t border-border">
+          <button type="button" onClick={onClose} className="px-5 py-2.5 border border-border hover:border-primary text-xs font-display font-bold uppercase tracking-widest transition-colors">{t("cancel")}</button>
+          <button type="submit" data-testid="cr-submit" disabled={saving} className="bg-success hover:opacity-90 text-white disabled:opacity-50 px-5 py-2.5 text-xs font-display font-bold uppercase tracking-widest transition-colors inline-flex items-center gap-2">
+            <Check size={14} /> {saving ? "..." : t("save")}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 
 function VehicleExpensesModal({ vehicleId, t, onClose, onChanged }) {
   const [vehicle, setVehicle] = useState(null);
