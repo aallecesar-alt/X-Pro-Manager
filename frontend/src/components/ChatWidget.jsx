@@ -203,15 +203,17 @@ export default function ChatWidget() {
         <button
           data-testid="chat-open-btn"
           onClick={() => setOpen(true)}
-          className="fixed top-5 right-5 z-50 bg-primary hover:bg-primary-hover text-white shadow-2xl shadow-primary/40 w-14 h-14 rounded-full flex items-center justify-center transition-transform hover:scale-110"
+          className="group fixed top-24 right-5 z-50 bg-gradient-to-br from-primary to-primary-hover text-white shadow-2xl shadow-primary/50 w-14 h-14 rounded-full flex items-center justify-center transition-all hover:scale-110 hover:rotate-3 ring-2 ring-primary/30 hover:ring-4 hover:ring-primary/40"
           title="Abrir chat"
         >
-          <MessageCircle size={22} />
+          <MessageCircle size={22} className="transition-transform group-hover:scale-110" />
           {unread.total > 0 && (
-            <span className="absolute -top-1 -right-1 bg-warning text-black font-display font-black text-[11px] rounded-full min-w-[22px] h-[22px] flex items-center justify-center px-1.5 animate-pulse">
+            <span className="absolute -top-1.5 -right-1.5 bg-warning text-black font-display font-black text-[11px] rounded-full min-w-[22px] h-[22px] flex items-center justify-center px-1.5 ring-2 ring-background animate-pulse">
               {unread.total > 99 ? "99+" : unread.total}
             </span>
           )}
+          {/* subtle online indicator dot */}
+          <span className="absolute bottom-0.5 right-0.5 w-3 h-3 rounded-full bg-success ring-2 ring-background" />
         </button>
       )}
 
@@ -219,7 +221,7 @@ export default function ChatWidget() {
       {open && (
         <div
           data-testid="chat-panel"
-          className="fixed top-5 right-5 z-50 w-[380px] max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-2rem)] bg-background border border-border shadow-2xl flex flex-col"
+          className="fixed top-24 right-5 z-50 w-[380px] max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-7rem)] bg-background border border-border shadow-2xl flex flex-col"
         >
           {/* Header */}
           <div className="flex items-center justify-between px-4 h-14 border-b border-border bg-surface">
