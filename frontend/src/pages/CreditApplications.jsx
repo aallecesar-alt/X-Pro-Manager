@@ -20,9 +20,14 @@ export default function CreditApplications() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [opened, setOpened] = useState(null); // application detail
-  const [copied, setCopied] = useState(false);
+  const [copiedLang, setCopiedLang] = useState("");
 
-  const publicLink = `${window.location.origin}/apply/${user?.dealership_id || ""}`;
+  const baseLink = `${window.location.origin}/apply/${user?.dealership_id || ""}`;
+  const links = {
+    pt: `${baseLink}/pt`,
+    en: `${baseLink}/en`,
+    es: `${baseLink}/es`,
+  };
 
   const reload = async () => {
     setLoading(true);
@@ -49,12 +54,12 @@ export default function CreditApplications() {
     });
   }, [items, search, statusFilter]);
 
-  const copyLink = async () => {
+  const copyLink = async (lang) => {
     try {
-      await navigator.clipboard.writeText(publicLink);
-      setCopied(true);
-      toast.success("Link copiado!");
-      setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(links[lang]);
+      setCopiedLang(lang);
+      toast.success(`Link em ${lang.toUpperCase()} copiado!`);
+      setTimeout(() => setCopiedLang(""), 2000);
     } catch {
       toast.error("Não foi possível copiar");
     }
@@ -70,23 +75,34 @@ export default function CreditApplications() {
       </div>
 
       {/* Public link card */}
-      <div className="border border-primary/40 bg-primary/5 p-4 mb-6">
-        <p className="label-eyebrow text-primary mb-2">📤 Link público pra mandar pro cliente</p>
-        <div className="flex flex-wrap items-center gap-2">
-          <code className="flex-1 min-w-0 truncate bg-background border border-border px-3 py-2 text-xs">
-            {publicLink}
-          </code>
-          <button
-            data-testid="copy-link-btn"
-            onClick={copyLink}
-            className="border border-primary text-primary hover:bg-primary hover:text-white px-4 h-9 inline-flex items-center gap-2 font-display font-bold uppercase text-[11px] tracking-widest transition-colors"
-          >
-            {copied ? <><Check size={14} /> Copiado</> : <><Copy size={14} /> Copiar link</>}
-          </button>
-        </div>
-        <p className="text-[11px] text-text-secondary mt-2">
-          Manda esse link por WhatsApp, email ou QR code. O cliente preenche pelo celular e a aplicação cai aqui automaticamente.
+      <div className="border border-primary/40 bg-primary/5 p-5 mb-6">
+        <p className="label-eyebrow text-primary mb-3">📤 Links públicos por idioma</p>
+        <p className="text-[11px] text-text-secondary mb-4">
+          Manda o link no idioma do cliente. Ele preenche pelo celular e a aplicação cai aqui automaticamente.
         </p>
+        <div className="space-y-2.5">
+          {[
+            { lang: "pt", flag: "🇧🇷", name: "Português" },
+            { lang: "en", flag: "🇺🇸", name: "English" },
+            { lang: "es", flag: "🇪🇸", name: "Español" },
+          ].map(({ lang, flag, name }) => (
+            <div key={lang} className="flex flex-wrap items-center gap-2">
+              <span className="font-display font-bold text-sm uppercase tracking-wider w-24 shrink-0">
+                {flag} {name}
+              </span>
+              <code className="flex-1 min-w-0 truncate bg-background border border-border px-3 py-2 text-xs">
+                {links[lang]}
+              </code>
+              <button
+                data-testid={`copy-link-${lang}`}
+                onClick={() => copyLink(lang)}
+                className="border border-primary text-primary hover:bg-primary hover:text-white px-3 h-9 inline-flex items-center gap-2 font-display font-bold uppercase text-[10px] tracking-widest transition-colors"
+              >
+                {copiedLang === lang ? <><Check size={12} /> Copiado</> : <><Copy size={12} /> Copiar</>}
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Stats */}

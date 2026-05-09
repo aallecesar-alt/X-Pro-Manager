@@ -212,8 +212,9 @@ function maskPhone(v) {
 // Main component
 // ──────────────────────────────────────────────────────────────────────
 export default function CreditApplicationPublic() {
-  const { dealershipId } = useParams();
-  const [lang, setLang] = useState("pt");
+  const { dealershipId, lang: langFromUrl } = useParams();
+  const langLocked = !!langFromUrl && !!T[langFromUrl];
+  const [lang, setLang] = useState(langLocked ? langFromUrl : "pt");
   const t = T[lang];
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
@@ -249,11 +250,12 @@ export default function CreditApplicationPublic() {
       .catch(() => {});
   }, [dealershipId]);
 
-  // Auto-pick browser language on first mount
+  // Auto-pick browser language only if no language was forced via URL
   useEffect(() => {
+    if (langLocked) return;
     const nav = (navigator.language || "pt").slice(0, 2).toLowerCase();
     if (T[nav]) setLang(nav);
-  }, []);
+  }, [langLocked]);
 
   const submit = async () => {
     setError("");
@@ -295,7 +297,7 @@ export default function CreditApplicationPublic() {
             <p className="text-[10px] uppercase tracking-widest text-text-secondary mt-0.5">{t.page_title}</p>
           </div>
           <div className="flex gap-1.5">
-            {Object.values(T).map(L => (
+            {!langLocked && Object.values(T).map(L => (
               <button
                 key={L.lang}
                 data-testid={`lang-${L.lang}`}
@@ -308,6 +310,11 @@ export default function CreditApplicationPublic() {
                 {L.flag} {L.lang.toUpperCase()}
               </button>
             ))}
+            {langLocked && (
+              <span className="text-xs px-2.5 py-1.5 border border-primary text-primary">
+                {T[lang].flag} {T[lang].lang.toUpperCase()}
+              </span>
+            )}
           </div>
         </div>
 
@@ -867,7 +874,24 @@ function SignaturePad({ value, onChange, t }) {
     if (!drawing.current) return;
     drawing.current = false;
     const c = canvasRef.current;
-    onChange(c.toDataURL("image/png"));
+    // Compress signature to a reasonable size before saving:
+    // copy the canvas onto a smaller offscreen canvas and export as JPEG (q=0.85).
+    // This brings a 200KB+ PNG dataURL down to ~10–25KB so the request payload
+    // stays well below the typical 1MB nginx body limit.
+    try {
+      const off = document.createElement("canvas");
+      const targetW = 600;
+      const ratio = c.width / c.height || 1;
+      off.width = targetW;
+      off.height = Math.round(targetW / ratio);
+      const octx = off.getContext("2d");
+      octx.fillStyle = "#fff";
+      octx.fillRect(0, 0, off.width, off.height);
+      octx.drawImage(c, 0, 0, off.width, off.height);
+      onChange(off.toDataURL("image/jpeg", 0.85));
+    } catch {
+      onChange(c.toDataURL("image/jpeg", 0.85));
+    }
   };
 
   const clear = () => {

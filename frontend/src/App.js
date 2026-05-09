@@ -38,6 +38,7 @@ function App() {
           <Routes>
             <Route path="/auth" element={<PublicGate><AuthPage /></PublicGate>} />
             <Route path="/apply/:dealershipId" element={<CreditApplicationPublic />} />
+            <Route path="/apply/:dealershipId/:lang" element={<CreditApplicationPublic />} />
             <Route path="/*" element={<Gate />} />
           </Routes>
         </BrowserRouter>
