@@ -245,7 +245,11 @@ function ReceivableCard({ r, t, today, expanded, onToggle, onEdit, onDelete, onP
             )}
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-text-secondary mb-3">
-            {v && <span className="inline-flex items-center gap-1"><Car size={12} /> {v.year} {v.make} {v.model}</span>}
+            {v ? (
+              <span className="inline-flex items-center gap-1"><Car size={12} /> {v.year} {v.make} {v.model}</span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-text-secondary/60"><Car size={12} /> {t("rec_no_vehicle_short")}</span>
+            )}
             {r.customer_phone && <span className="inline-flex items-center gap-1"><Phone size={12} /> {r.customer_phone}</span>}
             <span className="inline-flex items-center gap-1"><CalIcon size={12} /> {t(`rec_freq_${r.frequency}`)}</span>
           </div>
@@ -381,7 +385,6 @@ function ReceivableForm({ receivable, vehicles, t, onClose, onSaved }) {
 
   const save = async (e) => {
     e.preventDefault();
-    if (!form.vehicle_id) { toast.error(t("rec_pick_vehicle")); return; }
     if (!form.customer_name) { toast.error(t("rec_customer_required")); return; }
     setSaving(true);
     try {
@@ -395,7 +398,7 @@ function ReceivableForm({ receivable, vehicles, t, onClose, onSaved }) {
         });
       } else {
         await api.post("/receivables", {
-          vehicle_id: form.vehicle_id,
+          vehicle_id: form.vehicle_id || null,
           customer_name: form.customer_name,
           customer_phone: form.customer_phone,
           total_amount: Number(form.total_amount) || 0,
@@ -442,15 +445,14 @@ function ReceivableForm({ receivable, vehicles, t, onClose, onSaved }) {
 
         {!receivable && (
           <div>
-            <label className="label-eyebrow block mb-2">{t("rec_vehicle")}</label>
+            <label className="label-eyebrow block mb-2">{t("rec_vehicle")} <span className="text-text-secondary normal-case">({t("optional")})</span></label>
             <select
               data-testid="rec-vehicle"
               value={form.vehicle_id}
               onChange={(e) => onVehicleChange(e.target.value)}
-              required
               className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm"
             >
-              <option value="">— {t("rec_pick_vehicle")} —</option>
+              <option value="">— {t("rec_no_vehicle")} —</option>
               {sortedVehicles.map(v => (
                 <option key={v.id} value={v.id}>
                   {v.status === "sold" ? "✓ " : "• "}

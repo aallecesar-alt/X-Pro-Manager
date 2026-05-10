@@ -2757,7 +2757,7 @@ class ReceivableInstallment(BaseModel):
 
 
 class ReceivableBase(BaseModel):
-    vehicle_id: str
+    vehicle_id: Optional[str] = None  # optional — cliente avulso (no car attached)
     customer_name: str
     customer_phone: str = ""
     total_amount: float
@@ -2835,14 +2835,17 @@ async def list_receivables(
     if status:
         q["status"] = status
     items = await db.receivables.find(q, {"_id": 0}).sort("created_at", -1).to_list(2000)
-    # Attach a mini vehicle snapshot
+    # Attach a mini vehicle snapshot when one is linked
     for r in items:
         _enrich_receivable(r)
-        v = await db.vehicles.find_one(
-            {"id": r.get("vehicle_id"), "dealership_id": current["dealership_id"]},
-            {"_id": 0, "make": 1, "model": 1, "year": 1, "vin": 1, "images": 1},
-        )
-        r["vehicle"] = v or None
+        if r.get("vehicle_id"):
+            v = await db.vehicles.find_one(
+                {"id": r["vehicle_id"], "dealership_id": current["dealership_id"]},
+                {"_id": 0, "make": 1, "model": 1, "year": 1, "vin": 1, "images": 1},
+            )
+            r["vehicle"] = v or None
+        else:
+            r["vehicle"] = None
     return items
 
 
@@ -2953,11 +2956,14 @@ async def get_receivable(rid: str, current: dict = Depends(get_current_user)):
     if not r:
         raise HTTPException(404, "Receivable not found")
     _enrich_receivable(r)
-    v = await db.vehicles.find_one(
-        {"id": r.get("vehicle_id"), "dealership_id": current["dealership_id"]},
-        {"_id": 0, "make": 1, "model": 1, "year": 1, "vin": 1, "images": 1, "buyer_name": 1, "buyer_phone": 1},
-    )
-    r["vehicle"] = v or None
+    if r.get("vehicle_id"):
+        v = await db.vehicles.find_one(
+            {"id": r["vehicle_id"], "dealership_id": current["dealership_id"]},
+            {"_id": 0, "make": 1, "model": 1, "year": 1, "vin": 1, "images": 1, "buyer_name": 1, "buyer_phone": 1},
+        )
+        r["vehicle"] = v or None
+    else:
+        r["vehicle"] = None
     return r
 
 
@@ -2969,13 +2975,14 @@ async def create_receivable(payload: ReceivableBase, current: dict = Depends(get
     if payload.installment_count <= 0 or payload.installment_count > 240:
         raise HTTPException(400, "installment_count must be between 1 and 240")
 
-    # Validate the linked vehicle exists in the same dealership.
-    v = await db.vehicles.find_one(
-        {"id": payload.vehicle_id, "dealership_id": current["dealership_id"]},
-        {"_id": 0, "id": 1},
-    )
-    if not v:
-        raise HTTPException(404, "Vehicle not found")
+    # Validate the linked vehicle (if any) exists in the same dealership.
+    if payload.vehicle_id:
+        v = await db.vehicles.find_one(
+            {"id": payload.vehicle_id, "dealership_id": current["dealership_id"]},
+            {"_id": 0, "id": 1},
+        )
+        if not v:
+            raise HTTPException(404, "Vehicle not found")
 
     inst = _generate_installments(
         payload.start_date,

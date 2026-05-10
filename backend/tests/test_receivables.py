@@ -241,6 +241,33 @@ def test_summary_buckets(headers, vehicle_id, cleanup):
     assert len(s["week_list"]) >= 1
 
 
+def test_create_without_vehicle_walk_in(headers, cleanup):
+    """Cliente avulso (walk-in) — vehicle_id is optional."""
+    payload = {
+        "customer_name": "Walk-in Test",
+        "customer_phone": "+15550099",
+        "total_amount": 800,
+        "installment_count": 4,
+        "installment_amount": 200,
+        "frequency": "weekly",
+        "start_date": "2026-06-01",
+        "notes": "no car attached",
+    }
+    r = httpx.post(f"{BASE_URL}/receivables", json=payload, headers=headers, timeout=15)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    cleanup(data["id"])
+    assert data["vehicle_id"] is None
+    assert data["customer_name"] == "Walk-in Test"
+    assert len(data["installments"]) == 4
+
+    # GET single must succeed without joining a vehicle
+    r = httpx.get(f"{BASE_URL}/receivables/{data['id']}", headers=headers, timeout=15)
+    assert r.status_code == 200
+    got = r.json()
+    assert got["vehicle"] is None
+
+
 def test_validation_errors(headers, vehicle_id, cleanup):
     # Bad frequency
     r = httpx.post(
