@@ -139,9 +139,12 @@ export default function AppShell() {
     catch { toast.error(t("error_generic")); }
   };
 
-  const updateStatus = async (id, status) => {
-    try { await api.put(`/vehicles/${id}`, { status }); toast.success(t("saved")); reload(); }
-    catch { toast.error(t("error_generic")); }
+  const updateStatus = async (id, status, extra = {}) => {
+    try {
+      await api.put(`/vehicles/${id}`, { status, ...extra });
+      toast.success(t("saved"));
+      reload();
+    } catch { toast.error(t("error_generic")); }
   };
 
   return (
@@ -1334,6 +1337,7 @@ function StatusPill({ status, t }) {
 }
 
 function Pipeline({ vehicles, t, onMove, onEdit, onHistory }) {
+  const [finalizingSale, setFinalizingSale] = useState(null); // vehicle to finalize sale on
   return (
     <div data-testid="pipeline-tab">
       <p className="label-eyebrow text-primary mb-2">{t("pipeline")}</p>
@@ -1360,7 +1364,10 @@ function Pipeline({ vehicles, t, onMove, onEdit, onHistory }) {
                         <button
                           key={c.id}
                           data-testid={`move-${v.id}-${c.id}`}
-                          onClick={() => onMove(v.id, c.id)}
+                          onClick={() => {
+                            if (c.id === "sold") setFinalizingSale(v);
+                            else onMove(v.id, c.id);
+                          }}
                           className="text-[10px] px-2 py-1 border border-border hover:border-primary hover:text-primary uppercase tracking-wider transition-colors"
                         >
                           → {t(c.id)}
@@ -1381,6 +1388,126 @@ function Pipeline({ vehicles, t, onMove, onEdit, onHistory }) {
           );
         })}
       </div>
+
+      {finalizingSale && (
+        <FinalizeSaleModal
+          vehicle={finalizingSale}
+          t={t}
+          onClose={() => setFinalizingSale(null)}
+          onConfirm={(payload) => {
+            onMove(finalizingSale.id, "sold", payload);
+            setFinalizingSale(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function FinalizeSaleModal({ vehicle, t, onClose, onConfirm }) {
+  const [form, setForm] = useState({
+    buyer_name: vehicle.buyer_name || "",
+    buyer_phone: vehicle.buyer_phone || "",
+    down_payment: vehicle.down_payment || 0,
+    bank_check_amount: vehicle.bank_check_amount || 0,
+    registration_cost: vehicle.registration_cost || 0,
+    bank_name: vehicle.bank_name || "",
+  });
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const dp = Number(form.down_payment) || 0;
+  const bc = Number(form.bank_check_amount) || 0;
+  const reg = Number(form.registration_cost) || 0;
+  const finalSold = dp + bc;
+  const asking = Number(vehicle.sale_price) || 0;
+  const diff = finalSold - asking;
+
+  const submit = (e) => {
+    e.preventDefault();
+    onConfirm({
+      buyer_name: form.buyer_name,
+      buyer_phone: form.buyer_phone,
+      down_payment: dp,
+      bank_check_amount: bc,
+      registration_cost: reg,
+      bank_name: form.bank_name,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-8 px-4">
+      <form onSubmit={submit} className="bg-background border border-success w-full max-w-xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="label-eyebrow text-success mb-1">{t("sale_finalize")}</p>
+            <h2 className="font-display font-black text-xl uppercase tracking-tight">
+              {vehicle.year} {vehicle.make} {vehicle.model}
+            </h2>
+            <p className="text-xs text-text-secondary">{t("asking_price")}: <span className="font-display font-bold">{formatCurrency(asking)}</span></p>
+          </div>
+          <button type="button" onClick={onClose}><X size={20} className="text-text-secondary hover:text-primary" /></button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label-eyebrow block mb-2">{t("buyer_name")}</label>
+            <input data-testid="sale-buyer" required value={form.buyer_name} onChange={e => set("buyer_name", e.target.value)}
+              className="w-full bg-surface border border-border focus:border-success focus:outline-none px-3 h-11 text-sm" />
+          </div>
+          <div>
+            <label className="label-eyebrow block mb-2">{t("buyer_phone")}</label>
+            <input data-testid="sale-phone" value={form.buyer_phone} onChange={e => set("buyer_phone", e.target.value)}
+              className="w-full bg-surface border border-border focus:border-success focus:outline-none px-3 h-11 text-sm" />
+          </div>
+        </div>
+
+        <div className="bg-surface/40 border border-border p-4 space-y-3">
+          <p className="label-eyebrow text-success">{t("sale_breakdown")}</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] uppercase tracking-widest text-text-secondary block mb-1">💵 {t("down_payment")}</label>
+              <input data-testid="sale-down-payment" type="number" min="0" step="0.01" value={form.down_payment} onChange={e => set("down_payment", e.target.value)}
+                className="w-full bg-background border border-border focus:border-success focus:outline-none px-3 h-11 text-sm font-display font-bold" />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-widest text-text-secondary block mb-1">🏦 {t("bank_check_amount")}</label>
+              <input data-testid="sale-bank-check" type="number" min="0" step="0.01" value={form.bank_check_amount} onChange={e => set("bank_check_amount", e.target.value)}
+                className="w-full bg-background border border-border focus:border-success focus:outline-none px-3 h-11 text-sm font-display font-bold" />
+            </div>
+          </div>
+          <div>
+            <label className="label-eyebrow block mb-2">{t("bank_name")}</label>
+            <input data-testid="sale-bank-name" value={form.bank_name} onChange={e => set("bank_name", e.target.value)}
+              placeholder="Capital One / Wells Fargo / ..."
+              className="w-full bg-background border border-border focus:border-success focus:outline-none px-3 h-11 text-sm" />
+          </div>
+
+          {/* Live computed final price */}
+          <div className="bg-success/10 border border-success/40 p-3 flex items-center justify-between gap-3 flex-wrap">
+            <span className="text-xs uppercase tracking-widest text-success">{t("final_sold_price")}</span>
+            <span className="font-display font-black text-2xl text-success">{formatCurrency(finalSold)}</span>
+          </div>
+          {asking > 0 && finalSold > 0 && Math.abs(diff) >= 0.5 && (
+            <div className={`text-[11px] uppercase tracking-widest text-right ${diff > 0 ? "text-info" : "text-warning"}`}>
+              {diff > 0 ? "+" : "−"}{formatCurrency(Math.abs(diff))} · {diff > 0 ? t("over_asking") : t("under_asking")}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label className="label-eyebrow block mb-2">🧾 {t("registration_cost")}</label>
+          <input data-testid="sale-registration" type="number" min="0" step="0.01" value={form.registration_cost} onChange={e => set("registration_cost", e.target.value)}
+            className="w-full bg-surface border border-border focus:border-warning focus:outline-none px-3 h-11 text-sm font-display font-bold" />
+          <p className="text-[10px] text-text-secondary mt-1">{t("registration_cost_hint")}</p>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-4 border-t border-border">
+          <button type="button" onClick={onClose} className="px-5 py-2.5 border border-border hover:border-primary text-xs font-display font-bold uppercase tracking-widest transition-colors">{t("cancel")}</button>
+          <button type="submit" data-testid="sale-confirm" disabled={finalSold <= 0 || !form.buyer_name} className="bg-success hover:opacity-90 text-white disabled:opacity-40 disabled:cursor-not-allowed px-5 py-2.5 text-xs font-display font-bold uppercase tracking-widest transition-colors inline-flex items-center gap-2">
+            <Check size={14} /> {t("mark_as_sold")}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

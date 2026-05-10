@@ -86,6 +86,13 @@ class VehicleBase(BaseModel):
     payment_method: str = ""
     sold_at: Optional[str] = None
     sold_price: float = 0
+    # Sale breakdown (only when financed). sold_price = down_payment + bank_check_amount
+    # may differ slightly from the asking sale_price (cliente paga a mais ou a menos).
+    down_payment: float = 0
+    bank_check_amount: float = 0
+    # Cost to register/title/plate the vehicle in the buyer's name (US emplacamento).
+    # Auto-synced into expense_items with category="registration" so it deducts from profit.
+    registration_cost: float = 0
     # Delivery pipeline (1..8). 0 = not in delivery yet.
     # 1 Vendido | 2 Dados cliente | 3 Contrato banco | 4 Manutencao | 5 Seguro | 6 Titulo | 7 Registro | 8 Entregue
     delivery_step: int = 0
@@ -139,6 +146,9 @@ class VehicleUpdate(BaseModel):
     buyer_phone: Optional[str] = None
     payment_method: Optional[str] = None
     sold_price: Optional[float] = None
+    down_payment: Optional[float] = None
+    bank_check_amount: Optional[float] = None
+    registration_cost: Optional[float] = None
     delivery_step: Optional[int] = None
     bank_name: Optional[str] = None
     delivery_notes: Optional[str] = None
@@ -650,6 +660,43 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
         and (upd.get("delivery_step") or 0) < 8
     ):
         upd["delivered_at"] = ""
+    # Auto-compute sold_price when down_payment or bank_check_amount changes.
+    # The actual sale price = entrada + cheque do banco (can exceed asking sale_price).
+    # We only override when at least one of the two fields is being updated.
+    if "down_payment" in upd or "bank_check_amount" in upd:
+        dp = float(upd.get("down_payment") if "down_payment" in upd else (existing or {}).get("down_payment") or 0)
+        bc = float(upd.get("bank_check_amount") if "bank_check_amount" in upd else (existing or {}).get("bank_check_amount") or 0)
+        if (dp + bc) > 0:
+            upd["sold_price"] = round(dp + bc, 2)
+
+    # Auto-CLEAR financing breakdown when reverting from sold → in_stock/reserved.
+    # Otherwise stale entries would still influence the sold_price next time around.
+    if upd.get("status") in ("in_stock", "reserved") and existing and existing.get("status") == "sold":
+        upd.setdefault("down_payment", 0)
+        upd.setdefault("bank_check_amount", 0)
+        upd.setdefault("registration_cost", 0)
+        upd.setdefault("sold_price", 0)
+        upd.setdefault("sold_at", None)
+
+    # Mirror registration_cost into expense_items so it appears in the per-vehicle
+    # profit breakdown (same pattern as Floor Plan + Post-Sales). Idempotent.
+    if "registration_cost" in upd:
+        reg_amount = float(upd.get("registration_cost") or 0)
+        items = list((upd.get("expense_items") if "expense_items" in upd else (existing or {}).get("expense_items")) or [])
+        # Drop any previous registration mirror first.
+        items = [it for it in items if it.get("category") != "registration"]
+        if reg_amount > 0:
+            items.append({
+                "id": f"reg-{vid}",
+                "category": "registration",
+                "description": "Emplacamento / Registro",
+                "amount": reg_amount,
+                "date": (upd.get("sold_at") or (existing or {}).get("sold_at") or datetime.now(timezone.utc).isoformat())[:10],
+                "attachments": [],
+            })
+        upd["expense_items"] = items
+        upd["expenses"] = sum(float(it.get("amount") or 0) for it in items)
+
     if not upd and not push_events:
         raise HTTPException(400, "Nothing to update")
     mongo_op = {}
