@@ -241,6 +241,84 @@ def test_summary_buckets(headers, vehicle_id, cleanup):
     assert len(s["week_list"]) >= 1
 
 
+def test_paid_installment_creates_operational_credit(headers, vehicle_id, cleanup):
+    """Each paid installment must mirror into operational_credits with auto=True."""
+    BASE = BASE_URL
+    payload = {
+        "vehicle_id": vehicle_id,
+        "customer_name": "Sync Test",
+        "total_amount": 600,
+        "installment_count": 3,
+        "installment_amount": 200,
+        "frequency": "monthly",
+        "start_date": _today(),
+    }
+    r = httpx.post(f"{BASE}/receivables", json=payload, headers=headers, timeout=15)
+    rid = r.json()["id"]
+    cleanup(rid)
+
+    # Snapshot credits BEFORE
+    before = httpx.get(f"{BASE}/credits", headers=headers, timeout=15).json()
+    auto_before = [c for c in before if c.get("auto")]
+
+    # Pay installment 1
+    httpx.post(f"{BASE}/receivables/{rid}/installments/1/pay", json={}, headers=headers, timeout=15)
+
+    # Auto credit must now exist
+    after = httpx.get(f"{BASE}/credits", headers=headers, timeout=15).json()
+    auto_after = [c for c in after if c.get("auto")]
+    assert len(auto_after) == len(auto_before) + 1
+    new_credit = next(c for c in auto_after if c.get("receivable_id") == rid and c.get("installment_number") == 1)
+    assert new_credit["category"] == "receivable_payment"
+    assert new_credit["amount"] == 200
+    assert new_credit["id"] == f"recv-{rid}-1"
+
+    # Trying to PUT the auto credit should be blocked with 400
+    r = httpx.put(f"{BASE}/credits/{new_credit['id']}", json={"description": "hacked"}, headers=headers, timeout=15)
+    assert r.status_code == 400, r.text
+
+    # Trying to DELETE the auto credit should be blocked with 400
+    r = httpx.delete(f"{BASE}/credits/{new_credit['id']}", headers=headers, timeout=15)
+    assert r.status_code == 400, r.text
+
+    # Unpay → auto credit must disappear
+    httpx.post(f"{BASE}/receivables/{rid}/installments/1/unpay", headers=headers, timeout=15)
+    after2 = httpx.get(f"{BASE}/credits", headers=headers, timeout=15).json()
+    assert not any(c.get("id") == new_credit["id"] for c in after2)
+
+
+def test_delete_receivable_removes_auto_credits(headers, vehicle_id):
+    """Deleting a receivable must clean up its auto credits."""
+    BASE = BASE_URL
+    r = httpx.post(
+        f"{BASE}/receivables",
+        json={
+            "vehicle_id": vehicle_id,
+            "customer_name": "ToDelete",
+            "total_amount": 200,
+            "installment_count": 2,
+            "installment_amount": 100,
+            "frequency": "monthly",
+            "start_date": _today(),
+        },
+        headers=headers,
+        timeout=15,
+    )
+    rid = r.json()["id"]
+    httpx.post(f"{BASE}/receivables/{rid}/installments/1/pay", json={}, headers=headers, timeout=15)
+    httpx.post(f"{BASE}/receivables/{rid}/installments/2/pay", json={}, headers=headers, timeout=15)
+
+    after_pay = httpx.get(f"{BASE}/credits", headers=headers, timeout=15).json()
+    linked = [c for c in after_pay if c.get("receivable_id") == rid]
+    assert len(linked) == 2
+
+    # Delete the receivable — credits should be gone too
+    httpx.delete(f"{BASE}/receivables/{rid}", headers=headers, timeout=15)
+    after_delete = httpx.get(f"{BASE}/credits", headers=headers, timeout=15).json()
+    linked2 = [c for c in after_delete if c.get("receivable_id") == rid]
+    assert linked2 == []
+
+
 def test_create_without_vehicle_walk_in(headers, cleanup):
     """Cliente avulso (walk-in) — vehicle_id is optional."""
     payload = {

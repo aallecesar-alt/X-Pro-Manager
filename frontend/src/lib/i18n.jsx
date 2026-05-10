@@ -225,6 +225,10 @@ const TRANSLATIONS = {
     credit_cat_refund: "Reembolso",
     credit_cat_commission: "Comissão recebida",
     credit_cat_other: "Outros créditos",
+    credit_cat_receivable_payment: "Recebível",
+    credit_auto: "Auto",
+    credit_auto_tooltip: "Crédito gerado automaticamente por uma parcela paga em Recebíveis",
+    credit_managed_in_receivables: "Em Recebíveis",
     // Receivables
     receivables_tab: "Recebíveis",
     receivables_title: "Recebíveis",
@@ -741,6 +745,10 @@ const TRANSLATIONS = {
     credit_cat_refund: "Refund",
     credit_cat_commission: "Commission received",
     credit_cat_other: "Other credits",
+    credit_cat_receivable_payment: "Receivable",
+    credit_auto: "Auto",
+    credit_auto_tooltip: "Auto-generated credit from a paid Receivable installment",
+    credit_managed_in_receivables: "In Receivables",
     // Receivables
     receivables_tab: "Receivables",
     receivables_title: "Receivables",
@@ -1254,6 +1262,10 @@ const TRANSLATIONS = {
     credit_cat_refund: "Reembolso",
     credit_cat_commission: "Comisión recibida",
     credit_cat_other: "Otros créditos",
+    credit_cat_receivable_payment: "Cuota cobrada",
+    credit_auto: "Auto",
+    credit_auto_tooltip: "Crédito generado automáticamente por una cuota cobrada en Cuentas por cobrar",
+    credit_managed_in_receivables: "En Cuentas por cobrar",
     // Receivables
     receivables_tab: "Cuentas por cobrar",
     receivables_title: "Cuentas por cobrar",

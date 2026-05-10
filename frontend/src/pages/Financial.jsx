@@ -534,6 +534,11 @@ export default function Financial({ t }) {
                         <span className="text-xs uppercase tracking-wider px-2 py-1 border border-success/40 text-success bg-success/5">
                           {t(`credit_cat_${c.category}`) || c.category}
                         </span>
+                        {c.auto && (
+                          <span className="ml-2 text-[9px] uppercase tracking-widest px-1.5 py-0.5 border border-info/40 text-info bg-info/5" title={t("credit_auto_tooltip")}>
+                            ⚡ {t("credit_auto")}
+                          </span>
+                        )}
                       </td>
                       <td className="p-3">{c.description || "—"}</td>
                       <td className="p-3">
@@ -546,8 +551,14 @@ export default function Financial({ t }) {
                       <td className="p-3 text-right font-display font-bold text-success">+{formatCurrency(c.amount)}</td>
                       <td className="p-3 text-right">
                         <div className="inline-flex gap-1">
-                          <button data-testid={`edit-credit-${c.id}`} onClick={() => setEditingCredit(c)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Edit2 size={14} /></button>
-                          <button data-testid={`del-credit-${c.id}`} onClick={() => removeCredit(c.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Trash2 size={14} /></button>
+                          {c.auto ? (
+                            <span className="text-[10px] text-text-secondary uppercase tracking-widest px-2 py-1" title={t("credit_auto_tooltip")}>{t("credit_managed_in_receivables")}</span>
+                          ) : (
+                            <>
+                              <button data-testid={`edit-credit-${c.id}`} onClick={() => setEditingCredit(c)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Edit2 size={14} /></button>
+                              <button data-testid={`del-credit-${c.id}`} onClick={() => removeCredit(c.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Trash2 size={14} /></button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
