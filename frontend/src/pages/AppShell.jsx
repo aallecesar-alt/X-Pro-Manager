@@ -1906,24 +1906,6 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
                 }} testid="f-bank-check" />
                 <Input label={`🧾 ${t("registration_cost")}`} type="number" value={form.registration_cost || 0} set={(v) => set("registration_cost", v)} testid="f-registration" />
               </div>
-              {(() => {
-                const dp = Number(form.down_payment) || 0;
-                const bc = Number(form.bank_check_amount) || 0;
-                const finalSold = dp + bc;
-                const asking = Number(form.sale_price) || 0;
-                const diff = finalSold - asking;
-                if (finalSold <= 0 || asking <= 0) return null;
-                return (
-                  <div className="flex items-center justify-between bg-background/40 border border-border px-3 py-2">
-                    <span className="text-[11px] uppercase tracking-widest text-text-secondary">{t("asking_price")}: <span className="font-display font-bold text-white">{formatCurrency(asking)}</span></span>
-                    {Math.abs(diff) >= 0.5 && (
-                      <span className={`text-[11px] uppercase tracking-widest font-display font-bold ${diff > 0 ? "text-info" : "text-warning"}`}>
-                        {diff > 0 ? "+" : "−"}{formatCurrency(Math.abs(diff))} · {diff > 0 ? t("over_asking") : t("under_asking")}
-                      </span>
-                    )}
-                  </div>
-                );
-              })()}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
