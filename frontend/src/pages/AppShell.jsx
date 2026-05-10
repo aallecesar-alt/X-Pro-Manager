@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks, HandCoins } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks, HandCoins } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -2548,6 +2548,7 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
   const [selectedSp, setSelectedSp] = useState(isSalesperson ? (currentSpId || "all") : "all");
   const [report, setReport] = useState({ rows: [], by_salesperson: [], total_sales: 0, total_revenue: 0, total_profit: 0 });
   const [credentialsMap, setCredentialsMap] = useState({}); // { spId: {has_login, login_email} }
+  const [showBySp, setShowBySp] = useState(false); // collapsible "Por vendedor" table
 
   const loadReport = async () => {
     const params = {};
@@ -2695,23 +2696,39 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
         </div>
       </div>
 
-      {/* Salespeople list with their performance */}
+      {/* Salespeople list with their performance — collapsible to keep page tidy */}
       <div className="border border-border mb-10">
-        <div className="bg-surface px-4 py-3 border-b border-border">
-          <p className="label-eyebrow text-primary">{t("by_salesperson")}</p>
-        </div>
-        {visibleSalespeople.length === 0 && report.by_salesperson.length === 0 ? (
-          <p className="text-text-secondary text-sm text-center py-12">{t("no_salespeople")}</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="border-b border-border">
-              <tr>
-                <th className="text-left p-3 label-eyebrow">{t("salesperson")}</th>
-                <th className="text-left p-3 label-eyebrow">{t("commission_amount")}</th>
-                <th className="text-right p-3 label-eyebrow">{t("sales_count")}</th>
-                <th className="text-right p-3 label-eyebrow">{t("commission_paid")}</th>
-                <th className="text-right p-3 label-eyebrow">{t("commission_pending")}</th>
-                {!isSalesperson && <th className="text-left p-3 label-eyebrow">{t("login_email")}</th>}
+        <button
+          type="button"
+          data-testid="toggle-by-salesperson"
+          onClick={() => setShowBySp(s => !s)}
+          className="w-full bg-surface px-4 py-3 border-b border-border flex items-center justify-between gap-3 hover:bg-surface/70 transition-colors group"
+        >
+          <span className="flex items-center gap-3">
+            <Users size={16} className="text-primary" />
+            <span className="label-eyebrow text-primary">{t("by_salesperson")}</span>
+            <span className="text-[10px] uppercase tracking-widest px-2 py-1 border border-border text-text-secondary group-hover:border-primary group-hover:text-primary transition-colors">
+              {visibleSalespeople.length}
+            </span>
+          </span>
+          <span className="inline-flex items-center gap-2 text-[11px] uppercase tracking-widest text-text-secondary group-hover:text-primary transition-colors">
+            {showBySp ? t("collapse") : t("expand")}
+            {showBySp ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </span>
+        </button>
+        {showBySp && (
+          visibleSalespeople.length === 0 && report.by_salesperson.length === 0 ? (
+            <p className="text-text-secondary text-sm text-center py-12">{t("no_salespeople")}</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="border-b border-border">
+                <tr>
+                  <th className="text-left p-3 label-eyebrow">{t("salesperson")}</th>
+                  <th className="text-left p-3 label-eyebrow">{t("commission_amount")}</th>
+                  <th className="text-right p-3 label-eyebrow">{t("sales_count")}</th>
+                  <th className="text-right p-3 label-eyebrow">{t("commission_paid")}</th>
+                  <th className="text-right p-3 label-eyebrow">{t("commission_pending")}</th>
+                  {!isSalesperson && <th className="text-left p-3 label-eyebrow">{t("login_email")}</th>}
                 <th className="text-right p-3 label-eyebrow"></th>
               </tr>
             </thead>
@@ -2802,6 +2819,7 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
               })()}
             </tbody>
           </table>
+          )
         )}
       </div>
 
