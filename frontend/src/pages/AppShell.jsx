@@ -48,6 +48,7 @@ export default function AppShell() {
   const [importPageOpen, setImportPageOpen] = useState(false);
   const [fpAlerts, setFpAlerts] = useState({ overdue: [], today: [], tomorrow: [], total: 0 });
   const [recAlerts, setRecAlerts] = useState({ alert_count: 0, total_remaining: 0 });
+  const [sellingVehicle, setSellingVehicle] = useState(null); // vehicle to mark as sold (modal)
 
   // Auto-load Floor Plan alerts for owner+gerente every 5 minutes
   useEffect(() => {
@@ -282,6 +283,7 @@ export default function AppShell() {
             onAdd={() => setEditing("new")} onImport={() => setImportOpen(true)} onImportPage={isOwner ? () => setImportPageOpen(true) : null}
             onEdit={(v) => setEditing(v)} onDelete={onDelete}
             onHistory={setHistoryVid}
+            onSell={(v) => setSellingVehicle(v)}
           />
         )}
         {tab === "pipeline" && canAccess("pipeline") && <Pipeline vehicles={vehicles} t={t} onMove={updateStatus} onEdit={(v) => setEditing(v)} onHistory={setHistoryVid} />}
@@ -305,6 +307,18 @@ export default function AppShell() {
             onImported={(data) => {
               setImportOpen(false);
               setEditing({ __prefill: true, ...data });
+            }}
+          />
+        )}
+
+        {sellingVehicle && (
+          <FinalizeSaleModal
+            vehicle={sellingVehicle}
+            t={t}
+            onClose={() => setSellingVehicle(null)}
+            onConfirm={(payload) => {
+              updateStatus(sellingVehicle.id, "sold", payload);
+              setSellingVehicle(null);
             }}
           />
         )}
@@ -997,7 +1011,7 @@ function PromotionForm({ promotion, t, onClose, onSaved }) {
   );
 }
 
-function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onImportPage, onEdit, onDelete, onHistory, isSalesperson }) {
+function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onImportPage, onEdit, onDelete, onHistory, onSell, isSalesperson }) {
   const [view, setView] = useState(() => localStorage.getItem("inventory_view") || "grid");
   const [statusFilter, setStatusFilter] = useState("all");
   const [makeFilter, setMakeFilter] = useState("");
@@ -1173,7 +1187,7 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onImportPa
       ) : view === "grid" ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
           {filtered.map((v) => (
-            <VehicleCard key={v.id} v={v} t={t} onEdit={onEdit} onDelete={onDelete} onHistory={onHistory} isSalesperson={isSalesperson} />
+            <VehicleCard key={v.id} v={v} t={t} onEdit={onEdit} onDelete={onDelete} onHistory={onHistory} onSell={onSell} isSalesperson={isSalesperson} />
           ))}
         </div>
       ) : (
@@ -1207,6 +1221,11 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onImportPa
                   <td className="p-3"><StatusPill status={v.status} t={t} /></td>
                   <td className="p-3 text-right">
                     <div className="inline-flex gap-1">
+                      {onSell && v.status !== "sold" && (
+                        <button data-testid={`sell-row-${v.id}`} onClick={() => onSell(v)} title={t("mark_as_sold")} className="px-2 h-8 border border-success/40 text-success bg-success/10 hover:bg-success hover:text-white inline-flex items-center gap-1 text-[10px] uppercase tracking-wider transition-colors font-display font-bold">
+                          <Check size={12} /> {t("sold")}
+                        </button>
+                      )}
                       {onHistory && (
                         <button data-testid={`history-${v.id}`} onClick={() => onHistory(v.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors" title={t("vehicle_history")}><History size={14} /></button>
                       )}
@@ -1226,7 +1245,7 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onImportPa
   );
 }
 
-function VehicleCard({ v, t, onEdit, onDelete, onHistory, isSalesperson }) {
+function VehicleCard({ v, t, onEdit, onDelete, onHistory, onSell, isSalesperson }) {
   const photoCount = v.images?.length || 0;
   return (
     <div data-testid={`card-grid-${v.id}`} className="group border border-border bg-surface overflow-hidden hover:border-primary transition-colors">
@@ -1288,8 +1307,18 @@ function VehicleCard({ v, t, onEdit, onDelete, onHistory, isSalesperson }) {
           </div>
         </div>
 
-        <div className="pt-2 border-t border-border">
+        <div className="pt-2 border-t border-border flex items-center justify-between gap-2">
           <p className="font-display font-black text-sm text-primary leading-none">{formatCurrency(v.sale_price)}</p>
+          {onSell && v.status !== "sold" && (
+            <button
+              data-testid={`sell-${v.id}`}
+              onClick={(e) => { e.stopPropagation(); onSell(v); }}
+              title={t("mark_as_sold")}
+              className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-1 bg-success/10 border border-success/40 text-success hover:bg-success hover:text-white transition-colors font-display font-bold"
+            >
+              <Check size={11} /> {t("sold")}
+            </button>
+          )}
         </div>
       </div>
     </div>
