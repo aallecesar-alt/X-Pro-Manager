@@ -659,41 +659,6 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToF
         <FloorPlanAlertBanner alerts={fpAlerts} onGoTo={onGoToFinancial} t={t} />
       )}
 
-      {/* Receivables summary card — visible whenever user can access Receivables */}
-      {recAlerts && (recAlerts.total_remaining > 0 || recAlerts.alert_count > 0) && (
-        <button
-          type="button"
-          data-testid="overview-receivables-card"
-          onClick={onGoToReceivables}
-          className="w-full text-left mb-6 lg:mb-10 border border-border bg-background hover:border-primary transition-colors group"
-        >
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border">
-            <div className="bg-background p-5">
-              <div className="flex items-center gap-2 mb-2">
-                <HandCoins size={14} className="text-primary" />
-                <p className="label-eyebrow">{t("rec_overview_card")}</p>
-              </div>
-              <p className="font-display font-black text-2xl text-white">{formatCurrency(recAlerts.total_remaining || 0)}</p>
-            </div>
-            <div className={`bg-background p-5 ${(recAlerts.overdue_count || 0) > 0 ? "ring-1 ring-primary/40" : ""}`}>
-              <p className="label-eyebrow text-primary mb-2">{t("rec_overdue")}</p>
-              <p className="font-display font-black text-2xl text-primary">{formatCurrency(recAlerts.total_overdue || 0)}</p>
-              <p className="text-[10px] text-text-secondary mt-1 uppercase">{recAlerts.overdue_count || 0} {t("rec_overview_overdue")}</p>
-            </div>
-            <div className="bg-background p-5">
-              <p className="label-eyebrow text-warning mb-2">{t("rec_due_today")}</p>
-              <p className="font-display font-black text-2xl text-warning">{formatCurrency(recAlerts.due_today || 0)}</p>
-              <p className="text-[10px] text-text-secondary mt-1 uppercase">{recAlerts.due_today_count || 0} {t("rec_installments")}</p>
-            </div>
-            <div className="bg-background p-5">
-              <p className="label-eyebrow text-success mb-2">{t("rec_paid_this_month")}</p>
-              <p className="font-display font-black text-2xl text-success">{formatCurrency(recAlerts.paid_this_month || 0)}</p>
-              <p className="text-[10px] text-text-secondary mt-1 uppercase group-hover:text-primary transition-colors">→ {t("receivables_tab")}</p>
-            </div>
-          </div>
-        </button>
-      )}
-
       {/* KPI cards (hidden when user has no stats access — e.g. BDC) */}
       {hasStats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border border border-border mb-10">
