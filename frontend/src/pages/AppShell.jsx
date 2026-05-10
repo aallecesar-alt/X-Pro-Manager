@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks, HandCoins } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -11,6 +11,7 @@ import Financial from "@/pages/Financial";
 import LeadsPage from "@/pages/LeadsPage";
 import PostSales from "@/pages/PostSales";
 import CreditApplications from "@/pages/CreditApplications";
+import Receivables from "@/pages/Receivables";
 import { Menu as MenuIcon } from "lucide-react";
 import VehicleHistoryModal from "@/components/VehicleHistoryModal";
 import ChatWidget from "@/components/ChatWidget";
@@ -46,6 +47,7 @@ export default function AppShell() {
   const [historyVid, setHistoryVid] = useState(null);
   const [importPageOpen, setImportPageOpen] = useState(false);
   const [fpAlerts, setFpAlerts] = useState({ overdue: [], today: [], tomorrow: [], total: 0 });
+  const [recAlerts, setRecAlerts] = useState({ alert_count: 0, total_remaining: 0 });
 
   // Auto-load Floor Plan alerts for owner+gerente every 5 minutes
   useEffect(() => {
@@ -62,6 +64,25 @@ export default function AppShell() {
     return () => { alive = false; clearInterval(id); };
   }, [isStaff]);
 
+  // Auto-load Receivables summary (overdue + due today badge) every 5 minutes
+  // Also refetch when switching to overview/receivables tab so the user always
+  // sees fresh numbers right after creating/paying installments.
+  useEffect(() => {
+    let alive = true;
+    const userPerms = user?.permissions || [];
+    const canAccessRec = isOwner || userPerms.includes("receivables");
+    if (!canAccessRec) return;
+    const fetchRec = async () => {
+      try {
+        const r = await api.get("/receivables/summary");
+        if (alive) setRecAlerts(r.data || { alert_count: 0, total_remaining: 0 });
+      } catch {/* silent */}
+    };
+    fetchRec();
+    const id = setInterval(fetchRec, 5 * 60 * 1000);
+    return () => { alive = false; clearInterval(id); };
+  }, [isOwner, user, tab]);
+
   const userPerms = user?.permissions || [];
   const canAccess = (tabId) => isOwner || userPerms.includes(tabId);
   const stuckCount = isStaff ? (deliveries || []).filter(v => v.stuck_alert).length : 0;
@@ -75,6 +96,7 @@ export default function AppShell() {
     { id: "financial", label: t("financial"), icon: DollarSign },
     { id: "post_sales", label: t("post_sales_tab"), icon: ShieldCheck },
     { id: "applications", label: t("applications_tab"), icon: FileText },
+    { id: "receivables", label: t("receivables_tab"), icon: HandCoins },
     { id: "settings", label: t("settings"), icon: Settings, ownerOnly: true },
   ];
   const tabs = allTabs.filter(tb => tb.ownerOnly ? isOwner : canAccess(tb.id));
@@ -179,6 +201,7 @@ export default function AppShell() {
           {tabs.map((tb) => {
             const showStuckBadge = tb.id === "delivery" && isStaff && stuckCount > 0;
             const showFpBadge = tb.id === "financial" && isStaff && fpAlerts.total > 0;
+            const showRecBadge = tb.id === "receivables" && recAlerts.alert_count > 0;
             return (
               <button
                 key={tb.id}
@@ -206,6 +229,15 @@ export default function AppShell() {
                     title={`${fpAlerts.total} pagamento(s) Floor Plan`}
                   >
                     {fpAlerts.total}
+                  </span>
+                )}
+                {showRecBadge && (
+                  <span
+                    data-testid="nav-receivables-badge"
+                    className="min-w-[20px] h-5 px-1.5 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center shadow-[0_0_10px_rgba(217,45,32,0.6)] animate-pulse"
+                    title={`${recAlerts.alert_count} parcela(s) atrasada(s) ou vencendo hoje`}
+                  >
+                    {recAlerts.alert_count}
                   </span>
                 )}
               </button>
@@ -240,7 +272,7 @@ export default function AppShell() {
 
       {/* MAIN */}
       <main className="flex-1 p-4 lg:p-8 overflow-auto pt-20 lg:pt-8 min-w-0">
-        {tab === "overview" && canAccess("overview") && <Overview stats={stats} t={t} isSalesperson={isSalesperson} isBdc={isBdc} fpAlerts={isStaff ? fpAlerts : null} onGoToFinancial={() => setTab("financial")} />}
+        {tab === "overview" && canAccess("overview") && <Overview stats={stats} t={t} isSalesperson={isSalesperson} isBdc={isBdc} fpAlerts={isStaff ? fpAlerts : null} recAlerts={canAccess("receivables") ? recAlerts : null} onGoToFinancial={() => setTab("financial")} onGoToReceivables={() => setTab("receivables")} />}
         {tab === "inventory" && canAccess("inventory") && (
           <Inventory
             vehicles={vehicles} t={t} search={search} setSearch={setSearch} isSalesperson={isSalesperson}
@@ -256,6 +288,7 @@ export default function AppShell() {
         {tab === "financial" && canAccess("financial") && <Financial t={t} />}
         {tab === "post_sales" && canAccess("post_sales") && <PostSales t={t} />}
         {tab === "applications" && canAccess("applications") && <CreditApplications />}
+        {tab === "receivables" && canAccess("receivables") && <Receivables t={t} />}
         {tab === "settings" && isOwner && <SettingsTab dealership={dealership} t={t} onRefresh={refreshDealership} />}
 
         {editing && (
@@ -568,7 +601,7 @@ function PodiumCard({ rank, row, accent, featured = false, t }) {
   );
 }
 
-function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, onGoToFinancial }) {
+function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToFinancial, onGoToReceivables }) {
   const [leaderboard, setLeaderboard] = useState({ rows: [], total_sold: 0 });
   const [promotion, setPromotion] = useState(null);
   const [editingPromo, setEditingPromo] = useState(false);
@@ -621,6 +654,41 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, onGoToFinancial })
       {/* Floor Plan alerts banner — owner+gerente only */}
       {fpAlerts && fpAlerts.total > 0 && (
         <FloorPlanAlertBanner alerts={fpAlerts} onGoTo={onGoToFinancial} t={t} />
+      )}
+
+      {/* Receivables summary card — visible whenever user can access Receivables */}
+      {recAlerts && (recAlerts.total_remaining > 0 || recAlerts.alert_count > 0) && (
+        <button
+          type="button"
+          data-testid="overview-receivables-card"
+          onClick={onGoToReceivables}
+          className="w-full text-left mb-6 lg:mb-10 border border-border bg-background hover:border-primary transition-colors group"
+        >
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border">
+            <div className="bg-background p-5">
+              <div className="flex items-center gap-2 mb-2">
+                <HandCoins size={14} className="text-primary" />
+                <p className="label-eyebrow">{t("rec_overview_card")}</p>
+              </div>
+              <p className="font-display font-black text-2xl text-white">{formatCurrency(recAlerts.total_remaining || 0)}</p>
+            </div>
+            <div className={`bg-background p-5 ${(recAlerts.overdue_count || 0) > 0 ? "ring-1 ring-primary/40" : ""}`}>
+              <p className="label-eyebrow text-primary mb-2">{t("rec_overdue")}</p>
+              <p className="font-display font-black text-2xl text-primary">{formatCurrency(recAlerts.total_overdue || 0)}</p>
+              <p className="text-[10px] text-text-secondary mt-1 uppercase">{recAlerts.overdue_count || 0} {t("rec_overview_overdue")}</p>
+            </div>
+            <div className="bg-background p-5">
+              <p className="label-eyebrow text-warning mb-2">{t("rec_due_today")}</p>
+              <p className="font-display font-black text-2xl text-warning">{formatCurrency(recAlerts.due_today || 0)}</p>
+              <p className="text-[10px] text-text-secondary mt-1 uppercase">{recAlerts.due_today_count || 0} {t("rec_installments")}</p>
+            </div>
+            <div className="bg-background p-5">
+              <p className="label-eyebrow text-success mb-2">{t("rec_paid_this_month")}</p>
+              <p className="font-display font-black text-2xl text-success">{formatCurrency(recAlerts.paid_this_month || 0)}</p>
+              <p className="text-[10px] text-text-secondary mt-1 uppercase group-hover:text-primary transition-colors">→ {t("receivables_tab")}</p>
+            </div>
+          </div>
+        </button>
       )}
 
       {/* KPI cards (hidden when user has no stats access — e.g. BDC) */}
@@ -1371,6 +1439,7 @@ const PERMISSION_LABELS = {
   financial: { key: "financial", icon: "💰" },
   post_sales: { key: "post_sales_tab", icon: "🛠️" },
   applications: { key: "applications_tab", icon: "📝" },
+  receivables: { key: "receivables_tab", icon: "💵" },
 };
 
 function TeamMemberAvatarUploader({ member, t, onChanged, disabled = false }) {

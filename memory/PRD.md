@@ -143,6 +143,23 @@ Per-car features:
 - New collections: `chat_messages`, `chat_reads`. New user field: `chat_last_seen`.
 - 6 pytest tests cover user list + heartbeat presence, send/list/edit/delete with permission checks, DM membership enforcement, unread tracking + mark-read.
 
+### Receivables / Cobranças (Feb 9 2026)
+- New sidebar tab "Recebíveis" (HandCoins icon) — accessible to owner; opt-in for other roles via Settings.
+- Always linked to a sold/in-stock vehicle. On vehicle pick the form auto-fills `customer_name` + `customer_phone` from the vehicle's buyer fields.
+- Three frequencies: **weekly / biweekly / monthly**. Auto-generates the full installment schedule (1–240 installments) with computed due_dates.
+- Auto-computes `installment_amount = total / count` while typing in the create form. Shows a 4-installment preview in the modal.
+- Each receivable card shows: customer, vehicle thumb+make+model, frequency, progress bar (paid vs total), counts, and overdue flag.
+- Expandable installment table with **Marcar pago / Desfazer** buttons per row. Auto-completes the receivable when all paid; reopens it on undo.
+- KPI bar at the top: Total a receber · Atrasadas · Vence Hoje · Recebido no mês.
+- Reminder panel split in 3 columns: Atrasadas · Vence Hoje · Próximos 7 dias (with one-click "pay" button).
+- Filter pills: Ativo / Quitado / Todos.
+- Dashboard / Painel summary card "A receber" (clickable → goes to Recebíveis) showing total + overdue + due today + received this month.
+- Sidebar badge (red, pulsing) on the Recebíveis nav with `overdue + due_today` count.
+- Endpoints: `GET/POST /api/receivables`, `GET /api/receivables/{id}`, `PUT /api/receivables/{id}`, `DELETE /api/receivables/{id}`, `GET /api/receivables/summary`, `POST /api/receivables/{id}/installments/{n}/pay`, `POST /api/receivables/{id}/installments/{n}/unpay`.
+- New collection: `receivables` (embedded `installments` array).
+- New permission `receivables` added to ALL_TAB_PERMISSIONS.
+- 8 pytest tests cover CRUD lifecycle, weekly/biweekly/monthly date math, pay/unpay flow + auto-complete, summary buckets, validation errors, metadata update, salesperson RBAC.
+
 ## Test credentials
 - **Owner** — Email: `carlos@intercar.com` · Password: `senha123` (sees everything)
 - **Salesperson** — Email: `joao@intercar.com` · Password: `senha456` (restricted view)

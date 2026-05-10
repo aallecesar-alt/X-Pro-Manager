@@ -196,6 +196,7 @@ async def get_current_user(request: Request) -> dict:
 ALL_TAB_PERMISSIONS = [
     "overview", "inventory", "pipeline", "delivery",
     "leads", "salespeople", "financial", "post_sales", "applications",
+    "receivables",
 ]
 ROLE_DEFAULT_PERMISSIONS = {
     "owner": ALL_TAB_PERMISSIONS,
@@ -276,6 +277,9 @@ async def startup():
     await db.operational_expenses.create_index([("dealership_id", 1), ("date", -1)])
     await db.operational_credits.create_index("id", unique=True)
     await db.operational_credits.create_index([("dealership_id", 1), ("date", -1)])
+    await db.receivables.create_index("id", unique=True)
+    await db.receivables.create_index([("dealership_id", 1), ("created_at", -1)])
+    await db.receivables.create_index([("dealership_id", 1), ("status", 1)])
     await db.lost_sales.create_index("id", unique=True)
     await db.lost_sales.create_index([("dealership_id", 1), ("date", -1)])
     await db.leads.create_index("id", unique=True)
@@ -2690,6 +2694,400 @@ async def delete_credit(cid: str, current: dict = Depends(get_current_user)):
     if res.deleted_count == 0:
         raise HTTPException(404, "Credit not found")
     return {"deleted": True}
+
+
+# ============================================================
+# RECEIVABLES — installment plans / accounts to receive.
+# A receivable is always linked to a sold vehicle and tracks a sequence
+# of installments (weekly / biweekly / monthly). Each installment can
+# be marked as paid, generating a "received in month" entry.
+# ============================================================
+def _add_days(date_str: str, days: int) -> str:
+    """date_str is YYYY-MM-DD. Returns YYYY-MM-DD shifted by `days`."""
+    from datetime import date as _date, timedelta
+    y, m, d = [int(x) for x in date_str.split("-")]
+    nd = _date(y, m, d) + timedelta(days=days)
+    return nd.strftime("%Y-%m-%d")
+
+
+def _add_months(date_str: str, months: int) -> str:
+    """Naive month add — keeps the day if possible, clamps to last day of month."""
+    from datetime import date as _date
+    import calendar
+    y, m, d = [int(x) for x in date_str.split("-")]
+    total = (y * 12 + (m - 1)) + months
+    ny, nm = divmod(total, 12)
+    nm += 1
+    last = calendar.monthrange(ny, nm)[1]
+    nd = min(d, last)
+    return _date(ny, nm, nd).strftime("%Y-%m-%d")
+
+
+def _generate_installments(start_date: str, count: int, frequency: str, amount: float) -> List[dict]:
+    """Build a list of installment dicts based on the frequency.
+    frequency ∈ {weekly, biweekly, monthly}. start_date = first due date."""
+    out = []
+    for i in range(count):
+        if frequency == "weekly":
+            due = _add_days(start_date, 7 * i)
+        elif frequency == "biweekly":
+            due = _add_days(start_date, 14 * i)
+        else:
+            due = _add_months(start_date, i)
+        out.append({
+            "number": i + 1,
+            "due_date": due,
+            "amount": float(round(amount, 2)),
+            "status": "pending",
+            "paid_at": None,
+            "paid_amount": 0.0,
+            "notes": "",
+        })
+    return out
+
+
+class ReceivableInstallment(BaseModel):
+    number: int
+    due_date: str
+    amount: float
+    status: str = "pending"  # pending | paid
+    paid_at: Optional[str] = None
+    paid_amount: float = 0.0
+    notes: str = ""
+
+
+class ReceivableBase(BaseModel):
+    vehicle_id: str
+    customer_name: str
+    customer_phone: str = ""
+    total_amount: float
+    installment_count: int
+    installment_amount: float
+    frequency: str  # weekly | biweekly | monthly
+    start_date: str  # first due date YYYY-MM-DD
+    notes: str = ""
+
+
+class Receivable(ReceivableBase):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    dealership_id: str
+    status: str = "active"  # active | completed | cancelled
+    installments: List[ReceivableInstallment] = []
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class ReceivableUpdate(BaseModel):
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
+    notes: Optional[str] = None
+    status: Optional[str] = None
+
+
+def _today_str() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _enrich_receivable(r: dict) -> dict:
+    """Add computed fields: paid_total, remaining, overdue_count, next_due."""
+    today = _today_str()
+    paid_total = 0.0
+    remaining = 0.0
+    overdue_count = 0
+    pending_count = 0
+    paid_count = 0
+    next_due = None
+    for ins in r.get("installments", []):
+        if ins.get("status") == "paid":
+            paid_total += float(ins.get("paid_amount") or ins.get("amount") or 0)
+            paid_count += 1
+        else:
+            remaining += float(ins.get("amount") or 0)
+            pending_count += 1
+            if ins.get("due_date") and ins["due_date"] < today:
+                overdue_count += 1
+            if next_due is None or ins["due_date"] < next_due:
+                next_due = ins["due_date"]
+    r["paid_total"] = round(paid_total, 2)
+    r["remaining"] = round(remaining, 2)
+    r["overdue_count"] = overdue_count
+    r["pending_count"] = pending_count
+    r["paid_count"] = paid_count
+    r["next_due"] = next_due
+    return r
+
+
+def require_receivables(current: dict):
+    """Require receivables tab access (owner or explicit permission)."""
+    if current.get("role") == "owner":
+        return
+    perms = effective_permissions(current)
+    if "receivables" not in perms:
+        raise HTTPException(403, "Receivables access required")
+
+
+@api_router.get("/receivables")
+async def list_receivables(
+    status: Optional[str] = None,
+    current: dict = Depends(get_current_user),
+):
+    require_receivables(current)
+    q = {"dealership_id": current["dealership_id"]}
+    if status:
+        q["status"] = status
+    items = await db.receivables.find(q, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    # Attach a mini vehicle snapshot
+    for r in items:
+        _enrich_receivable(r)
+        v = await db.vehicles.find_one(
+            {"id": r.get("vehicle_id"), "dealership_id": current["dealership_id"]},
+            {"_id": 0, "make": 1, "model": 1, "year": 1, "vin": 1, "images": 1},
+        )
+        r["vehicle"] = v or None
+    return items
+
+
+@api_router.get("/receivables/summary")
+async def receivables_summary(current: dict = Depends(get_current_user)):
+    """Aggregated KPIs: total to receive, overdue, due today, due this week, paid this month."""
+    require_receivables(current)
+    today = _today_str()
+    from datetime import date as _date, timedelta
+    y, m, d = [int(x) for x in today.split("-")]
+    week_end = (_date(y, m, d) + timedelta(days=7)).strftime("%Y-%m-%d")
+    month_start = f"{y}-{m:02d}-01"
+
+    items = await db.receivables.find(
+        {"dealership_id": current["dealership_id"], "status": "active"}, {"_id": 0}
+    ).to_list(2000)
+
+    total_remaining = 0.0
+    total_overdue = 0.0
+    overdue_count = 0
+    due_today = 0.0
+    due_today_count = 0
+    due_week = 0.0
+    due_week_count = 0
+    paid_this_month = 0.0
+    paid_this_month_count = 0
+
+    overdue_list = []
+    today_list = []
+    week_list = []
+
+    for r in items:
+        for ins in r.get("installments", []):
+            amt = float(ins.get("amount") or 0)
+            paid_amt = float(ins.get("paid_amount") or 0)
+            if ins.get("status") == "paid":
+                paid_at = (ins.get("paid_at") or "")[:10]
+                if paid_at >= month_start and paid_at <= today:
+                    paid_this_month += paid_amt or amt
+                    paid_this_month_count += 1
+                continue
+            total_remaining += amt
+            due = ins.get("due_date") or ""
+            if due < today:
+                total_overdue += amt
+                overdue_count += 1
+                overdue_list.append({
+                    "receivable_id": r["id"],
+                    "customer_name": r.get("customer_name"),
+                    "customer_phone": r.get("customer_phone"),
+                    "vehicle_id": r.get("vehicle_id"),
+                    "number": ins.get("number"),
+                    "due_date": due,
+                    "amount": amt,
+                })
+            elif due == today:
+                due_today += amt
+                due_today_count += 1
+                today_list.append({
+                    "receivable_id": r["id"],
+                    "customer_name": r.get("customer_name"),
+                    "customer_phone": r.get("customer_phone"),
+                    "vehicle_id": r.get("vehicle_id"),
+                    "number": ins.get("number"),
+                    "due_date": due,
+                    "amount": amt,
+                })
+            elif due < week_end:
+                due_week += amt
+                due_week_count += 1
+                week_list.append({
+                    "receivable_id": r["id"],
+                    "customer_name": r.get("customer_name"),
+                    "customer_phone": r.get("customer_phone"),
+                    "vehicle_id": r.get("vehicle_id"),
+                    "number": ins.get("number"),
+                    "due_date": due,
+                    "amount": amt,
+                })
+
+    overdue_list.sort(key=lambda x: x["due_date"])
+    today_list.sort(key=lambda x: x["due_date"])
+    week_list.sort(key=lambda x: x["due_date"])
+
+    return {
+        "total_remaining": round(total_remaining, 2),
+        "total_overdue": round(total_overdue, 2),
+        "overdue_count": overdue_count,
+        "due_today": round(due_today, 2),
+        "due_today_count": due_today_count,
+        "due_week": round(due_week, 2),
+        "due_week_count": due_week_count,
+        "paid_this_month": round(paid_this_month, 2),
+        "paid_this_month_count": paid_this_month_count,
+        "alert_count": overdue_count + due_today_count,
+        "overdue_list": overdue_list[:50],
+        "today_list": today_list[:50],
+        "week_list": week_list[:50],
+    }
+
+
+@api_router.get("/receivables/{rid}")
+async def get_receivable(rid: str, current: dict = Depends(get_current_user)):
+    require_receivables(current)
+    r = await db.receivables.find_one(
+        {"id": rid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not r:
+        raise HTTPException(404, "Receivable not found")
+    _enrich_receivable(r)
+    v = await db.vehicles.find_one(
+        {"id": r.get("vehicle_id"), "dealership_id": current["dealership_id"]},
+        {"_id": 0, "make": 1, "model": 1, "year": 1, "vin": 1, "images": 1, "buyer_name": 1, "buyer_phone": 1},
+    )
+    r["vehicle"] = v or None
+    return r
+
+
+@api_router.post("/receivables", response_model=Receivable)
+async def create_receivable(payload: ReceivableBase, current: dict = Depends(get_current_user)):
+    require_receivables(current)
+    if payload.frequency not in ("weekly", "biweekly", "monthly"):
+        raise HTTPException(400, "frequency must be weekly | biweekly | monthly")
+    if payload.installment_count <= 0 or payload.installment_count > 240:
+        raise HTTPException(400, "installment_count must be between 1 and 240")
+
+    # Validate the linked vehicle exists in the same dealership.
+    v = await db.vehicles.find_one(
+        {"id": payload.vehicle_id, "dealership_id": current["dealership_id"]},
+        {"_id": 0, "id": 1},
+    )
+    if not v:
+        raise HTTPException(404, "Vehicle not found")
+
+    inst = _generate_installments(
+        payload.start_date,
+        payload.installment_count,
+        payload.frequency,
+        payload.installment_amount,
+    )
+    r = Receivable(
+        dealership_id=current["dealership_id"],
+        installments=[ReceivableInstallment(**i) for i in inst],
+        **payload.model_dump(),
+    )
+    await db.receivables.insert_one(r.model_dump())
+    return r
+
+
+@api_router.put("/receivables/{rid}")
+async def update_receivable(rid: str, payload: ReceivableUpdate, current: dict = Depends(get_current_user)):
+    require_receivables(current)
+    upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not upd:
+        raise HTTPException(400, "Nothing to update")
+    if "status" in upd and upd["status"] not in ("active", "completed", "cancelled"):
+        raise HTTPException(400, "invalid status")
+    res = await db.receivables.update_one(
+        {"id": rid, "dealership_id": current["dealership_id"]}, {"$set": upd}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Receivable not found")
+    r = await db.receivables.find_one({"id": rid}, {"_id": 0})
+    _enrich_receivable(r)
+    return r
+
+
+@api_router.delete("/receivables/{rid}")
+async def delete_receivable(rid: str, current: dict = Depends(get_current_user)):
+    require_receivables(current)
+    res = await db.receivables.delete_one({"id": rid, "dealership_id": current["dealership_id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Receivable not found")
+    return {"deleted": True}
+
+
+class InstallmentPayPayload(BaseModel):
+    paid_at: Optional[str] = None       # YYYY-MM-DD ; defaults to today
+    paid_amount: Optional[float] = None  # defaults to the installment's amount
+    notes: Optional[str] = None
+
+
+@api_router.post("/receivables/{rid}/installments/{number}/pay")
+async def pay_installment(rid: str, number: int, payload: InstallmentPayPayload, current: dict = Depends(get_current_user)):
+    require_receivables(current)
+    r = await db.receivables.find_one(
+        {"id": rid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not r:
+        raise HTTPException(404, "Receivable not found")
+    found = False
+    for ins in r.get("installments", []):
+        if ins.get("number") == number:
+            ins["status"] = "paid"
+            ins["paid_at"] = payload.paid_at or _today_str()
+            ins["paid_amount"] = float(payload.paid_amount if payload.paid_amount is not None else ins.get("amount") or 0)
+            if payload.notes is not None:
+                ins["notes"] = payload.notes
+            found = True
+            break
+    if not found:
+        raise HTTPException(404, "Installment not found")
+
+    # Auto-complete the receivable when all are paid.
+    if all(i.get("status") == "paid" for i in r.get("installments", [])):
+        r["status"] = "completed"
+
+    await db.receivables.update_one(
+        {"id": rid, "dealership_id": current["dealership_id"]},
+        {"$set": {"installments": r["installments"], "status": r["status"]}},
+    )
+    _enrich_receivable(r)
+    return r
+
+
+@api_router.post("/receivables/{rid}/installments/{number}/unpay")
+async def unpay_installment(rid: str, number: int, current: dict = Depends(get_current_user)):
+    require_receivables(current)
+    r = await db.receivables.find_one(
+        {"id": rid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not r:
+        raise HTTPException(404, "Receivable not found")
+    found = False
+    for ins in r.get("installments", []):
+        if ins.get("number") == number:
+            ins["status"] = "pending"
+            ins["paid_at"] = None
+            ins["paid_amount"] = 0.0
+            found = True
+            break
+    if not found:
+        raise HTTPException(404, "Installment not found")
+
+    # Re-open the receivable if it had been auto-completed.
+    if any(i.get("status") != "paid" for i in r.get("installments", [])):
+        if r.get("status") == "completed":
+            r["status"] = "active"
+
+    await db.receivables.update_one(
+        {"id": rid, "dealership_id": current["dealership_id"]},
+        {"$set": {"installments": r["installments"], "status": r["status"]}},
+    )
+    _enrich_receivable(r)
+    return r
 
 
 # ============================================================

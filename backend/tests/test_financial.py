@@ -275,14 +275,15 @@ class TestEndToEndClosingCalculation:
         assert opex_match[0]["amount"] == 3500
 
         # gross_profit at dealership level is rev - cost (without commission deduction).
-        # net_profit = gross - opex - paid_commissions (so commission is counted exactly once).
+        # net_profit = gross - (opex - credits) - paid_commissions
         # Per-row profit DOES subtract commission, so sum(profit) != gross_profit (differs by paid_commissions).
         sum_row_profit = sum(v["profit"] for v in d["vehicles_sold"])
         sum_opex = sum(e["amount"] for e in d["operational_expenses"])
+        sum_credits = sum(c["amount"] for c in d.get("operational_credits", []))
         sum_paid_comm = sum(v["commission_amount"] for v in d["vehicles_sold"] if v["commission_paid"])
         # gross_profit = sum_row_profit + sum_paid_comm
         assert abs(d["gross_profit"] - (sum_row_profit + sum_paid_comm)) < 0.01
         assert abs(d["operational_total"] - sum_opex) < 0.01
         assert abs(d["paid_commissions"] - sum_paid_comm) < 0.01
-        # net = gross - opex - paid_commissions
-        assert abs(d["net_profit"] - (d["gross_profit"] - sum_opex - sum_paid_comm)) < 0.01
+        # net = gross - (opex - credits) - paid_commissions
+        assert abs(d["net_profit"] - (d["gross_profit"] - (sum_opex - sum_credits) - sum_paid_comm)) < 0.01
