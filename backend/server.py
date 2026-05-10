@@ -670,13 +670,16 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
             upd["sold_price"] = round(dp + bc, 2)
 
     # Auto-CLEAR financing breakdown when reverting from sold → in_stock/reserved.
-    # Otherwise stale entries would still influence the sold_price next time around.
+    # Otherwise stale entries (sent back by the frontend) would still influence the
+    # sold_price and create a phantom registration expense on the next round.
+    # IMPORTANT: assign directly (not setdefault) because the frontend usually
+    # echoes back the previous values from the form.
     if upd.get("status") in ("in_stock", "reserved") and existing and existing.get("status") == "sold":
-        upd.setdefault("down_payment", 0)
-        upd.setdefault("bank_check_amount", 0)
-        upd.setdefault("registration_cost", 0)
-        upd.setdefault("sold_price", 0)
-        upd.setdefault("sold_at", None)
+        upd["down_payment"] = 0
+        upd["bank_check_amount"] = 0
+        upd["registration_cost"] = 0
+        upd["sold_price"] = 0
+        upd["sold_at"] = None
 
     # Mirror registration_cost into expense_items so it appears in the per-vehicle
     # profit breakdown (same pattern as Floor Plan + Post-Sales). Idempotent.

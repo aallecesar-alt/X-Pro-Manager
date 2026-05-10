@@ -146,10 +146,20 @@ def test_revert_sale_clears_breakdown(headers, fresh_vehicle):
         headers=headers,
         timeout=15,
     )
-    # Revert to in_stock
+    # Revert to in_stock — simulating the frontend echoing back the old values
+    # (this is the real-world bug: form re-sends the previous registration_cost).
     r = httpx.put(
         f"{BASE_URL}/vehicles/{fresh_vehicle}",
-        json={"status": "in_stock"},
+        json={
+            "status": "in_stock",
+            "down_payment": 5000,
+            "bank_check_amount": 15000,
+            "registration_cost": 500,
+            "sold_price": 20000,
+            "expense_items": [
+                {"id": f"reg-{fresh_vehicle}", "category": "registration", "description": "Emplacamento", "amount": 500, "date": "2026-05-10", "attachments": []}
+            ],
+        },
         headers=headers,
         timeout=15,
     )
@@ -160,3 +170,7 @@ def test_revert_sale_clears_breakdown(headers, fresh_vehicle):
     assert v["bank_check_amount"] == 0
     assert v["registration_cost"] == 0
     assert v["sold_price"] == 0
+    # Mirror must have been removed too
+    reg_items = [it for it in v.get("expense_items", []) if it.get("category") == "registration"]
+    assert reg_items == []
+    assert v["expenses"] == 0
