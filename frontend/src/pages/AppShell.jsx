@@ -48,7 +48,6 @@ export default function AppShell() {
   const [importPageOpen, setImportPageOpen] = useState(false);
   const [fpAlerts, setFpAlerts] = useState({ overdue: [], today: [], tomorrow: [], total: 0 });
   const [recAlerts, setRecAlerts] = useState({ alert_count: 0, total_remaining: 0 });
-  const [sellingVehicle, setSellingVehicle] = useState(null); // vehicle to mark as sold (modal)
 
   // Auto-load Floor Plan alerts for owner+gerente every 5 minutes
   useEffect(() => {
@@ -283,7 +282,6 @@ export default function AppShell() {
             onAdd={() => setEditing("new")} onImport={() => setImportOpen(true)} onImportPage={isOwner ? () => setImportPageOpen(true) : null}
             onEdit={(v) => setEditing(v)} onDelete={onDelete}
             onHistory={setHistoryVid}
-            onSell={(v) => setSellingVehicle(v)}
           />
         )}
         {tab === "pipeline" && canAccess("pipeline") && <Pipeline vehicles={vehicles} t={t} onMove={updateStatus} onEdit={(v) => setEditing(v)} onHistory={setHistoryVid} />}
@@ -307,18 +305,6 @@ export default function AppShell() {
             onImported={(data) => {
               setImportOpen(false);
               setEditing({ __prefill: true, ...data });
-            }}
-          />
-        )}
-
-        {sellingVehicle && (
-          <FinalizeSaleModal
-            vehicle={sellingVehicle}
-            t={t}
-            onClose={() => setSellingVehicle(null)}
-            onConfirm={(payload) => {
-              updateStatus(sellingVehicle.id, "sold", payload);
-              setSellingVehicle(null);
             }}
           />
         )}
@@ -1011,7 +997,7 @@ function PromotionForm({ promotion, t, onClose, onSaved }) {
   );
 }
 
-function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onImportPage, onEdit, onDelete, onHistory, onSell, isSalesperson }) {
+function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onImportPage, onEdit, onDelete, onHistory, isSalesperson }) {
   const [view, setView] = useState(() => localStorage.getItem("inventory_view") || "grid");
   const [statusFilter, setStatusFilter] = useState("all");
   const [makeFilter, setMakeFilter] = useState("");
@@ -1187,7 +1173,7 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onImportPa
       ) : view === "grid" ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
           {filtered.map((v) => (
-            <VehicleCard key={v.id} v={v} t={t} onEdit={onEdit} onDelete={onDelete} onHistory={onHistory} onSell={onSell} isSalesperson={isSalesperson} />
+            <VehicleCard key={v.id} v={v} t={t} onEdit={onEdit} onDelete={onDelete} onHistory={onHistory} isSalesperson={isSalesperson} />
           ))}
         </div>
       ) : (
@@ -1221,11 +1207,6 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onImportPa
                   <td className="p-3"><StatusPill status={v.status} t={t} /></td>
                   <td className="p-3 text-right">
                     <div className="inline-flex gap-1">
-                      {onSell && v.status !== "sold" && (
-                        <button data-testid={`sell-row-${v.id}`} onClick={() => onSell(v)} title={t("mark_as_sold")} className="px-2 h-8 border border-success/40 text-success bg-success/10 hover:bg-success hover:text-white inline-flex items-center gap-1 text-[10px] uppercase tracking-wider transition-colors font-display font-bold">
-                          <Check size={12} /> {t("sold")}
-                        </button>
-                      )}
                       {onHistory && (
                         <button data-testid={`history-${v.id}`} onClick={() => onHistory(v.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors" title={t("vehicle_history")}><History size={14} /></button>
                       )}
@@ -1245,7 +1226,7 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onImportPa
   );
 }
 
-function VehicleCard({ v, t, onEdit, onDelete, onHistory, onSell, isSalesperson }) {
+function VehicleCard({ v, t, onEdit, onDelete, onHistory, isSalesperson }) {
   const photoCount = v.images?.length || 0;
   return (
     <div data-testid={`card-grid-${v.id}`} className="group border border-border bg-surface overflow-hidden hover:border-primary transition-colors">
@@ -1307,18 +1288,8 @@ function VehicleCard({ v, t, onEdit, onDelete, onHistory, onSell, isSalesperson 
           </div>
         </div>
 
-        <div className="pt-2 border-t border-border flex items-center justify-between gap-2">
+        <div className="pt-2 border-t border-border">
           <p className="font-display font-black text-sm text-primary leading-none">{formatCurrency(v.sale_price)}</p>
-          {onSell && v.status !== "sold" && (
-            <button
-              data-testid={`sell-${v.id}`}
-              onClick={(e) => { e.stopPropagation(); onSell(v); }}
-              title={t("mark_as_sold")}
-              className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-1 bg-success/10 border border-success/40 text-success hover:bg-success hover:text-white transition-colors font-display font-bold"
-            >
-              <Check size={11} /> {t("sold")}
-            </button>
-          )}
         </div>
       </div>
     </div>
@@ -1331,7 +1302,6 @@ function StatusPill({ status, t }) {
 }
 
 function Pipeline({ vehicles, t, onMove, onEdit, onHistory }) {
-  const [finalizingSale, setFinalizingSale] = useState(null); // vehicle to finalize sale on
   return (
     <div data-testid="pipeline-tab">
       <p className="label-eyebrow text-primary mb-2">{t("pipeline")}</p>
@@ -1359,7 +1329,7 @@ function Pipeline({ vehicles, t, onMove, onEdit, onHistory }) {
                           key={c.id}
                           data-testid={`move-${v.id}-${c.id}`}
                           onClick={() => {
-                            if (c.id === "sold") setFinalizingSale(v);
+                            if (c.id === "sold") onEdit(v);
                             else onMove(v.id, c.id);
                           }}
                           className="text-[10px] px-2 py-1 border border-border hover:border-primary hover:text-primary uppercase tracking-wider transition-colors"
@@ -1382,126 +1352,6 @@ function Pipeline({ vehicles, t, onMove, onEdit, onHistory }) {
           );
         })}
       </div>
-
-      {finalizingSale && (
-        <FinalizeSaleModal
-          vehicle={finalizingSale}
-          t={t}
-          onClose={() => setFinalizingSale(null)}
-          onConfirm={(payload) => {
-            onMove(finalizingSale.id, "sold", payload);
-            setFinalizingSale(null);
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-function FinalizeSaleModal({ vehicle, t, onClose, onConfirm }) {
-  const [form, setForm] = useState({
-    buyer_name: vehicle.buyer_name || "",
-    buyer_phone: vehicle.buyer_phone || "",
-    down_payment: vehicle.down_payment || 0,
-    bank_check_amount: vehicle.bank_check_amount || 0,
-    registration_cost: vehicle.registration_cost || 0,
-    bank_name: vehicle.bank_name || "",
-  });
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-
-  const dp = Number(form.down_payment) || 0;
-  const bc = Number(form.bank_check_amount) || 0;
-  const reg = Number(form.registration_cost) || 0;
-  const finalSold = dp + bc;
-  const asking = Number(vehicle.sale_price) || 0;
-  const diff = finalSold - asking;
-
-  const submit = (e) => {
-    e.preventDefault();
-    onConfirm({
-      buyer_name: form.buyer_name,
-      buyer_phone: form.buyer_phone,
-      down_payment: dp,
-      bank_check_amount: bc,
-      registration_cost: reg,
-      bank_name: form.bank_name,
-    });
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-8 px-4">
-      <form onSubmit={submit} className="bg-background border border-success w-full max-w-xl p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="label-eyebrow text-success mb-1">{t("sale_finalize")}</p>
-            <h2 className="font-display font-black text-xl uppercase tracking-tight">
-              {vehicle.year} {vehicle.make} {vehicle.model}
-            </h2>
-            <p className="text-xs text-text-secondary">{t("asking_price")}: <span className="font-display font-bold">{formatCurrency(asking)}</span></p>
-          </div>
-          <button type="button" onClick={onClose}><X size={20} className="text-text-secondary hover:text-primary" /></button>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="label-eyebrow block mb-2">{t("buyer_name")}</label>
-            <input data-testid="sale-buyer" required value={form.buyer_name} onChange={e => set("buyer_name", e.target.value)}
-              className="w-full bg-surface border border-border focus:border-success focus:outline-none px-3 h-11 text-sm" />
-          </div>
-          <div>
-            <label className="label-eyebrow block mb-2">{t("buyer_phone")}</label>
-            <input data-testid="sale-phone" value={form.buyer_phone} onChange={e => set("buyer_phone", e.target.value)}
-              className="w-full bg-surface border border-border focus:border-success focus:outline-none px-3 h-11 text-sm" />
-          </div>
-        </div>
-
-        <div className="bg-surface/40 border border-border p-4 space-y-3">
-          <p className="label-eyebrow text-success">{t("sale_breakdown")}</p>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-[10px] uppercase tracking-widest text-text-secondary block mb-1">💵 {t("down_payment")}</label>
-              <input data-testid="sale-down-payment" type="number" min="0" step="0.01" value={form.down_payment} onChange={e => set("down_payment", e.target.value)}
-                className="w-full bg-background border border-border focus:border-success focus:outline-none px-3 h-11 text-sm font-display font-bold" />
-            </div>
-            <div>
-              <label className="text-[10px] uppercase tracking-widest text-text-secondary block mb-1">🏦 {t("bank_check_amount")}</label>
-              <input data-testid="sale-bank-check" type="number" min="0" step="0.01" value={form.bank_check_amount} onChange={e => set("bank_check_amount", e.target.value)}
-                className="w-full bg-background border border-border focus:border-success focus:outline-none px-3 h-11 text-sm font-display font-bold" />
-            </div>
-          </div>
-          <div>
-            <label className="label-eyebrow block mb-2">{t("bank_name")}</label>
-            <input data-testid="sale-bank-name" value={form.bank_name} onChange={e => set("bank_name", e.target.value)}
-              placeholder="Capital One / Wells Fargo / ..."
-              className="w-full bg-background border border-border focus:border-success focus:outline-none px-3 h-11 text-sm" />
-          </div>
-
-          {/* Live computed final price */}
-          <div className="bg-success/10 border border-success/40 p-3 flex items-center justify-between gap-3 flex-wrap">
-            <span className="text-xs uppercase tracking-widest text-success">{t("final_sold_price")}</span>
-            <span className="font-display font-black text-2xl text-success">{formatCurrency(finalSold)}</span>
-          </div>
-          {asking > 0 && finalSold > 0 && Math.abs(diff) >= 0.5 && (
-            <div className={`text-[11px] uppercase tracking-widest text-right ${diff > 0 ? "text-info" : "text-warning"}`}>
-              {diff > 0 ? "+" : "−"}{formatCurrency(Math.abs(diff))} · {diff > 0 ? t("over_asking") : t("under_asking")}
-            </div>
-          )}
-        </div>
-
-        <div>
-          <label className="label-eyebrow block mb-2">🧾 {t("registration_cost")}</label>
-          <input data-testid="sale-registration" type="number" min="0" step="0.01" value={form.registration_cost} onChange={e => set("registration_cost", e.target.value)}
-            className="w-full bg-surface border border-border focus:border-warning focus:outline-none px-3 h-11 text-sm font-display font-bold" />
-          <p className="text-[10px] text-text-secondary mt-1">{t("registration_cost_hint")}</p>
-        </div>
-
-        <div className="flex justify-end gap-3 pt-4 border-t border-border">
-          <button type="button" onClick={onClose} className="px-5 py-2.5 border border-border hover:border-primary text-xs font-display font-bold uppercase tracking-widest transition-colors">{t("cancel")}</button>
-          <button type="submit" data-testid="sale-confirm" disabled={finalSold <= 0 || !form.buyer_name} className="bg-success hover:opacity-90 text-white disabled:opacity-40 disabled:cursor-not-allowed px-5 py-2.5 text-xs font-display font-bold uppercase tracking-widest transition-colors inline-flex items-center gap-2">
-            <Check size={14} /> {t("mark_as_sold")}
-          </button>
-        </div>
-      </form>
     </div>
   );
 }
@@ -2029,36 +1879,80 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
         <Select label={t("status")} value={form.status} set={(v) => set("status", v)} options={["in_stock", "reserved", "sold"]} testid="f-status" />
 
         {form.status === "sold" && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-border">
-            <Input label={t("buyer_name")} value={form.buyer_name} set={(v) => set("buyer_name", v)} testid="f-buyer-name" />
-            <Input label={t("buyer_phone")} value={form.buyer_phone} set={(v) => set("buyer_phone", v)} testid="f-buyer-phone" />
-            <Input label={t("payment_method")} value={form.payment_method} set={(v) => set("payment_method", v)} testid="f-payment" />
-            <Input label={t("bank_name_label")} value={form.bank_name || ""} set={(v) => set("bank_name", v)} testid="f-bank" />
-            <Input label={t("sold_price")} type="number" value={form.sold_price} set={(v) => set("sold_price", v)} testid="f-sold-price" />
-            {/* Salesperson selector — owner only. Salespeople auto-assign themselves on save */}
-            {!isSalesperson && (
-              <div>
-                <label className="label-eyebrow block mb-2">{t("salesperson")}</label>
-                <select
-                  data-testid="f-salesperson"
-                  value={form.salesperson_id || ""}
-                  onChange={(e) => {
-                    const sp = salespeople.find(s => s.id === e.target.value);
-                    set("salesperson_id", e.target.value);
-                    set("salesperson_name", sp ? sp.name : "");
-                    if (sp && !Number(form.commission_amount)) {
-                      set("commission_amount", sp.commission_amount || 0);
-                    }
-                  }}
-                  className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm"
-                >
-                  <option value="">{t("select_salesperson")}</option>
-                  {salespeople.filter(s => s.active !== false).map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
+          <div className="space-y-4 pt-4 border-t border-border">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input label={t("buyer_name")} value={form.buyer_name} set={(v) => set("buyer_name", v)} testid="f-buyer-name" />
+              <Input label={t("buyer_phone")} value={form.buyer_phone} set={(v) => set("buyer_phone", v)} testid="f-buyer-phone" />
+              <Input label={t("payment_method")} value={form.payment_method} set={(v) => set("payment_method", v)} testid="f-payment" />
+              <Input label={t("bank_name_label")} value={form.bank_name || ""} set={(v) => set("bank_name", v)} testid="f-bank" />
+            </div>
+
+            {/* Sale breakdown: down payment + bank check → auto-computes the final sold price */}
+            <div className="bg-success/5 border border-success/30 p-4 space-y-3">
+              <p className="label-eyebrow text-success">{t("sale_breakdown")}</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Input label={`💵 ${t("down_payment")}`} type="number" value={form.down_payment || 0} set={(v) => {
+                  set("down_payment", v);
+                  // Auto-recompute final sold_price as user types
+                  const dp = Number(v) || 0;
+                  const bc = Number(form.bank_check_amount) || 0;
+                  if (dp + bc > 0) set("sold_price", Number((dp + bc).toFixed(2)));
+                }} testid="f-down-payment" />
+                <Input label={`🏦 ${t("bank_check_amount")}`} type="number" value={form.bank_check_amount || 0} set={(v) => {
+                  set("bank_check_amount", v);
+                  const bc = Number(v) || 0;
+                  const dp = Number(form.down_payment) || 0;
+                  if (dp + bc > 0) set("sold_price", Number((dp + bc).toFixed(2)));
+                }} testid="f-bank-check" />
+                <Input label={`🧾 ${t("registration_cost")}`} type="number" value={form.registration_cost || 0} set={(v) => set("registration_cost", v)} testid="f-registration" />
               </div>
-            )}
+              {(() => {
+                const dp = Number(form.down_payment) || 0;
+                const bc = Number(form.bank_check_amount) || 0;
+                const finalSold = dp + bc;
+                const asking = Number(form.sale_price) || 0;
+                const diff = finalSold - asking;
+                if (finalSold <= 0 || asking <= 0) return null;
+                return (
+                  <div className="flex items-center justify-between bg-background/40 border border-border px-3 py-2">
+                    <span className="text-[11px] uppercase tracking-widest text-text-secondary">{t("asking_price")}: <span className="font-display font-bold text-white">{formatCurrency(asking)}</span></span>
+                    {Math.abs(diff) >= 0.5 && (
+                      <span className={`text-[11px] uppercase tracking-widest font-display font-bold ${diff > 0 ? "text-info" : "text-warning"}`}>
+                        {diff > 0 ? "+" : "−"}{formatCurrency(Math.abs(diff))} · {diff > 0 ? t("over_asking") : t("under_asking")}
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input label={t("sold_price")} type="number" value={form.sold_price} set={(v) => set("sold_price", v)} testid="f-sold-price" />
+              {/* Salesperson selector — owner only. Salespeople auto-assign themselves on save */}
+              {!isSalesperson && (
+                <div>
+                  <label className="label-eyebrow block mb-2">{t("salesperson")}</label>
+                  <select
+                    data-testid="f-salesperson"
+                    value={form.salesperson_id || ""}
+                    onChange={(e) => {
+                      const sp = salespeople.find(s => s.id === e.target.value);
+                      set("salesperson_id", e.target.value);
+                      set("salesperson_name", sp ? sp.name : "");
+                      if (sp && !Number(form.commission_amount)) {
+                        set("commission_amount", sp.commission_amount || 0);
+                      }
+                    }}
+                    className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-11 text-sm"
+                  >
+                    <option value="">{t("select_salesperson")}</option>
+                    {salespeople.filter(s => s.active !== false).map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
