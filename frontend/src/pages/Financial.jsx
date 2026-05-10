@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import NameWithAvatar from "@/components/NameWithAvatar";
 import FloorPlans from "@/pages/FloorPlans";
-import { Plus, Trash2, Edit2, X, Check, Paperclip, FileText, Image as ImageIcon, RotateCcw, Lock, Download, FolderArchive } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Check, Paperclip, FileText, Image as ImageIcon, RotateCcw, Lock, Download, FolderArchive, ChevronDown, ChevronUp, History } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency } from "@/lib/api";
 
@@ -76,6 +76,7 @@ export default function Financial({ t }) {
   const [detailVid, setDetailVid] = useState(null); // vehicle id to show details for
   const [closings, setClosings] = useState([]);
   const [closingMonth, setClosingMonth] = useState(false); // confirmation modal open
+  const [showAllSold, setShowAllSold] = useState(false); // collapsible "all sold cars" history
 
   const reload = async () => {
     try {
@@ -261,60 +262,76 @@ export default function Financial({ t }) {
         )}
       </div>
 
-      {/* All sold cars (all-time) */}
+      {/* All sold cars (all-time) — collapsed by default to keep the page tidy */}
       <div className="border border-border mb-10">
-        <div className="bg-surface px-4 py-3 border-b border-border flex items-center justify-between">
-          <p className="label-eyebrow text-primary">{t("all_sold_cars")}</p>
-          <p className="text-xs text-text-secondary">{allSold.length} {t("sales_count").toLowerCase()}</p>
-        </div>
-        {allSold.length === 0 ? (
-          <p className="text-text-secondary text-sm text-center py-12">—</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b border-border">
-                <tr>
-                  <th className="text-left p-3 label-eyebrow">{t("sale_date")}</th>
-                  <th className="text-left p-3 label-eyebrow">{t("make")}/{t("model")}</th>
-                  <th className="text-left p-3 label-eyebrow">{t("buyer_name")}</th>
-                  <th className="text-right p-3 label-eyebrow">{t("purchase_price")}</th>
-                  <th className="text-right p-3 label-eyebrow">{t("sold_price")}</th>
-                  <th className="text-right p-3 label-eyebrow">{t("real_profit")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {allSold.map((v) => (
-                  <tr key={v.vehicle_id} data-testid={`fin-all-${v.vehicle_id}`} className="border-b border-border hover:bg-surface transition-colors">
-                    <td className="p-3 text-xs text-text-secondary font-mono">
-                      {v.sold_at ? new Date(v.sold_at).toLocaleDateString() : "—"}
-                    </td>
-                    <td className="p-3">
-                      <button
-                        type="button"
-                        data-testid={`open-detail-all-${v.vehicle_id}`}
-                        onClick={() => setDetailVid(v.vehicle_id)}
-                        className="flex items-center gap-2 text-left hover:text-primary transition-colors"
-                      >
-                        {v.image && <img src={v.image} alt="" className="w-10 h-8 object-cover" />}
-                        <div>
-                          <p className="font-display font-bold border-b border-dashed border-text-secondary/40">{v.year} {v.make} {v.model}</p>
-                          <p className="text-[10px] text-text-secondary uppercase tracking-wider">{t("view_expenses")}</p>
-                        </div>
-                      </button>
-                    </td>
-                    <td className="p-3">{v.buyer_name || "—"}</td>
-                    <td className="p-3 text-right">
-                      <EditablePrice value={v.purchase_price} onSave={(val) => updatePurchasePrice(v.vehicle_id, val)} testid={`edit-purchase-all-${v.vehicle_id}`} />
-                    </td>
-                    <td className="p-3 text-right font-display font-bold">{formatCurrency(v.sold_price)}</td>
-                    <td className={`p-3 text-right font-display font-bold ${v.profit >= 0 ? "text-success" : "text-primary"}`}>
-                      {formatCurrency(v.profit)}
-                    </td>
+        <button
+          type="button"
+          data-testid="toggle-all-sold"
+          onClick={() => setShowAllSold(s => !s)}
+          className="w-full bg-surface px-4 py-3 border-b border-border flex items-center justify-between gap-3 hover:bg-surface/70 transition-colors group"
+        >
+          <span className="flex items-center gap-3">
+            <History size={16} className="text-primary" />
+            <span className="label-eyebrow text-primary">{t("all_sold_cars")}</span>
+            <span className="text-[10px] uppercase tracking-widest px-2 py-1 border border-border text-text-secondary group-hover:border-primary group-hover:text-primary transition-colors">
+              {allSold.length} {t("sales_count").toLowerCase()}
+            </span>
+          </span>
+          <span className="inline-flex items-center gap-2 text-[11px] uppercase tracking-widest text-text-secondary group-hover:text-primary transition-colors">
+            {showAllSold ? t("collapse") : t("expand")}
+            {showAllSold ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </span>
+        </button>
+        {showAllSold && (
+          allSold.length === 0 ? (
+            <p className="text-text-secondary text-sm text-center py-12">—</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border">
+                  <tr>
+                    <th className="text-left p-3 label-eyebrow">{t("sale_date")}</th>
+                    <th className="text-left p-3 label-eyebrow">{t("make")}/{t("model")}</th>
+                    <th className="text-left p-3 label-eyebrow">{t("buyer_name")}</th>
+                    <th className="text-right p-3 label-eyebrow">{t("purchase_price")}</th>
+                    <th className="text-right p-3 label-eyebrow">{t("sold_price")}</th>
+                    <th className="text-right p-3 label-eyebrow">{t("real_profit")}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {allSold.map((v) => (
+                    <tr key={v.vehicle_id} data-testid={`fin-all-${v.vehicle_id}`} className="border-b border-border hover:bg-surface transition-colors">
+                      <td className="p-3 text-xs text-text-secondary font-mono">
+                        {v.sold_at ? new Date(v.sold_at).toLocaleDateString() : "—"}
+                      </td>
+                      <td className="p-3">
+                        <button
+                          type="button"
+                          data-testid={`open-detail-all-${v.vehicle_id}`}
+                          onClick={() => setDetailVid(v.vehicle_id)}
+                          className="flex items-center gap-2 text-left hover:text-primary transition-colors"
+                        >
+                          {v.image && <img src={v.image} alt="" className="w-10 h-8 object-cover" />}
+                          <div>
+                            <p className="font-display font-bold border-b border-dashed border-text-secondary/40">{v.year} {v.make} {v.model}</p>
+                            <p className="text-[10px] text-text-secondary uppercase tracking-wider">{t("view_expenses")}</p>
+                          </div>
+                        </button>
+                      </td>
+                      <td className="p-3">{v.buyer_name || "—"}</td>
+                      <td className="p-3 text-right">
+                        <EditablePrice value={v.purchase_price} onSave={(val) => updatePurchasePrice(v.vehicle_id, val)} testid={`edit-purchase-all-${v.vehicle_id}`} />
+                      </td>
+                      <td className="p-3 text-right font-display font-bold">{formatCurrency(v.sold_price)}</td>
+                      <td className={`p-3 text-right font-display font-bold ${v.profit >= 0 ? "text-success" : "text-primary"}`}>
+                        {formatCurrency(v.profit)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         )}
       </div>
 
