@@ -4882,6 +4882,33 @@ async def receivable_schedule_preview():
     )
 
 
+@app.get("/api/receipt/preview.pdf")
+async def receipt_preview():
+    """Public preview of the deposit receipt PDF design."""
+    from receipt_pdf import render_receipt
+    sample = {
+        "invoice_no": "0001",
+        "date": "2026-05-10",
+        "sales_rep": "Carlos",
+        "customer_name": "John Smith",
+        "customer_phone": "+1 (555) 123-4567",
+        "customer_address": "150 Main St, Everett MA 02149",
+        "vehicle": "2022 Honda Civic Sport",
+        "vin": "1HGBH41JXMN109186",
+        "year": 2022,
+        "color": "Silver",
+        "mileage": "38,500",
+        "amount": 6750.00,
+        "non_refundable_amount": 499,
+    }
+    pdf_bytes = render_receipt(sample)
+    return FastAPIResponse(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="receipt-sample.pdf"'},
+    )
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,

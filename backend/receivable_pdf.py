@@ -32,8 +32,8 @@ OVERDUE_BG = colors.HexColor("#FDECEC")
 
 DEFAULT_STORE = {
     "address": "70 Chelsea St, Everett MA 02149",
-    "phone": "(617) 982-0342",
-    "email": "",
+    "phone": "(617) 718-0342",
+    "email": "intercarmotor@gmail.com",
     "website": "www.intercarautosales.com",
 }
 
