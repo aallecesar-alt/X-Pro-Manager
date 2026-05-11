@@ -1752,13 +1752,31 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
   const [saving, setSaving] = useState(false);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-  const numFields = ["year", "purchase_price", "sale_price", "expenses", "sold_price", "commission_amount"];
+  const numFields = [
+    "year", "purchase_price", "sale_price", "expenses", "sold_price", "commission_amount",
+    // sold-financing breakdown — must be numeric so deletes (empty string) save as 0
+    "down_payment", "bank_check_amount", "registration_cost",
+  ];
+  // Free-text fields that must always be sent as a string (empty when cleared)
+  const strFields = [
+    "make", "model", "color", "plate", "vin", "transmission", "fuel_type", "body_type",
+    "description", "buyer_name", "buyer_phone", "payment_method", "bank_name",
+    "salesperson_id", "salesperson_name",
+  ];
 
   const save = async (e) => {
     e.preventDefault();
     setSaving(true);
     const payload = { ...form, images: photos };
+    // Force numeric fields. Number("") === NaN → fall back to 0 so the backend
+    // doesn't reject the whole payload with 422.
     numFields.forEach((k) => { payload[k] = Number(payload[k]) || 0; });
+    // Force string fields to actual strings so empty values save as "" (clearing
+    // the field). Without this, clearing buyer_name leaves the previous value.
+    strFields.forEach((k) => {
+      if (payload[k] === undefined || payload[k] === null) payload[k] = "";
+      else if (typeof payload[k] !== "string") payload[k] = String(payload[k]);
+    });
     if (isSalesperson) {
       // Salespeople cannot edit cost/profit fields. Backend also strips these.
       delete payload.purchase_price;

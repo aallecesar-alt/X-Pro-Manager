@@ -24,7 +24,7 @@ import cloudinary.uploader
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query, Response
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
 
 
 mongo_url = os.environ['MONGO_URL']
@@ -152,6 +152,26 @@ class VehicleUpdate(BaseModel):
     bank_check_amount: Optional[float] = None
     registration_cost: Optional[float] = None
     delivery_step: Optional[int] = None
+
+    @field_validator("sold_price", "down_payment", "bank_check_amount", "registration_cost",
+                     "purchase_price", "sale_price", "expenses", "commission_amount",
+                     "year", "mileage", "delivery_step", mode="before")
+    @classmethod
+    def _empty_to_none(cls, v):
+        # Treat empty strings / blank inputs as None so optional numeric fields
+        # can be cleared from the form without raising a 422 parsing error.
+        if v == "" or v is None:
+            return None
+        return v
+
+    @field_validator("buyer_name", "buyer_phone", "payment_method", "bank_name",
+                     "delivery_notes", "salesperson_name", "color", "description",
+                     "vin", "plate", "make", "model", "transmission", "fuel_type", "body_type",
+                     mode="before")
+    @classmethod
+    def _none_to_str(cls, v):
+        # Allow clearing free-text fields (frontend sends "" to delete).
+        return "" if v is None else v
     bank_contract_signed: Optional[bool] = None
     bank_name: Optional[str] = None
     delivery_notes: Optional[str] = None
