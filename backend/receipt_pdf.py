@@ -1,13 +1,15 @@
 """Generates a professional Deposit Receipt PDF for INTERCAR Auto Sales.
 
-Replaces the old typewriter-style receipt with a clean, branded layout:
-  - Centered INTERCAR logo + brand on the left
-  - Store contact info on the right
-  - Receipt number + date in a colored band
-  - Billed To: customer fields
-  - Vehicle / VIN description with deposit amount
-  - Deposit legal text + signature blocks
-  - Non-refundable warning footer
+Designed from scratch — modern document layout with:
+  - Strong branded header (logo + name + store info)
+  - "DEPOSIT RECEIPT" headline + receipt number / date in a colored stripe
+  - "Issued to" customer card (name, phone, address) — clean, well-spaced
+  - "Vehicle" card with year/make/model + VIN + color + mileage
+  - Big payment summary box (Deposit amount displayed prominently)
+  - The required deposit statement (verbatim) styled as a legal block
+  - Highlighted NON-REFUNDABLE notice with the $499 amount
+  - Customer + Sales Rep signature lines
+  - Date footer
 
 Letter portrait (8.5" × 11"). Returns the rendered PDF as raw bytes.
 """
@@ -29,9 +31,12 @@ LOGO_PATH = os.path.join(ASSETS_DIR, "intercar-logo.png")
 INK = colors.HexColor("#0F0F10")
 GREY = colors.HexColor("#6B6B6B")
 LIGHT_GREY = colors.HexColor("#F4F4F4")
+SOFT = colors.HexColor("#FAFAFA")
 LINE = colors.HexColor("#D5D5D5")
 BRAND_RED = colors.HexColor("#B91C1C")
-BAND_BG = colors.HexColor("#0F0F10")
+BRAND_RED_DARK = colors.HexColor("#7F1313")
+WARN_BG = colors.HexColor("#FFF4E5")
+WARN_BORDER = colors.HexColor("#B45309")
 
 DEFAULT_STORE = {
     "address": "70 Chelsea St, Everett MA 02149",
@@ -40,17 +45,17 @@ DEFAULT_STORE = {
     "website": "www.intercarautosales.com",
 }
 
-DEFAULT_DEPOSIT_TEXT = (
-    "The deposit secures your commitment to purchase and ensures that the car "
-    "is held for you. Upon receiving the deposit, the dealership will promptly "
-    "request the title to proceed with the necessary paperwork and complete "
-    "the sale. Thank you for your cooperation and prompt attention."
+# Required deposit statement — kept verbatim per the owner's request.
+DEPOSIT_STATEMENT = (
+    "The deposit secures your commitment to purchase and ensures that the car is held for you. "
+    "Upon receiving the deposit, the dealership will promptly request the title to proceed with the "
+    "necessary paperwork and complete the sale. Thank you for your cooperation and prompt attention."
 )
 
 
 def _fmt_money(v) -> str:
     if v is None or v == "":
-        return ""
+        return "$ 0.00"
     return f"$ {float(v):,.2f}"
 
 
@@ -66,6 +71,22 @@ def _fmt_date(s: Optional[str]) -> str:
     return s
 
 
+def _wrap_lines(c: pdfcanvas.Canvas, text: str, font: str, size: float, max_w: float) -> list[str]:
+    words = text.split()
+    lines, line = [], ""
+    for w in words:
+        cand = (line + " " + w).strip() if line else w
+        if c.stringWidth(cand, font, size) > max_w:
+            if line:
+                lines.append(line)
+            line = w
+        else:
+            line = cand
+    if line:
+        lines.append(line)
+    return lines
+
+
 def render_receipt(receipt: Optional[dict] = None) -> bytes:
     r = receipt or {}
     store = {**DEFAULT_STORE, **(r.get("store") or {})}
@@ -73,28 +94,30 @@ def render_receipt(receipt: Optional[dict] = None) -> bytes:
     buf = io.BytesIO()
     PW, PH = LETTER
     c = pdfcanvas.Canvas(buf, pagesize=LETTER)
-    c.setTitle(f"Receipt — {r.get('customer_name','INTERCAR')}")
+    c.setTitle(f"INTERCAR — Deposit Receipt — {r.get('customer_name','')}")
 
     MARGIN = 0.55 * inch
     inner_w = PW - 2 * MARGIN
+    inner_left = MARGIN
+    inner_right = MARGIN + inner_w
 
-    # Outer border
+    # Outer page border
     c.setStrokeColor(INK)
     c.setLineWidth(0.7)
     c.rect(MARGIN, MARGIN, inner_w, PH - 2 * MARGIN, fill=0)
 
     # ===== HEADER ============================================================
-    HEADER_H = 88
-    htop = PH - MARGIN - 8
+    HEADER_H = 86
+    htop = PH - MARGIN - 10
     hbottom = htop - HEADER_H
 
-    # Logo + brand (left)
-    logo_h = 54
+    # Logo on the left
+    logo_h = 56
     if os.path.exists(LOGO_PATH):
         try:
             c.drawImage(
                 LOGO_PATH,
-                MARGIN + 12,
+                inner_left + 14,
                 htop - logo_h - 4,
                 width=logo_h,
                 height=logo_h,
@@ -104,212 +127,243 @@ def render_receipt(receipt: Optional[dict] = None) -> bytes:
         except Exception:
             pass
 
-    brand_x = MARGIN + 12 + logo_h + 12
-    c.setFont("Helvetica-Bold", 22)
+    # Brand name beside logo
+    brand_x = inner_left + 14 + logo_h + 14
+    c.setFont("Helvetica-Bold", 24)
     c.setFillColor(INK)
     c.drawString(brand_x, htop - 26, "INTERCAR")
     c.setFont("Helvetica", 9)
     c.setFillColor(GREY)
     c.drawString(brand_x, htop - 40, "AUTO SALES")
-    c.setFont("Helvetica", 8)
-    c.setFillColor(GREY)
+    c.setFont("Helvetica", 8.5)
     c.drawString(brand_x, htop - 56, store["address"])
 
-    # Store contact (right side)
-    cx_right = MARGIN + inner_w - 10
+    # Right side store contact, compact and aligned
+    cx = inner_right - 12
+    c.setFont("Helvetica", 8.5)
+    c.setFillColor(INK)
+    c.drawRightString(cx, htop - 22, store["phone"])
+    c.drawRightString(cx, htop - 36, store["email"])
+    c.drawRightString(cx, htop - 50, store["website"])
     c.setFont("Helvetica-Bold", 7)
     c.setFillColor(GREY)
-    c.drawRightString(cx_right, htop - 16, "PHONE")
-    c.setFont("Helvetica", 9)
-    c.setFillColor(INK)
-    c.drawRightString(cx_right, htop - 28, store["phone"])
+    c.drawRightString(cx, htop - 12, "CONTACT")
 
-    c.setFont("Helvetica-Bold", 7)
-    c.setFillColor(GREY)
-    c.drawRightString(cx_right, htop - 42, "EMAIL")
-    c.setFont("Helvetica", 9)
-    c.setFillColor(INK)
-    c.drawRightString(cx_right, htop - 54, store["email"])
-
-    c.setFont("Helvetica-Bold", 7)
-    c.setFillColor(GREY)
-    c.drawRightString(cx_right, htop - 68, "WEB")
-    c.setFont("Helvetica", 9)
-    c.setFillColor(INK)
-    c.drawRightString(cx_right, htop - 80, store["website"])
-
-    # Red accent line
+    # Red accent line under header
     c.setStrokeColor(BRAND_RED)
     c.setLineWidth(2)
-    c.line(MARGIN + 8, hbottom, MARGIN + inner_w - 8, hbottom)
+    c.line(inner_left + 8, hbottom, inner_right - 8, hbottom)
 
-    # ===== RECEIPT title band ================================================
-    cursor_y = hbottom - 28
-    band_h = 36
-    c.setFillColor(BAND_BG)
-    c.rect(MARGIN + 8, cursor_y - band_h, inner_w - 16, band_h, fill=1, stroke=0)
-    c.setFillColor(colors.white)
-    c.setFont("Helvetica-Bold", 24)
-    c.drawString(MARGIN + 24, cursor_y - 25, "RECEIPT")
-
-    # Invoice # + Date + Sales Rep (right side of band)
-    info_x = MARGIN + inner_w - 18
-    c.setFont("Helvetica-Bold", 7)
-    c.setFillColor(colors.HexColor("#B0B0B0"))
-    c.drawRightString(info_x, cursor_y - 10, "RECEIPT Nº")
-    c.setFont("Helvetica-Bold", 11)
-    c.setFillColor(colors.white)
-    c.drawRightString(info_x, cursor_y - 22, str(r.get("invoice_no") or "—"))
-
-    c.setFont("Helvetica-Bold", 7)
-    c.setFillColor(colors.HexColor("#B0B0B0"))
-    c.drawRightString(info_x - 120, cursor_y - 10, "DATE")
-    c.setFont("Helvetica-Bold", 11)
-    c.setFillColor(colors.white)
-    c.drawRightString(info_x - 120, cursor_y - 22, _fmt_date(r.get("date")))
-
-    c.setFont("Helvetica-Bold", 7)
-    c.setFillColor(colors.HexColor("#B0B0B0"))
-    c.drawRightString(info_x - 240, cursor_y - 10, "SALES REP")
-    c.setFont("Helvetica-Bold", 11)
-    c.setFillColor(colors.white)
-    c.drawRightString(info_x - 240, cursor_y - 22, str(r.get("sales_rep") or "—"))
-
-    cursor_y -= band_h + 16
-
-    # ===== BILLED TO =========================================================
-    c.setFont("Helvetica-Bold", 8)
+    # ===== "DEPOSIT RECEIPT" stripe ==========================================
+    cursor_y = hbottom - 22
+    stripe_h = 50
+    # Black main stripe
+    c.setFillColor(INK)
+    c.rect(inner_left + 8, cursor_y - stripe_h, inner_w - 16, stripe_h, fill=1, stroke=0)
+    # Red accent corner (left)
     c.setFillColor(BRAND_RED)
-    c.drawString(MARGIN + 14, cursor_y, "BILLED TO")
+    c.rect(inner_left + 8, cursor_y - stripe_h, 6, stripe_h, fill=1, stroke=0)
 
-    cursor_y -= 16
+    # "DEPOSIT RECEIPT" title (left)
+    c.setFillColor(colors.white)
+    c.setFont("Helvetica-Bold", 22)
+    c.drawString(inner_left + 30, cursor_y - 22, "DEPOSIT RECEIPT")
+    c.setFont("Helvetica", 8.5)
+    c.setFillColor(colors.HexColor("#B0B0B0"))
+    c.drawString(inner_left + 30, cursor_y - 38, "Issued by INTERCAR Auto Sales · MA Dealer")
 
-    def billed_line(label_txt, value_txt, y):
+    # Right meta block — Date / Receipt # / Sales Rep
+    meta_blocks = [
+        ("DATE", _fmt_date(r.get("date"))),
+        ("RECEIPT Nº", str(r.get("invoice_no") or "—")),
+        ("SALES REP", str(r.get("sales_rep") or "—")),
+    ]
+    block_w = 110
+    bx = inner_right - 18 - (len(meta_blocks) - 1) * block_w
+    for i, (lbl, val) in enumerate(meta_blocks):
+        x = inner_right - 18 - (len(meta_blocks) - 1 - i) * block_w
         c.setFont("Helvetica-Bold", 7)
+        c.setFillColor(colors.HexColor("#B0B0B0"))
+        c.drawRightString(x, cursor_y - 14, lbl)
+        c.setFont("Helvetica-Bold", 12)
+        c.setFillColor(colors.white)
+        c.drawRightString(x, cursor_y - 30, val)
+
+    cursor_y -= stripe_h + 16
+
+    # ===== Two cards side by side: ISSUED TO  ·  VEHICLE =====================
+    card_h = 130
+    half_w = (inner_w - 24) / 2
+    left_x = inner_left + 8
+    right_x = left_x + half_w + 8
+
+    # --- Issued to card ---
+    c.setFillColor(SOFT)
+    c.setStrokeColor(LINE)
+    c.setLineWidth(0.6)
+    c.rect(left_x, cursor_y - card_h, half_w, card_h, fill=1, stroke=1)
+    # Title band
+    c.setFillColor(INK)
+    c.rect(left_x, cursor_y - 16, half_w, 16, fill=1, stroke=0)
+    c.setFillColor(colors.white)
+    c.setFont("Helvetica-Bold", 8.5)
+    c.drawString(left_x + 10, cursor_y - 11, "ISSUED TO")
+
+    # Fields
+    fx = left_x + 14
+    fy = cursor_y - 36
+
+    def card_row(c, x, y, label_txt, value_txt, max_w):
+        c.setFont("Helvetica-Bold", 6.5)
         c.setFillColor(GREY)
-        c.drawString(MARGIN + 14, y + 12, label_txt.upper())
+        c.drawString(x, y + 12, label_txt.upper())
         c.setStrokeColor(LINE)
         c.setLineWidth(0.4)
-        c.line(MARGIN + 14, y, MARGIN + inner_w - 14, y)
+        c.line(x, y, x + max_w, y)
         if value_txt:
-            c.setFont("Helvetica", 10.5)
+            c.setFont("Helvetica", 10)
             c.setFillColor(INK)
-            c.drawString(MARGIN + 16, y + 2, str(value_txt))
+            c.drawString(x + 2, y + 2.5, str(value_txt))
 
-    billed_line("Name", r.get("customer_name"), cursor_y)
-    cursor_y -= 26
-    billed_line("Phone", r.get("customer_phone"), cursor_y)
-    cursor_y -= 26
-    billed_line("Address", r.get("customer_address"), cursor_y)
+    card_row(c, fx, fy, "Customer Name", r.get("customer_name"), half_w - 28)
+    fy -= 26
+    card_row(c, fx, fy, "Phone", r.get("customer_phone"), half_w - 28)
+    fy -= 26
+    card_row(c, fx, fy, "Address", r.get("customer_address"), half_w - 28)
 
-    cursor_y -= 26
-
-    # ===== Description + Amount table ========================================
-    tbl_top = cursor_y
-    tbl_h = 230
-    amt_col_w = 150
-    desc_col_w = inner_w - 28 - amt_col_w
-
-    # Header band
-    c.setFillColor(BAND_BG)
-    c.rect(MARGIN + 14, tbl_top - 18, inner_w - 28, 18, fill=1, stroke=0)
+    # --- Vehicle card ---
+    c.setFillColor(SOFT)
+    c.setStrokeColor(LINE)
+    c.rect(right_x, cursor_y - card_h, half_w, card_h, fill=1, stroke=1)
+    c.setFillColor(INK)
+    c.rect(right_x, cursor_y - 16, half_w, 16, fill=1, stroke=0)
     c.setFillColor(colors.white)
     c.setFont("Helvetica-Bold", 8.5)
-    c.drawString(MARGIN + 22, tbl_top - 12, "DESCRIPTION")
-    c.drawString(MARGIN + 14 + desc_col_w + 10, tbl_top - 12, "AMOUNT")
+    c.drawString(right_x + 10, cursor_y - 11, "VEHICLE")
 
-    # Body box
-    c.setStrokeColor(INK)
-    c.setLineWidth(0.6)
-    c.rect(MARGIN + 14, tbl_top - tbl_h, inner_w - 28, tbl_h - 18, fill=0, stroke=1)
-    # Column divider
-    c.setStrokeColor(LINE)
-    c.line(MARGIN + 14 + desc_col_w, tbl_top - tbl_h, MARGIN + 14 + desc_col_w, tbl_top - 18)
-
-    # Description content
-    dx = MARGIN + 22
-    dy = tbl_top - 36
-    c.setFont("Helvetica-Bold", 9)
-    c.setFillColor(INK)
-    c.drawString(dx, dy, f"Vehicle:  {r.get('vehicle','') or ''}")
-    dy -= 16
-    c.drawString(dx, dy, f"VIN:  {r.get('vin','') or ''}")
-
-    # Optional extras (year + color + mileage)
+    vx = right_x + 14
+    vy = cursor_y - 36
+    veh_label = r.get("vehicle") or ""
+    if not veh_label and (r.get("year") or r.get("make") or r.get("model")):
+        veh_label = f"{r.get('year','') or ''} {r.get('make','') or ''} {r.get('model','') or ''}".strip()
+    card_row(c, vx, vy, "Year · Make · Model", veh_label, half_w - 28)
+    vy -= 26
+    card_row(c, vx, vy, "VIN", r.get("vin"), half_w - 28)
+    vy -= 26
     extras = []
-    if r.get("year"):
-        extras.append(f"Year {r['year']}")
     if r.get("color"):
-        extras.append(r["color"])
+        extras.append(str(r["color"]))
     if r.get("mileage"):
         extras.append(f"{r['mileage']} mi")
-    if extras:
-        dy -= 16
-        c.setFont("Helvetica", 9)
-        c.setFillColor(GREY)
-        c.drawString(dx, dy, " · ".join(extras))
+    if r.get("stock_no"):
+        extras.append(f"Stock #{r['stock_no']}")
+    card_row(c, vx, vy, "Color · Mileage", "  ·  ".join(extras), half_w - 28)
 
-    # Deposit legal text (italic, smaller, wrapped manually inside the column)
-    dy -= 36
-    text = r.get("deposit_text") or DEFAULT_DEPOSIT_TEXT
-    c.setFont("Helvetica-Oblique", 8.5)
-    c.setFillColor(colors.HexColor("#444444"))
-    # Simple word wrap
-    max_w = desc_col_w - 18
-    words = text.split()
-    line = ""
-    line_y = dy
-    for w in words:
-        candidate = (line + " " + w).strip() if line else w
-        if c.stringWidth(candidate, "Helvetica-Oblique", 8.5) > max_w:
-            c.drawString(dx, line_y, line)
-            line_y -= 11
-            line = w
-        else:
-            line = candidate
-    if line:
-        c.drawString(dx, line_y, line)
+    cursor_y -= card_h + 18
 
-    # Amount column
-    ax = MARGIN + 14 + desc_col_w + 10
-    ay = tbl_top - 36
-    c.setFont("Helvetica-Bold", 14)
+    # ===== PAYMENT SUMMARY box ===============================================
+    # Big horizontal box with the deposit amount on the right
+    pay_h = 70
     c.setFillColor(INK)
-    c.drawString(ax, ay, _fmt_money(r.get("amount")))
-
-    # Total row at the bottom
-    total_y = tbl_top - tbl_h - 22
+    c.rect(inner_left + 8, cursor_y - pay_h, inner_w - 16, pay_h, fill=1, stroke=0)
+    # Left red strip
     c.setFillColor(BRAND_RED)
-    c.rect(MARGIN + 14, total_y, inner_w - 28, 24, fill=1, stroke=0)
-    c.setFillColor(colors.white)
+    c.rect(inner_left + 8, cursor_y - pay_h, 6, pay_h, fill=1, stroke=0)
+
+    # Left label
+    c.setFillColor(colors.HexColor("#B0B0B0"))
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(inner_left + 30, cursor_y - 22, "DEPOSIT AMOUNT RECEIVED")
+    c.setFont("Helvetica", 8)
+    c.drawString(inner_left + 30, cursor_y - 36, "Payment method:")
     c.setFont("Helvetica-Bold", 11)
-    c.drawString(MARGIN + 22, total_y + 7, "TOTAL")
-    c.setFont("Helvetica-Bold", 14)
-    c.drawRightString(MARGIN + inner_w - 22, total_y + 7, _fmt_money(r.get("amount")) or "$ 0.00")
+    c.setFillColor(colors.white)
+    pm = r.get("payment_method") or "—"
+    c.drawString(inner_left + 122, cursor_y - 36, pm)
+
+    # Right side — big amount
+    c.setFont("Helvetica-Bold", 30)
+    c.setFillColor(colors.white)
+    c.drawRightString(inner_right - 22, cursor_y - 36, _fmt_money(r.get("amount")))
+
+    cursor_y -= pay_h + 16
+
+    # ===== Deposit statement =================================================
+    # Small label header
+    c.setFont("Helvetica-Bold", 7.5)
+    c.setFillColor(BRAND_RED)
+    c.drawString(inner_left + 14, cursor_y, "TERMS OF THE DEPOSIT")
+    cursor_y -= 6
+    c.setStrokeColor(BRAND_RED)
+    c.setLineWidth(1)
+    c.line(inner_left + 14, cursor_y, inner_left + 110, cursor_y)
+    cursor_y -= 10
+
+    # Statement body
+    statement = r.get("deposit_statement") or DEPOSIT_STATEMENT
+    c.setFont("Helvetica", 9.5)
+    c.setFillColor(INK)
+    body_x = inner_left + 14
+    body_w = inner_w - 28
+    lines = _wrap_lines(c, statement, "Helvetica", 9.5, body_w)
+    for ln in lines:
+        c.drawString(body_x, cursor_y, ln)
+        cursor_y -= 13
+
+    cursor_y -= 10
+
+    # ===== NON-REFUNDABLE notice (highlighted) ===============================
+    nonref = float(r.get("non_refundable_amount") or 499)
+    notice_h = 56
+    c.setFillColor(WARN_BG)
+    c.setStrokeColor(WARN_BORDER)
+    c.setLineWidth(1.2)
+    c.rect(inner_left + 8, cursor_y - notice_h, inner_w - 16, notice_h, fill=1, stroke=1)
+    # Left red strip
+    c.setFillColor(BRAND_RED)
+    c.rect(inner_left + 8, cursor_y - notice_h, 6, notice_h, fill=1, stroke=0)
+    c.setFont("Helvetica-Bold", 12)
+    c.setFillColor(BRAND_RED_DARK)
+    c.drawString(inner_left + 24, cursor_y - 18, "IMPORTANT — NON-REFUNDABLE DEPOSIT")
+    c.setFont("Helvetica-Bold", 10)
+    c.setFillColor(INK)
+    notice_txt = (
+        f"The customer hereby acknowledges that a deposit in the amount of "
+        f"$ {nonref:,.2f} is NON-REFUNDABLE under any circumstances."
+    )
+    nl = _wrap_lines(c, notice_txt, "Helvetica-Bold", 10, inner_w - 40)
+    yn = cursor_y - 32
+    for ln in nl:
+        c.drawString(inner_left + 24, yn, ln)
+        yn -= 12
+
+    cursor_y -= notice_h + 22
 
     # ===== Signatures ========================================================
-    sig_y = total_y - 60
-    half = (inner_w - 60) / 2
+    # Two lines: customer + sales representative
+    sig_h = 56
+    half_sig = (inner_w - 60) / 2
     c.setStrokeColor(INK)
-    c.setLineWidth(0.6)
-    c.line(MARGIN + 18, sig_y, MARGIN + 18 + half, sig_y)
-    c.line(MARGIN + 18 + half + 30, sig_y, MARGIN + 18 + half * 2 + 30, sig_y)
+    c.setLineWidth(0.8)
+    c.line(inner_left + 18, cursor_y - 12, inner_left + 18 + half_sig, cursor_y - 12)
+    c.line(inner_left + 18 + half_sig + 30, cursor_y - 12,
+           inner_left + 18 + half_sig * 2 + 30, cursor_y - 12)
     c.setFont("Helvetica-Bold", 7.5)
     c.setFillColor(GREY)
-    c.drawString(MARGIN + 18, sig_y - 12, "CUSTOMER'S SIGNATURE")
-    c.drawString(MARGIN + 18 + half + 30, sig_y - 12, "SALES REPRESENTATIVE")
+    c.drawString(inner_left + 18, cursor_y - 24, "CUSTOMER SIGNATURE  ·  DATE")
+    c.drawString(inner_left + 18 + half_sig + 30, cursor_y - 24, "SALES REPRESENTATIVE  ·  DATE")
 
-    # ===== Non-refundable footer ============================================
+    # ===== Footer ============================================================
     fy = MARGIN + 6
-    c.setFillColor(BAND_BG)
-    c.rect(MARGIN + 8, fy, inner_w - 16, 22, fill=1, stroke=0)
+    c.setFillColor(INK)
+    c.rect(inner_left + 8, fy, inner_w - 16, 16, fill=1, stroke=0)
     c.setFillColor(colors.white)
-    c.setFont("Helvetica-Bold", 8.5)
-    nonref_amt = r.get("non_refundable_amount", 499)
-    txt = f"DOWN PAYMENT AND SECURITY DEPOSIT (${nonref_amt:,.2f}) NON-REFUNDABLE UNDER ANY CIRCUMSTANCES."
-    # Center it inside the footer band
-    tw = c.stringWidth(txt, "Helvetica-Bold", 8.5)
-    c.drawString(MARGIN + 8 + (inner_w - 16 - tw) / 2, fy + 7, txt)
+    c.setFont("Helvetica-Bold", 7.5)
+    c.drawString(inner_left + 18, fy + 5,
+                 f"INTERCAR AUTO SALES  ·  {store['address']}  ·  {store['phone']}")
+    c.setFont("Helvetica", 7)
+    c.drawRightString(inner_right - 18, fy + 5,
+                      f"Generated {datetime.now().strftime('%m/%d/%Y %I:%M %p')}")
 
     c.showPage()
     c.save()
@@ -327,9 +381,13 @@ if __name__ == "__main__":
         "vehicle": "2022 Honda Civic Sport",
         "vin": "1HGBH41JXMN109186",
         "year": 2022,
+        "make": "Honda",
+        "model": "Civic Sport",
         "color": "Silver",
         "mileage": "38,500",
+        "stock_no": "A-1042",
         "amount": 6750.00,
+        "payment_method": "Cash",
         "non_refundable_amount": 499,
     }
     with open("/tmp/receipt_sample.pdf", "wb") as f:
