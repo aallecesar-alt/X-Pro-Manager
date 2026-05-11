@@ -36,10 +36,10 @@ SEC_SIGN     = {"bg": colors.HexColor("#0F0F10"), "tint": colors.HexColor("#F5F5
 
 # Store info — overridable via deal["store"] dict
 DEFAULT_STORE = {
-    "address": "[ STORE ADDRESS ]",
-    "phone": "[ PHONE ]",
-    "email": "[ EMAIL ]",
-    "website": "[ WEBSITE / INSTAGRAM ]",
+    "address": "70 Chelsea St, Everett MA 02149",
+    "phone": "(617) 982-0342",
+    "email": "",
+    "website": "www.intercarautosales.com",
 }
 
 
@@ -157,16 +157,19 @@ def render_deal_sheet(deal: Optional[dict] = None) -> bytes:
     c.setFillColor(INK)
     c.drawRightString(contact_x_right, contact_y - 11, store["address"])
 
+    contact_line = store["phone"]
+    if store.get("email"):
+        contact_line = f"{store['phone']}  ·  {store['email']}"
     c.setFont("Helvetica-Bold", 7)
     c.setFillColor(GREY)
-    c.drawRightString(contact_x_right, contact_y - 24, "PHONE  ·  EMAIL")
+    c.drawRightString(contact_x_right, contact_y - 24, "PHONE" + ("  ·  EMAIL" if store.get("email") else ""))
     c.setFont("Helvetica", 8.5)
     c.setFillColor(INK)
-    c.drawRightString(contact_x_right, contact_y - 35, f"{store['phone']}  ·  {store['email']}")
+    c.drawRightString(contact_x_right, contact_y - 35, contact_line)
 
     c.setFont("Helvetica-Bold", 7)
     c.setFillColor(GREY)
-    c.drawRightString(contact_x_right, contact_y - 48, "WEBSITE / SOCIAL")
+    c.drawRightString(contact_x_right, contact_y - 48, "WEBSITE")
     c.setFont("Helvetica", 8.5)
     c.setFillColor(INK)
     c.drawRightString(contact_x_right, contact_y - 59, store["website"])

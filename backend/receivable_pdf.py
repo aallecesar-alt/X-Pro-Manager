@@ -31,10 +31,10 @@ PAID_BG = colors.HexColor("#EAF6EE")
 OVERDUE_BG = colors.HexColor("#FDECEC")
 
 DEFAULT_STORE = {
-    "address": "[ STORE ADDRESS ]",
-    "phone": "[ PHONE ]",
-    "email": "[ EMAIL ]",
-    "website": "[ WEBSITE / INSTAGRAM ]",
+    "address": "70 Chelsea St, Everett MA 02149",
+    "phone": "(617) 982-0342",
+    "email": "",
+    "website": "www.intercarautosales.com",
 }
 
 FREQ_LABEL = {"weekly": "Weekly", "biweekly": "Bi-weekly", "monthly": "Monthly"}
@@ -111,13 +111,23 @@ def render_receivable_schedule(receivable: dict, store: Optional[dict] = None) -
     c.setFont("Helvetica", 8)
     c.setFillColor(INK)
     c.drawRightString(cx_right, htop - 24, store["address"])
+
+    contact_line = store["phone"]
+    if store.get("email"):
+        contact_line = f"{store['phone']} · {store['email']}"
     c.setFont("Helvetica-Bold", 6.5)
     c.setFillColor(GREY)
-    c.drawRightString(cx_right, htop - 36, "PHONE · EMAIL · WEB")
+    c.drawRightString(cx_right, htop - 36, "PHONE" + (" · EMAIL" if store.get("email") else ""))
     c.setFont("Helvetica", 8)
     c.setFillColor(INK)
-    c.drawRightString(cx_right, htop - 46, f"{store['phone']} · {store['email']}")
-    c.drawRightString(cx_right, htop - 56, store["website"])
+    c.drawRightString(cx_right, htop - 46, contact_line)
+
+    c.setFont("Helvetica-Bold", 6.5)
+    c.setFillColor(GREY)
+    c.drawRightString(cx_right, htop - 56, "WEBSITE")
+    c.setFont("Helvetica", 8)
+    c.setFillColor(INK)
+    c.drawRightString(cx_right, htop - 66, store["website"])
 
     # Red accent line
     c.setStrokeColor(BRAND_RED)
