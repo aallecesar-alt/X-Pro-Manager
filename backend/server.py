@@ -666,8 +666,9 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
     if "down_payment" in upd or "bank_check_amount" in upd:
         dp = float(upd.get("down_payment") if "down_payment" in upd else (existing or {}).get("down_payment") or 0)
         bc = float(upd.get("bank_check_amount") if "bank_check_amount" in upd else (existing or {}).get("bank_check_amount") or 0)
-        if (dp + bc) > 0:
-            upd["sold_price"] = round(dp + bc, 2)
+        # Always sync sold_price (including 0) so manually clearing the fields
+        # also resets the final sale price.
+        upd["sold_price"] = round(dp + bc, 2)
 
     # Auto-CLEAR financing breakdown when reverting from sold → in_stock/reserved.
     # Otherwise stale entries (sent back by the frontend) would still influence the
