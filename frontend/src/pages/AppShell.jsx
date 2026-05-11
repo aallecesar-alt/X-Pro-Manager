@@ -1837,24 +1837,34 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
               <Input label={t("bank_name_label")} value={form.bank_name || ""} set={(v) => set("bank_name", v)} testid="f-bank" />
             </div>
 
-            {/* Sale breakdown: down payment + bank check → auto-computes the final sold price */}
+            {/* Sale breakdown: down payment + bank check − registration → final sold price */}
             <div className="bg-success/5 border border-success/30 p-4 space-y-3">
               <p className="label-eyebrow text-success">{t("sale_breakdown")}</p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <Input label={`💵 ${t("down_payment")}`} type="number" value={form.down_payment ?? ""} set={(v) => {
                   set("down_payment", v);
-                  // Auto-recompute final sold_price as user types (also clears when both are 0)
                   const dp = Number(v) || 0;
                   const bc = Number(form.bank_check_amount) || 0;
-                  set("sold_price", dp + bc > 0 ? Number((dp + bc).toFixed(2)) : 0);
+                  const reg = Number(form.registration_cost) || 0;
+                  const final = dp + bc - reg;
+                  set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
                 }} testid="f-down-payment" />
                 <Input label={`🏦 ${t("bank_check_amount")}`} type="number" value={form.bank_check_amount ?? ""} set={(v) => {
                   set("bank_check_amount", v);
                   const bc = Number(v) || 0;
                   const dp = Number(form.down_payment) || 0;
-                  set("sold_price", dp + bc > 0 ? Number((dp + bc).toFixed(2)) : 0);
+                  const reg = Number(form.registration_cost) || 0;
+                  const final = dp + bc - reg;
+                  set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
                 }} testid="f-bank-check" />
-                <Input label={`🧾 ${t("registration_cost")}`} type="number" value={form.registration_cost ?? ""} set={(v) => set("registration_cost", v)} testid="f-registration" />
+                <Input label={`🧾 ${t("registration_cost")}`} type="number" value={form.registration_cost ?? ""} set={(v) => {
+                  set("registration_cost", v);
+                  const reg = Number(v) || 0;
+                  const dp = Number(form.down_payment) || 0;
+                  const bc = Number(form.bank_check_amount) || 0;
+                  const final = dp + bc - reg;
+                  set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
+                }} testid="f-registration" />
               </div>
             </div>
 

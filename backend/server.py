@@ -696,15 +696,16 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
         and (upd.get("delivery_step") or 0) < 8
     ):
         upd["delivered_at"] = ""
-    # Auto-compute sold_price when down_payment or bank_check_amount changes.
-    # The actual sale price = entrada + cheque do banco (can exceed asking sale_price).
-    # We only override when at least one of the two fields is being updated.
-    if "down_payment" in upd or "bank_check_amount" in upd:
+    # Auto-compute sold_price when down_payment / bank_check_amount / registration_cost changes.
+    # Final sale price = entrada + cheque do banco − emplacamento (registration is netted out
+    # because it's a cost the dealership absorbs from the buyer's payment).
+    if any(k in upd for k in ("down_payment", "bank_check_amount", "registration_cost")):
         dp = float(upd.get("down_payment") if "down_payment" in upd else (existing or {}).get("down_payment") or 0)
         bc = float(upd.get("bank_check_amount") if "bank_check_amount" in upd else (existing or {}).get("bank_check_amount") or 0)
-        # Always sync sold_price (including 0) so manually clearing the fields
-        # also resets the final sale price.
-        upd["sold_price"] = round(dp + bc, 2)
+        reg = float(upd.get("registration_cost") if "registration_cost" in upd else (existing or {}).get("registration_cost") or 0)
+        final = dp + bc - reg
+        # Always sync sold_price (including 0) so clearing the fields resets the sale total.
+        upd["sold_price"] = round(final, 2) if final > 0 else 0
 
     # Auto-CLEAR financing breakdown when reverting from sold → in_stock/reserved.
     # Otherwise stale entries (sent back by the frontend) would still influence the
