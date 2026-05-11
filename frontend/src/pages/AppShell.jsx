@@ -2009,6 +2009,14 @@ function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onRe
     } catch { toast.error(t("error_generic")); }
   };
 
+  const toggleBankContract = async (v) => {
+    try {
+      await api.put(`/vehicles/${v.id}`, { bank_contract_signed: !v.bank_contract_signed });
+      toast.success(v.bank_contract_signed ? t("bank_contract_unmarked") : t("bank_contract_marked"));
+      onReload();
+    } catch { toast.error(t("error_generic")); }
+  };
+
   const reopenDelivery = async (v) => {
     if (!window.confirm(t("reopen_delivery_confirm"))) return;
     try {
@@ -2109,7 +2117,22 @@ function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onRe
                 </div>
 
                 {/* Step navigation buttons */}
-                <div className="flex gap-1.5 items-stretch">
+                <div className="flex gap-1.5 items-stretch flex-wrap">
+                  {/* Bank contract signed toggle */}
+                  <button
+                    type="button"
+                    data-testid={`bank-contract-${v.id}`}
+                    onClick={() => toggleBankContract(v)}
+                    title={v.bank_contract_signed ? t("bank_contract_signed_on") : t("bank_contract_pending")}
+                    className={`px-3 h-12 inline-flex items-center gap-1.5 border text-[10px] uppercase tracking-wider font-display font-bold transition-colors ${
+                      v.bank_contract_signed
+                        ? "bg-success/15 border-success text-success hover:bg-success hover:text-white"
+                        : "border-border text-text-secondary hover:border-warning hover:text-warning"
+                    }`}
+                  >
+                    {v.bank_contract_signed ? <Check size={14} /> : <FileText size={14} />}
+                    <span className="hidden sm:inline">{t("bank_contract_short")}</span>
+                  </button>
                   {step > 1 && (
                     <button
                       data-testid={`back-${v.id}`}

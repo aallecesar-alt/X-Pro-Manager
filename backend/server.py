@@ -97,8 +97,9 @@ class VehicleBase(BaseModel):
     # Delivery pipeline (1..8). 0 = not in delivery yet.
     # 1 Vendido | 2 Dados cliente | 3 Contrato banco | 4 Manutencao | 5 Seguro | 6 Titulo | 7 Registro | 8 Entregue
     delivery_step: int = 0
-    # Timestamp of the last step change — used to flag vehicles stuck too long on the same step.
     delivery_step_updated_at: Optional[str] = None
+    bank_contract_signed: bool = False
+    bank_contract_signed_at: Optional[str] = None
     bank_name: str = ""
     delivery_notes: str = ""
     delivered_at: Optional[str] = None
@@ -151,6 +152,7 @@ class VehicleUpdate(BaseModel):
     bank_check_amount: Optional[float] = None
     registration_cost: Optional[float] = None
     delivery_step: Optional[int] = None
+    bank_contract_signed: Optional[bool] = None
     bank_name: Optional[str] = None
     delivery_notes: Optional[str] = None
     step_notes: Optional[Dict[str, str]] = None
@@ -631,6 +633,14 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
                 "at": now_iso,
                 "by": actor_name,
             })
+    # Track bank contract signature toggle
+    if "bank_contract_signed" in upd and existing and bool(upd.get("bank_contract_signed")) != bool(existing.get("bank_contract_signed")):
+        upd["bank_contract_signed_at"] = now_iso if upd.get("bank_contract_signed") else None
+        push_events.append({
+            "type": "bank_contract_signed" if upd.get("bank_contract_signed") else "bank_contract_unsigned",
+            "at": now_iso,
+            "by": actor_name,
+        })
     # Log commission paid toggle
     if "commission_paid" in upd and existing and bool(upd.get("commission_paid")) != bool(existing.get("commission_paid")):
         push_events.append({
