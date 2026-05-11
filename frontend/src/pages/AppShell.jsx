@@ -289,7 +289,7 @@ export default function AppShell() {
         {tab === "delivery" && canAccess("delivery") && <Delivery deliveries={deliveries} salespeople={salespeople} t={t} onReload={reload} isStaff={isStaff} onHistory={setHistoryVid} />}
         {tab === "leads" && canAccess("leads") && <LeadsPage t={t} role={user?.role || "owner"} currentSpId={user?.salesperson_id || ""} salespeople={salespeople} />}
         {tab === "salespeople" && canAccess("salespeople") && <SalespeopleTab salespeople={salespeople} t={t} onReload={reload} isSalesperson={isSalesperson} currentSpId={user?.salesperson_id || ""} />}
-        {tab === "financial" && canAccess("financial") && <Financial t={t} />}
+        {tab === "financial" && canAccess("financial") && <Financial t={t} fpAlerts={isOwner ? fpAlerts : null} />}
         {tab === "post_sales" && canAccess("post_sales") && <PostSales t={t} />}
         {tab === "applications" && canAccess("applications") && <CreditApplications />}
         {tab === "receivables" && canAccess("receivables") && <Receivables t={t} />}
@@ -460,76 +460,11 @@ function ChangePasswordModal({ t, onClose }) {
 
 
 
-function FloorPlanAlertBanner({ alerts, onGoTo, t }) {
-  function formatBRL(n) {
-    return Number(n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-  }
-  const totalAmount =
-    [...alerts.overdue, ...alerts.today, ...alerts.tomorrow]
-      .reduce((s, p) => s + (p.amount || 0), 0);
-  const buckets = [
-    { id: "overdue", label: t("fp_alerts_overdue"), items: alerts.overdue, cls: "border-primary text-primary bg-primary/15", icon: AlertTriangle, urgent: true },
-    { id: "today", label: t("fp_alerts_today"), items: alerts.today, cls: "border-warning text-warning bg-warning/15", icon: Calendar, urgent: false },
-    { id: "tomorrow", label: t("fp_alerts_tomorrow"), items: alerts.tomorrow, cls: "border-amber-500 text-amber-400 bg-amber-500/10", icon: Calendar, urgent: false },
-  ].filter(b => b.items.length > 0);
 
-  return (
-    <div data-testid="fp-alert-banner" className="border border-primary bg-primary/5 mb-8">
-      <div className="px-4 py-3 border-b border-primary/30 flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-full bg-primary/20 border border-primary flex items-center justify-center shrink-0 ${alerts.overdue.length > 0 ? "animate-pulse" : ""}`}>
-            <AlertTriangle size={20} className="text-primary" />
-          </div>
-          <div>
-            <p className="font-display font-black uppercase tracking-tight text-primary">
-              {alerts.total} {t("fp_alerts_pending_total")}
-            </p>
-            <p className="text-xs text-text-secondary mt-0.5">{t("fp_alerts_hint")} · Total {formatBRL(totalAmount)}</p>
-          </div>
-        </div>
-        <button
-          type="button"
-          data-testid="fp-alert-go"
-          onClick={onGoTo}
-          className="px-4 py-2 text-[11px] font-display font-bold uppercase tracking-widest border border-primary text-primary hover:bg-primary hover:text-white transition-colors"
-        >
-          {t("fp_alerts_go")}
-        </button>
-      </div>
-      <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-        {buckets.map(b => {
-          const Icon = b.icon;
-          const sum = b.items.reduce((s, p) => s + (p.amount || 0), 0);
-          return (
-            <div key={b.id} className={`border ${b.cls} p-3`}>
-              <div className="flex items-center gap-2 mb-2">
-                <Icon size={14} />
-                <p className="label-eyebrow">{b.label}</p>
-                <span className="ml-auto font-display font-black text-lg">{b.items.length}</span>
-              </div>
-              <p className="font-display font-bold mb-2">{formatBRL(sum)}</p>
-              <ul className="space-y-1 text-[11px]">
-                {b.items.slice(0, 3).map(p => (
-                  <li key={p.id} className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.floor_plan_color || "#888" }} />
-                    <span className="truncate">
-                      {p.floor_plan_name}{p.vehicle_label ? ` · ${p.vehicle_label}` : ""}
-                      {b.id === "overdue" && p.days_late ? ` (${p.days_late}d)` : ""}
-                    </span>
-                    <span className="ml-auto font-mono whitespace-nowrap">{formatBRL(p.amount)}</span>
-                  </li>
-                ))}
-                {b.items.length > 3 && (
-                  <li className="text-text-secondary italic">+ {b.items.length - 3} {t("more")}</li>
-                )}
-              </ul>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+
+// FloorPlanAlertBanner moved to /components/FloorPlanAlertBanner.jsx — used inside Financial.jsx.
+
+
 
 // ============================================================
 // PodiumCard — Top 3 leaderboard winner card with metallic gold/silver/bronze treatment
@@ -655,11 +590,6 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToF
           <h1 className="font-display font-black text-3xl sm:text-4xl lg:text-5xl uppercase tracking-tighter mb-2">{t("overview")}</h1>
         </div>
       </div>
-
-      {/* Floor Plan alerts banner — owner+gerente only */}
-      {fpAlerts && fpAlerts.total > 0 && (
-        <FloorPlanAlertBanner alerts={fpAlerts} onGoTo={onGoToFinancial} t={t} />
-      )}
 
       {/* KPI cards (hidden when user has no stats access — e.g. BDC) */}
       {hasStats && (

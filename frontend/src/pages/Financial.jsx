@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import NameWithAvatar from "@/components/NameWithAvatar";
 import FloorPlans from "@/pages/FloorPlans";
+import FloorPlanAlertBanner from "@/components/FloorPlanAlertBanner";
 import { Plus, Trash2, Edit2, X, Check, Paperclip, FileText, Image as ImageIcon, RotateCcw, Lock, Download, FolderArchive, ChevronDown, ChevronUp, History } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency } from "@/lib/api";
@@ -62,7 +63,7 @@ function EditablePrice({ value, onSave, testid }) {
   );
 }
 
-export default function Financial({ t }) {
+export default function Financial({ t, fpAlerts }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -595,6 +596,9 @@ export default function Financial({ t }) {
 
       {/* Floor Plans calendar */}
       <div className="mt-12 mb-6" data-testid="floor-plans-wrap">
+        {fpAlerts && fpAlerts.total > 0 && (
+          <FloorPlanAlertBanner alerts={fpAlerts} t={t} compact />
+        )}
         <FloorPlans t={t} />
       </div>
 
