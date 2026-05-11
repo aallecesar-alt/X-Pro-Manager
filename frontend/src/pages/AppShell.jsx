@@ -1950,6 +1950,11 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
           <PhotoUploader value={photos} onChange={setPhotos} folder="vehicles" t={t} />
         </div>
 
+        {/* Receipts — always visible for any saved sold vehicle, so receipts can be reprinted at any time */}
+        {vehicle && vehicle.id && vehicle.status === "sold" && (
+          <ReceiptsPanel v={vehicle} t={t} />
+        )}
+
         <div className="flex justify-end gap-3 pt-4 border-t border-border">
           <button type="button" onClick={onClose} className="px-6 py-3 border border-border hover:border-primary text-xs font-display font-bold uppercase tracking-widest transition-colors">{t("cancel")}</button>
           <button type="submit" data-testid="f-submit" disabled={saving} className="bg-primary hover:bg-primary-hover disabled:opacity-50 px-6 py-3 text-xs font-display font-bold uppercase tracking-widest transition-colors inline-flex items-center gap-2">
