@@ -4838,79 +4838,17 @@ app.include_router(public_router)
 
 
 # ============================================================
-# PREVIEW: render the deal sheet PDF without auth so the owner can iterate
-# on the design quickly. This is a temporary admin-only preview endpoint
-# until the production integration is approved.
+# Receivable payment-schedule PDF (preview endpoint without auth so the
+# owner can peek at the layout). The authenticated endpoint that powers
+# the in-app Print button lives at /api/receivables/{id}/schedule.pdf
 # ============================================================
 from fastapi.responses import Response as FastAPIResponse  # noqa: E402
-from deal_sheet import render_deal_sheet  # noqa: E402
-
-
-@app.get("/api/deal-sheet/preview.pdf")
-async def deal_sheet_preview(filled: int = 1):
-    """Returns a sample PDF (populated when ?filled=1, blank when ?filled=0)."""
-    if filled:
-        sample = {
-            "name": "João Silva",
-            "phone": "+1 (555) 123-4567",
-            "last_vin_6": "ABC123",
-            "year": 2022,
-            "make": "Honda",
-            "model": "Civic Sport",
-            "salesperson": "Carlos",
-            "bank": "westlake",
-            "car_price": 22500,
-            "doc_fee": 599,
-            "warranty": 1500,
-            "net_check": 18000,
-            "down_payment": 5000,
-            "payment_amount": 320,
-            "payment_frequency": "weekly",
-            "loan_period_months": 60,
-            "loan_rate": 14.5,
-            "trade_year": 2018,
-            "trade_make": "Toyota",
-            "trade_model": "Corolla",
-            "trade_vin": "1HGBH41JXMN109186",
-            "trade_mileage": 92000,
-            "trade_payoff": 6500,
-            "trade_bank": "Capital One",
-            "trade_evaluation": 12000,
-            "trade_credits": 5500,
-            "transfer_plate": True,
-            "insurance": True,
-            "first_payment": 320,
-            "tax_reg_plate": 1130,
-            "total_debits": 6450,
-            "credit_1": 2000, "credit_1_date": "05/15/2026",
-            "credit_2": 2000, "credit_2_date": "05/22/2026",
-            "credit_3": 1000, "credit_3_date": "05/29/2026",
-            "total_credits": 5000,
-            "total_balance": 1450,
-            "future_credits": [
-                {"amount": 500, "date": "06/05/2026"},
-                {"amount": 500, "date": "06/12/2026"},
-                {"amount": 450, "date": "06/19/2026"},
-            ],
-            "referral": "Pedro M.",
-            "sales_notes": "Entrega Sex 14h",
-            "delivery_notes": "Cliente buscará no balcão",
-            "buyer_signature_name": "",
-            "manager_signature_name": "",
-        }
-    else:
-        sample = {}
-    pdf_bytes = render_deal_sheet(sample)
-    return FastAPIResponse(content=pdf_bytes, media_type="application/pdf", headers={
-        "Content-Disposition": "inline; filename=\"deal-sheet-sample.pdf\""
-    })
 
 
 @app.get("/api/receivable-schedule/preview.pdf")
 async def receivable_schedule_preview():
     """Public preview of a sample 10-installment payment schedule PDF."""
     from receivable_pdf import render_receivable_schedule
-    # Build a deterministic 10-week schedule from 2026-05-15
     from datetime import date, timedelta
     start = date(2026, 5, 15)
     insts = []
