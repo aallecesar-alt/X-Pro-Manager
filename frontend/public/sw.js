@@ -1,7 +1,7 @@
 // Intercar Manager — service worker
 // Strategy: minimal SW that just enables installability + offline fallback for the app shell.
 // We intentionally do NOT cache API responses (data must always be fresh).
-const CACHE = "intercar-v1";
+const CACHE = "intercar-v2";
 const APP_SHELL = ["/", "/index.html"];
 
 self.addEventListener("install", (event) => {
@@ -56,6 +56,43 @@ self.addEventListener("fetch", (event) => {
           return res;
         }).catch(() => cached)
       );
+    })
+  );
+});
+
+// === Web Push handlers ====================================================
+self.addEventListener("push", (event) => {
+  let data = { title: "Intercar Manager", body: "Nova notificação", url: "/" };
+  try {
+    if (event.data) data = { ...data, ...event.data.json() };
+  } catch (_) {
+    if (event.data) data.body = event.data.text();
+  }
+  const options = {
+    body: data.body,
+    icon: "/icon-192.png",
+    badge: "/icon-192.png",
+    vibrate: [200, 100, 200],
+    tag: data.tag || "intercar-notify",
+    renotify: true,
+    data: { url: data.url || "/" },
+  };
+  event.waitUntil(self.registration.showNotification(data.title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url) || "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((cls) => {
+      // Focus an existing window if any
+      for (const c of cls) {
+        if ("focus" in c) {
+          c.navigate(targetUrl).catch(() => {});
+          return c.focus();
+        }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
     })
   );
 });

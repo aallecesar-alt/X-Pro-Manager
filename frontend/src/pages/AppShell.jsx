@@ -12,6 +12,7 @@ import LeadsPage from "@/pages/LeadsPage";
 import PostSales from "@/pages/PostSales";
 import CreditApplications from "@/pages/CreditApplications";
 import Receivables from "@/pages/Receivables";
+import ReceivablesAlertWidget from "@/components/ReceivablesAlertWidget";
 import { Menu as MenuIcon } from "lucide-react";
 import VehicleHistoryModal from "@/components/VehicleHistoryModal";
 import ChatWidget from "@/components/ChatWidget";
@@ -313,6 +314,7 @@ export default function AppShell() {
       {importPageOpen && <ImportInventoryPageModal t={t} onClose={() => setImportPageOpen(false)} onImported={() => reload()} />}
       <ChatWidget />
       <InstallPrompt />
+      <ReceivablesAlertWidget t={t} role={user?.role} onGoToReceivables={() => setTab("receivables")} />
     </div>
   );
 }

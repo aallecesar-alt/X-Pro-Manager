@@ -5,6 +5,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 import os
+import json
 import uuid
 import secrets
 import hashlib
@@ -292,6 +293,8 @@ async def startup():
     await db.receivables.create_index([("dealership_id", 1), ("status", 1)])
     await db.lost_sales.create_index("id", unique=True)
     await db.lost_sales.create_index([("dealership_id", 1), ("date", -1)])
+    await db.push_subscriptions.create_index("endpoint", unique=True)
+    await db.push_subscriptions.create_index([("dealership_id", 1), ("user_id", 1)])
     await db.leads.create_index("id", unique=True)
     await db.leads.create_index([("dealership_id", 1), ("created_at", -1)])
     await db.leads.create_index([("dealership_id", 1), ("monday_item_id", 1)])
@@ -714,6 +717,28 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
     if res.matched_count == 0:
         raise HTTPException(404, "Vehicle not found")
     v = await db.vehicles.find_one({"id": vid}, {"_id": 0})
+
+    # Fire a push notification to owners + managers whenever a salesperson
+    # marks a car as sold (status transition in_stock/reserved → sold).
+    prev_status = (existing or {}).get("status")
+    if upd.get("status") == "sold" and prev_status != "sold":
+        car_label = f"{v.get('year','')} {v.get('make','')} {v.get('model','')}".strip()
+        seller = v.get("salesperson_name") or current.get("name") or "Vendedor"
+        sold_price = v.get("sold_price") or 0
+        body = f"{seller} acaba de vender {car_label}"
+        if sold_price > 0:
+            body += f" por US$ {sold_price:,.0f}"
+        try:
+            await send_push_to_role(
+                current["dealership_id"],
+                ["owner", "gerente"],
+                "🚗 Venda registrada!",
+                body,
+                "/",
+            )
+        except Exception as e:
+            print(f"[push] sold notification failed: {e}")
+
     if is_salesperson(current):
         v = strip_vehicle_for_salesperson(v)
     return v
@@ -4665,6 +4690,104 @@ async def public_application_upload_signature(dealership_id: str):
 
 
 # Register routers AFTER all routes are declared (FastAPI requirement).
+# ============================================================
+# WEB PUSH NOTIFICATIONS (PWA)
+# Owners + managers can subscribe to push notifications from their browser/device.
+# Currently used to alert them when a salesperson marks a vehicle as sold.
+# ============================================================
+_VAPID_PUBLIC = os.environ.get("VAPID_PUBLIC_KEY", "")
+# pywebpush wants the raw private scalar as b64url (32 bytes), NOT the full PEM.
+_VAPID_PRIVATE = os.environ.get("VAPID_PRIVATE_KEY", "")
+_VAPID_CLAIM_EMAIL = os.environ.get("VAPID_CLAIM_EMAIL", "mailto:admin@example.com")
+
+
+class PushSubscriptionKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class PushSubscriptionPayload(BaseModel):
+    endpoint: str
+    keys: PushSubscriptionKeys
+    expirationTime: Optional[float] = None
+
+
+@api_router.get("/push/vapid-public-key")
+async def get_vapid_public_key():
+    return {"public_key": _VAPID_PUBLIC}
+
+
+@api_router.post("/push/subscribe")
+async def push_subscribe(payload: PushSubscriptionPayload, current: dict = Depends(get_current_user)):
+    doc = {
+        "endpoint": payload.endpoint,
+        "keys": payload.keys.model_dump(),
+        "dealership_id": current["dealership_id"],
+        "user_id": current["id"],
+        "user_role": current.get("role"),
+        "user_name": current.get("name", ""),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.push_subscriptions.update_one(
+        {"endpoint": payload.endpoint},
+        {"$set": doc},
+        upsert=True,
+    )
+    return {"subscribed": True}
+
+
+@api_router.post("/push/unsubscribe")
+async def push_unsubscribe(payload: dict, current: dict = Depends(get_current_user)):
+    endpoint = payload.get("endpoint")
+    if endpoint:
+        await db.push_subscriptions.delete_one({"endpoint": endpoint, "user_id": current["id"]})
+    return {"unsubscribed": True}
+
+
+async def send_push_to_role(dealership_id: str, roles: List[str], title: str, body: str, url: str = "/"):
+    """Fire-and-forget web-push to all subscribers in this dealership whose role is in `roles`.
+    Dead subscriptions (410 Gone) are auto-pruned. Failures are logged but never raise."""
+    if not _VAPID_PRIVATE or not _VAPID_PUBLIC:
+        return  # not configured yet — skip silently
+    try:
+        from pywebpush import webpush, WebPushException
+    except Exception as e:
+        print(f"[push] pywebpush import failed: {e}")
+        return
+
+    subs = await db.push_subscriptions.find(
+        {"dealership_id": dealership_id, "user_role": {"$in": roles}},
+        {"_id": 0},
+    ).to_list(500)
+
+    if not subs:
+        return
+
+    payload = json.dumps({"title": title, "body": body, "url": url})
+    dead_endpoints = []
+
+    for sub in subs:
+        try:
+            webpush(
+                subscription_info={"endpoint": sub["endpoint"], "keys": sub["keys"]},
+                data=payload,
+                vapid_private_key=_VAPID_PRIVATE,
+                vapid_claims={"sub": _VAPID_CLAIM_EMAIL},
+            )
+        except WebPushException as e:
+            status = getattr(e.response, "status_code", None) if hasattr(e, "response") else None
+            if status in (404, 410):
+                dead_endpoints.append(sub["endpoint"])
+            else:
+                print(f"[push] webpush failed for {sub['endpoint'][:60]}: {e}")
+        except Exception as e:  # pragma: no cover
+            print(f"[push] unexpected error: {e}")
+
+    # Prune dead subscriptions
+    if dead_endpoints:
+        await db.push_subscriptions.delete_many({"endpoint": {"$in": dead_endpoints}})
+
+
 app.include_router(api_router)
 app.include_router(public_router)
 
