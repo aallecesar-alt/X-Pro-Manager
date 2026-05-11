@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, Edit2, X, Check, AlertTriangle, Calendar as CalIcon, Phone, Car, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Check, AlertTriangle, Calendar as CalIcon, Phone, Car, ChevronDown, ChevronUp, RotateCcw, Printer } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency } from "@/lib/api";
 
@@ -71,6 +71,19 @@ export default function Receivables({ t }) {
       toast.success(t("saved"));
       reload();
     } catch { toast.error(t("error_generic")); }
+  };
+
+  const printSchedule = async (rid) => {
+    try {
+      const res = await api.get(`/receivables/${rid}/schedule.pdf`, { responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+      // Open in a new tab so the user can print or save it
+      window.open(url, "_blank");
+      // Free memory shortly after — print dialog already has the data
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      toast.error(t("error_generic"));
+    }
   };
 
   return (
@@ -168,6 +181,7 @@ export default function Receivables({ t }) {
               onDelete={() => removeItem(r.id)}
               onPay={(n) => payInstallment(r.id, n)}
               onUnpay={(n) => unpayInstallment(r.id, n)}
+              onPrint={() => printSchedule(r.id)}
             />
           ))}
         </div>
@@ -224,7 +238,7 @@ function ReminderColumn({ title, items, accent, t, onPay, testid }) {
   );
 }
 
-function ReceivableCard({ r, t, today, expanded, onToggle, onEdit, onDelete, onPay, onUnpay }) {
+function ReceivableCard({ r, t, today, expanded, onToggle, onEdit, onDelete, onPay, onUnpay, onPrint }) {
   const v = r.vehicle;
   const totalPaid = r.paid_total || 0;
   const total = r.total_amount || 0;
@@ -273,6 +287,7 @@ function ReceivableCard({ r, t, today, expanded, onToggle, onEdit, onDelete, onP
         </div>
 
         <div className="flex items-center gap-1">
+          <button data-testid={`rec-print-${r.id}`} onClick={onPrint} className="w-9 h-9 border border-success/40 text-success hover:bg-success hover:text-white flex items-center justify-center transition-colors" title={t("rec_print_schedule")}><Printer size={14} /></button>
           <button data-testid={`rec-toggle-${r.id}`} onClick={onToggle} className="w-9 h-9 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors" title={expanded ? t("collapse") : t("expand")}>
             {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>

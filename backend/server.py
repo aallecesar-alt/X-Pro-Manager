@@ -3132,6 +3132,41 @@ async def delete_receivable(rid: str, current: dict = Depends(get_current_user))
     return {"deleted": True}
 
 
+@api_router.get("/receivables/{rid}/schedule.pdf")
+async def receivable_schedule_pdf(rid: str, current: dict = Depends(get_current_user)):
+    """Render a printable payment-schedule PDF the dealership can hand the customer."""
+    require_receivables(current)
+    from fastapi.responses import Response as _Resp
+    from receivable_pdf import render_receivable_schedule
+
+    rec = await db.receivables.find_one(
+        {"id": rid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not rec:
+        raise HTTPException(404, "Receivable not found")
+    if rec.get("vehicle_id"):
+        v = await db.vehicles.find_one(
+            {"id": rec["vehicle_id"], "dealership_id": current["dealership_id"]},
+            {"_id": 0, "make": 1, "model": 1, "year": 1, "vin": 1},
+        )
+        rec["vehicle"] = v or None
+    # Attach dealership info as the "store" header (optional).
+    dlr = await db.dealerships.find_one({"id": current["dealership_id"]}, {"_id": 0}) or {}
+    rec["store"] = {
+        "address": dlr.get("address") or "[ STORE ADDRESS ]",
+        "phone": dlr.get("phone") or "[ PHONE ]",
+        "email": dlr.get("email") or "[ EMAIL ]",
+        "website": dlr.get("website") or dlr.get("instagram") or "[ WEBSITE / INSTAGRAM ]",
+    }
+    pdf_bytes = render_receivable_schedule(rec, rec.get("store"))
+    safe_name = (rec.get("customer_name") or "schedule").replace(" ", "_")[:40]
+    return _Resp(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="payment-schedule-{safe_name}.pdf"'},
+    )
+
+
 class InstallmentPayPayload(BaseModel):
     paid_at: Optional[str] = None       # YYYY-MM-DD ; defaults to today
     paid_amount: Optional[float] = None  # defaults to the installment's amount
@@ -4869,6 +4904,44 @@ async def deal_sheet_preview(filled: int = 1):
     return FastAPIResponse(content=pdf_bytes, media_type="application/pdf", headers={
         "Content-Disposition": "inline; filename=\"deal-sheet-sample.pdf\""
     })
+
+
+@app.get("/api/receivable-schedule/preview.pdf")
+async def receivable_schedule_preview():
+    """Public preview of a sample 10-installment payment schedule PDF."""
+    from receivable_pdf import render_receivable_schedule
+    # Build a deterministic 10-week schedule from 2026-05-15
+    from datetime import date, timedelta
+    start = date(2026, 5, 15)
+    insts = []
+    for i in range(10):
+        due = start + timedelta(days=7 * i)
+        insts.append({
+            "number": i + 1,
+            "due_date": due.isoformat(),
+            "amount": 300,
+            "status": "paid" if i < 2 else "pending",
+            "paid_at": (start + timedelta(days=7 * i)).isoformat() if i < 2 else None,
+            "paid_amount": 300 if i < 2 else 0,
+        })
+    sample = {
+        "customer_name": "John Smith",
+        "customer_phone": "+1 (555) 123-4567",
+        "total_amount": 3000,
+        "installment_amount": 300,
+        "installment_count": 10,
+        "frequency": "weekly",
+        "start_date": "2026-05-15",
+        "notes": "Weekly payments every Friday — cash or check accepted.",
+        "vehicle": {"year": 2022, "make": "Honda", "model": "Civic Sport", "vin": "1HGBH41JXMN109186"},
+        "installments": insts,
+    }
+    pdf_bytes = render_receivable_schedule(sample)
+    return FastAPIResponse(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="payment-schedule-sample.pdf"'},
+    )
 
 
 app.add_middleware(
