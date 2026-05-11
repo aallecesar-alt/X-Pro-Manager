@@ -178,13 +178,13 @@ export default function ReceivablesAlertWidget({ t, role, onGoToReceivables }) {
         <ReminderPopup popup={popup} t={t} onClose={() => setPopup(null)} onGoTo={() => { setPopup(null); onGoToReceivables?.(); }} />
       )}
 
-      {/* Push-toggle button — discreet, top right */}
+      {/* Push-toggle button — bottom-right, stacked above the chat bubble */}
       {canSubscribe && supported && (
         <button
           data-testid="push-toggle"
           onClick={subscribed ? disablePush : enablePush}
           title={subscribed ? t("push_disable_hint") : t("push_enable_hint")}
-          className={`fixed top-4 right-4 z-30 w-10 h-10 border flex items-center justify-center transition-colors ${
+          className={`fixed bottom-24 right-4 z-30 w-11 h-11 rounded-full border flex items-center justify-center transition-colors shadow-lg ${
             subscribed
               ? "border-success/40 text-success bg-success/10 hover:bg-success hover:text-white"
               : permission === "denied"
@@ -192,7 +192,7 @@ export default function ReceivablesAlertWidget({ t, role, onGoToReceivables }) {
               : "border-border text-text-secondary bg-background hover:border-primary hover:text-primary"
           }`}
         >
-          {subscribed ? <Bell size={16} /> : <BellOff size={16} />}
+          {subscribed ? <Bell size={18} /> : <BellOff size={18} />}
         </button>
       )}
     </>
