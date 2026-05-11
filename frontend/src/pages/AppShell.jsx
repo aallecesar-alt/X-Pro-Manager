@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks, HandCoins } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks, HandCoins, Printer } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -2240,6 +2240,9 @@ function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onRe
                 );
               })()}
 
+              {/* Receipts panel — visible from step 2 onward */}
+              {step >= 2 && <ReceiptsPanel v={v} t={t} />}
+
               {/* Actions */}
               <div className={`grid grid-cols-1 ${onHistory ? "sm:grid-cols-3" : "sm:grid-cols-2"} gap-2`}>
                 <button
@@ -2392,6 +2395,224 @@ function Pill({ label, value }) {
     <span className="bg-background border border-border px-3 py-1 text-xs">
       <span className="text-text-secondary">{label}:</span> <span className="font-medium">{value}</span>
     </span>
+  );
+}
+
+function ReceiptsPanel({ v, t }) {
+  const [receipts, setReceipts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+
+  const reload = async () => {
+    setLoading(true);
+    try {
+      const r = await api.get(`/vehicles/${v.id}/receipts`);
+      setReceipts(r.data || []);
+    } catch {
+      setReceipts([]);
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { reload(); /* eslint-disable-next-line */ }, [v.id]);
+
+  const totalReceived = receipts.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
+  const openPdf = async (rid) => {
+    try {
+      const res = await api.get(`/receipts/${rid}/pdf`, { responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      toast.error(t("error_generic"));
+    }
+  };
+
+  const removeReceipt = async (rid) => {
+    if (!window.confirm(t("confirm_delete"))) return;
+    try {
+      await api.delete(`/receipts/${rid}`);
+      toast.success(t("saved"));
+      reload();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || t("error_generic"));
+    }
+  };
+
+  return (
+    <div className="mb-4 border border-border bg-background" data-testid={`receipts-panel-${v.id}`}>
+      <div className="flex items-center justify-between gap-3 px-3 py-2 bg-surface border-b border-border">
+        <div className="flex items-center gap-2">
+          <FileText size={14} className="text-primary" />
+          <p className="label-eyebrow text-primary">{t("receipts")}</p>
+          {receipts.length > 0 && (
+            <>
+              <span className="text-[10px] uppercase tracking-widest px-2 py-0.5 border border-border text-text-secondary">{receipts.length}</span>
+              <span className="text-[10px] uppercase tracking-widest text-success font-display font-bold">+ {formatCurrency(totalReceived)}</span>
+            </>
+          )}
+        </div>
+        <button
+          data-testid={`new-receipt-${v.id}`}
+          onClick={() => setCreating(true)}
+          className="text-[10px] uppercase tracking-widest px-3 py-1.5 bg-success/15 border border-success/40 text-success hover:bg-success hover:text-white inline-flex items-center gap-1 transition-colors font-display font-bold"
+        >
+          <Plus size={11} /> {t("new_receipt")}
+        </button>
+      </div>
+      {loading ? (
+        <p className="text-xs text-text-secondary text-center py-4">…</p>
+      ) : receipts.length === 0 ? (
+        <p className="text-xs text-text-secondary text-center py-4">{t("no_receipts_yet")}</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {receipts.map(r => (
+            <li key={r.id} data-testid={`receipt-${r.id}`} className="flex items-center gap-3 px-3 py-2 text-xs hover:bg-surface/40 transition-colors">
+              <span className="font-mono text-text-secondary">#{r.receipt_no}</span>
+              <span className="font-display font-bold text-success">{formatCurrency(r.amount)}</span>
+              <span className="text-text-secondary truncate flex-1">
+                {r.payment_method || "—"}
+                {r.created_at && <span className="ml-2">· {new Date(r.created_at).toLocaleDateString()}</span>}
+                {r.issued_by_name && <span className="ml-2">· {r.issued_by_name}</span>}
+              </span>
+              <button
+                data-testid={`open-receipt-${r.id}`}
+                onClick={() => openPdf(r.id)}
+                title={t("open_pdf")}
+                className="w-7 h-7 border border-success/40 text-success hover:bg-success hover:text-white flex items-center justify-center transition-colors"
+              >
+                <Printer size={12} />
+              </button>
+              <button
+                data-testid={`del-receipt-${r.id}`}
+                onClick={() => removeReceipt(r.id)}
+                title={t("delete")}
+                className="w-7 h-7 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
+              >
+                <Trash2 size={12} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {creating && (
+        <NewReceiptModal
+          vehicle={v}
+          t={t}
+          onClose={() => setCreating(false)}
+          onCreated={(rid) => { setCreating(false); reload(); openPdf(rid); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function NewReceiptModal({ vehicle, t, onClose, onCreated }) {
+  const [form, setForm] = useState({
+    amount: "",
+    payment_method: "Cash",
+    customer_name: vehicle.buyer_name || "",
+    customer_phone: vehicle.buyer_phone || "",
+    customer_address: "",
+    non_refundable_amount: 499,
+    notes: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!Number(form.amount) || Number(form.amount) <= 0) {
+      toast.error(t("receipt_amount_required"));
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await api.post(`/vehicles/${vehicle.id}/receipts`, {
+        vehicle_id: vehicle.id,
+        amount: Number(form.amount),
+        payment_method: form.payment_method,
+        customer_name: form.customer_name,
+        customer_phone: form.customer_phone,
+        customer_address: form.customer_address,
+        non_refundable_amount: Number(form.non_refundable_amount) || 499,
+        notes: form.notes,
+      });
+      toast.success(t("receipt_created"));
+      onCreated(res.data.id);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || t("error_generic"));
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-8 px-4">
+      <form onSubmit={submit} className="bg-background border border-success w-full max-w-xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="label-eyebrow text-success mb-1">{t("new_receipt")}</p>
+            <h2 className="font-display font-black text-xl uppercase tracking-tight">
+              {vehicle.year} {vehicle.make} {vehicle.model}
+            </h2>
+          </div>
+          <button type="button" onClick={onClose}><X size={20} className="text-text-secondary hover:text-primary" /></button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2">
+            <label className="label-eyebrow block mb-2">{t("receipt_amount")}</label>
+            <input
+              data-testid="rcp-amount"
+              type="number" min="0" step="0.01" required autoFocus
+              value={form.amount}
+              onChange={e => set("amount", e.target.value)}
+              className="w-full bg-surface border border-success focus:border-success focus:outline-none px-3 h-14 text-lg font-display font-black"
+              placeholder="0.00"
+            />
+          </div>
+          <div>
+            <label className="label-eyebrow block mb-2">{t("payment_method")}</label>
+            <select data-testid="rcp-method" value={form.payment_method} onChange={e => set("payment_method", e.target.value)}
+              className="w-full bg-surface border border-border focus:border-success focus:outline-none px-3 h-11 text-sm">
+              <option>Cash</option><option>Check</option><option>Card</option><option>Transfer</option><option>Zelle</option><option>Other</option>
+            </select>
+          </div>
+          <div>
+            <label className="label-eyebrow block mb-2">{t("non_refundable_amount")}</label>
+            <input
+              data-testid="rcp-nonref" type="number" min="0" step="0.01"
+              value={form.non_refundable_amount}
+              onChange={e => set("non_refundable_amount", e.target.value)}
+              className="w-full bg-surface border border-border focus:border-success focus:outline-none px-3 h-11 text-sm"
+            />
+          </div>
+          <div>
+            <label className="label-eyebrow block mb-2">{t("buyer_name")}</label>
+            <input data-testid="rcp-name" value={form.customer_name} onChange={e => set("customer_name", e.target.value)}
+              className="w-full bg-surface border border-border focus:border-success focus:outline-none px-3 h-11 text-sm" />
+          </div>
+          <div>
+            <label className="label-eyebrow block mb-2">{t("buyer_phone")}</label>
+            <input data-testid="rcp-phone" value={form.customer_phone} onChange={e => set("customer_phone", e.target.value)}
+              className="w-full bg-surface border border-border focus:border-success focus:outline-none px-3 h-11 text-sm" />
+          </div>
+          <div className="col-span-2">
+            <label className="label-eyebrow block mb-2">{t("address")}</label>
+            <input data-testid="rcp-address" value={form.customer_address} onChange={e => set("customer_address", e.target.value)}
+              className="w-full bg-surface border border-border focus:border-success focus:outline-none px-3 h-11 text-sm" />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-4 border-t border-border">
+          <button type="button" onClick={onClose} className="px-5 py-2.5 border border-border hover:border-primary text-xs font-display font-bold uppercase tracking-widest transition-colors">{t("cancel")}</button>
+          <button type="submit" data-testid="rcp-submit" disabled={saving}
+            className="bg-success hover:opacity-90 disabled:opacity-50 text-white px-5 py-2.5 text-xs font-display font-bold uppercase tracking-widest transition-colors inline-flex items-center gap-2">
+            <Check size={14} /> {saving ? "..." : t("create_and_print")}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 

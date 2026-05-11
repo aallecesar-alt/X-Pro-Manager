@@ -297,6 +297,9 @@ async def startup():
     await db.lost_sales.create_index([("dealership_id", 1), ("date", -1)])
     await db.push_subscriptions.create_index("endpoint", unique=True)
     await db.push_subscriptions.create_index([("dealership_id", 1), ("user_id", 1)])
+    await db.receipts.create_index("id", unique=True)
+    await db.receipts.create_index([("dealership_id", 1), ("vehicle_id", 1), ("created_at", -1)])
+    await db.receipts.create_index([("dealership_id", 1), ("receipt_no", 1)])
     await db.leads.create_index("id", unique=True)
     await db.leads.create_index([("dealership_id", 1), ("created_at", -1)])
     await db.leads.create_index([("dealership_id", 1), ("monday_item_id", 1)])
@@ -3164,6 +3167,147 @@ async def receivable_schedule_pdf(rid: str, current: dict = Depends(get_current_
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="payment-schedule-{safe_name}.pdf"'},
+    )
+
+
+# ============================================================
+# DEPOSIT RECEIPTS — multiple receipts per vehicle. Customer can come
+# back several times to add more deposit money; each visit gets its own
+# numbered receipt PDF. Receipt numbers are sequential per dealership.
+# ============================================================
+class ReceiptBase(BaseModel):
+    vehicle_id: str
+    amount: float
+    payment_method: str = ""             # Cash | Check | Card | Transfer ...
+    non_refundable_amount: Optional[float] = 499.0
+    customer_name: Optional[str] = ""
+    customer_phone: Optional[str] = ""
+    customer_address: Optional[str] = ""
+    notes: Optional[str] = ""
+
+
+class Receipt(ReceiptBase):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    dealership_id: str
+    receipt_no: str = ""
+    issued_by_id: Optional[str] = None
+    issued_by_name: Optional[str] = None
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+async def _next_receipt_no(dealership_id: str) -> str:
+    """Assigns a zero-padded sequential receipt number scoped to the dealership."""
+    last = await db.receipts.find_one(
+        {"dealership_id": dealership_id},
+        {"_id": 0, "receipt_no": 1},
+        sort=[("created_at", -1)],
+    )
+    base = 0
+    if last and (last.get("receipt_no") or "").isdigit():
+        base = int(last["receipt_no"])
+    return f"{base + 1:04d}"
+
+
+async def _receipt_store_for_pdf(dealership_id: str) -> dict:
+    dlr = await db.dealerships.find_one({"id": dealership_id}, {"_id": 0}) or {}
+    return {
+        "address": dlr.get("address") or "70 Chelsea St, Everett MA 02149",
+        "phone": dlr.get("phone") or "(617) 718-0342",
+        "email": dlr.get("email") or "intercarmotor@gmail.com",
+        "website": dlr.get("website") or "www.intercarautosales.com",
+    }
+
+
+@api_router.get("/vehicles/{vid}/receipts")
+async def list_vehicle_receipts(vid: str, current: dict = Depends(get_current_user)):
+    """List every receipt issued for this vehicle (newest first)."""
+    v = await db.vehicles.find_one(
+        {"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0, "id": 1}
+    )
+    if not v:
+        raise HTTPException(404, "Vehicle not found")
+    items = await db.receipts.find(
+        {"dealership_id": current["dealership_id"], "vehicle_id": vid},
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(200)
+    return items
+
+
+@api_router.post("/vehicles/{vid}/receipts", response_model=Receipt)
+async def create_vehicle_receipt(vid: str, payload: ReceiptBase, current: dict = Depends(get_current_user)):
+    v = await db.vehicles.find_one(
+        {"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not v:
+        raise HTTPException(404, "Vehicle not found")
+
+    no = await _next_receipt_no(current["dealership_id"])
+    # Fall back to the vehicle's buyer info when the form leaves a field blank
+    data = payload.model_dump()
+    data["vehicle_id"] = vid
+    if not data.get("customer_name"):
+        data["customer_name"] = v.get("buyer_name") or ""
+    if not data.get("customer_phone"):
+        data["customer_phone"] = v.get("buyer_phone") or ""
+    if not data.get("customer_address"):
+        data["customer_address"] = v.get("buyer_address") or ""
+
+    rcp = Receipt(
+        dealership_id=current["dealership_id"],
+        receipt_no=no,
+        issued_by_id=current["id"],
+        issued_by_name=current.get("name"),
+        **data,
+    )
+    await db.receipts.insert_one(rcp.model_dump())
+    return rcp
+
+
+@api_router.delete("/receipts/{rid}")
+async def delete_receipt(rid: str, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    res = await db.receipts.delete_one({"id": rid, "dealership_id": current["dealership_id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Receipt not found")
+    return {"deleted": True}
+
+
+@api_router.get("/receipts/{rid}/pdf")
+async def receipt_pdf(rid: str, current: dict = Depends(get_current_user)):
+    """Render the deposit-receipt PDF for an existing receipt."""
+    from fastapi.responses import Response as _Resp
+    from receipt_pdf import render_receipt
+    rcp = await db.receipts.find_one(
+        {"id": rid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not rcp:
+        raise HTTPException(404, "Receipt not found")
+    v = await db.vehicles.find_one(
+        {"id": rcp["vehicle_id"], "dealership_id": current["dealership_id"]},
+        {"_id": 0, "year": 1, "make": 1, "model": 1, "vin": 1, "color": 1, "mileage": 1},
+    ) or {}
+    payload = {
+        "invoice_no": rcp.get("receipt_no"),
+        "date": rcp.get("created_at", "")[:10],
+        "sales_rep": rcp.get("issued_by_name"),
+        "customer_name": rcp.get("customer_name"),
+        "customer_phone": rcp.get("customer_phone"),
+        "customer_address": rcp.get("customer_address"),
+        "vehicle": f"{v.get('year','') or ''} {v.get('make','') or ''} {v.get('model','') or ''}".strip(),
+        "vin": v.get("vin"),
+        "color": v.get("color"),
+        "mileage": v.get("mileage"),
+        "amount": rcp.get("amount"),
+        "payment_method": rcp.get("payment_method"),
+        "non_refundable_amount": rcp.get("non_refundable_amount") or 499,
+        "store": await _receipt_store_for_pdf(current["dealership_id"]),
+    }
+    pdf_bytes = render_receipt(payload)
+    safe_no = rcp.get("receipt_no") or rid[:8]
+    return _Resp(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="intercar-receipt-{safe_no}.pdf"'},
     )
 
 
