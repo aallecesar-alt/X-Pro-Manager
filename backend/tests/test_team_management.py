@@ -399,6 +399,53 @@ class TestDeleteTeamMember:
         r2 = requests.delete(f"{API}/team/{uid}", headers=sales_headers, timeout=15)
         assert r2.status_code == 403
 
+    def test_delete_salesperson_team_member_cascades_to_salespeople(self, owner_headers):
+        """Deleting a salesperson team member must also drop the linked salespeople
+        record so they stop appearing in the leaderboard with 0 sales."""
+        payload = {
+            "full_name": "TEST_TEAM CascadeDel",
+            "email": _make_email("cascade_del"),
+            "password": "pass1234",
+            "role": "salesperson",
+        }
+        r = requests.post(f"{API}/team", headers=owner_headers, json=payload, timeout=15)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        uid = body["id"]
+        sp_id = body.get("salesperson_id")
+        assert sp_id, "Backend should have auto-created a salespeople record"
+
+        # Confirm the salespeople record exists
+        rsp = requests.get(f"{API}/salespeople", headers=owner_headers, timeout=15)
+        assert rsp.status_code == 200
+        assert any(s["id"] == sp_id for s in rsp.json()), "Salesperson should exist before delete"
+
+        # Confirm leaderboard lists this salesperson with 0 sales
+        rlb = requests.get(f"{API}/leaderboard", headers=owner_headers, timeout=15)
+        assert rlb.status_code == 200
+        assert any(row.get("salesperson_id") == sp_id for row in rlb.json().get("rows", [])), (
+            "New salesperson should appear in leaderboard before delete"
+        )
+
+        # Delete the team member
+        rdel = requests.delete(f"{API}/team/{uid}", headers=owner_headers, timeout=15)
+        assert rdel.status_code == 200
+        assert rdel.json().get("deleted") is True
+
+        # The salespeople record must be gone
+        rsp2 = requests.get(f"{API}/salespeople", headers=owner_headers, timeout=15)
+        assert rsp2.status_code == 200
+        assert not any(s["id"] == sp_id for s in rsp2.json()), (
+            "Salespeople record should have been removed when team member was deleted"
+        )
+
+        # Leaderboard must no longer mention this salesperson
+        rlb2 = requests.get(f"{API}/leaderboard", headers=owner_headers, timeout=15)
+        assert rlb2.status_code == 200
+        assert not any(row.get("salesperson_id") == sp_id for row in rlb2.json().get("rows", [])), (
+            "Leaderboard should not list a deleted salesperson"
+        )
+
 
 # ============================================================
 # Permission enforcement on resource endpoints

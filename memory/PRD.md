@@ -160,6 +160,12 @@ Per-car features:
 - New permission `receivables` added to ALL_TAB_PERMISSIONS.
 - 8 pytest tests cover CRUD lifecycle, weekly/biweekly/monthly date math, pay/unpay flow + auto-complete, summary buckets, validation errors, metadata update, salesperson RBAC.
 
+### Cascade delete fix for salespeople (Feb 12 2026)
+- Bug: deleting a salesperson team member from "Equipe" left an orphan record in `salespeople`, so the deleted person kept appearing on the leaderboard with 0 sales (e.g. "Julio Cesar #4 / 0").
+- Fix: `DELETE /api/team/{uid}` is now cascade-aware. When the deleted member has `role=salesperson`, the matching `salespeople` doc is also removed and any vehicles previously sold by them have their `salesperson_id` blanked (the `salesperson_name` snapshot is preserved so historical reports still show who sold each car).
+- New test `test_delete_salesperson_team_member_cascades_to_salespeople` covers the full flow (create → assert leaderboard contains → delete → assert leaderboard cleared).
+- 127 / 127 backend tests passing.
+
 ## Test credentials
 - **Owner** — Email: `carlos@intercar.com` · Password: `senha123` (sees everything)
 - **Salesperson** — Email: `joao@intercar.com` · Password: `senha456` (restricted view)

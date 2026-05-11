@@ -2331,13 +2331,25 @@ async def delete_team_member(uid: str, current: dict = Depends(get_current_user)
     require_owner(current)
     if uid == current.get("id"):
         raise HTTPException(403, "Cannot delete yourself")
-    res = await db.users.delete_one({
-        "id": uid,
-        "dealership_id": current["dealership_id"],
-        "role": {"$in": ["owner", "salesperson", "bdc", "gerente", "geral"]},
-    })
-    if res.deleted_count == 0:
+    # Fetch the user first so we can cascade-clean the linked salesperson record
+    target = await db.users.find_one(
+        {"id": uid, "dealership_id": current["dealership_id"],
+         "role": {"$in": ["owner", "salesperson", "bdc", "gerente", "geral"]}},
+        {"_id": 0, "role": 1, "salesperson_id": 1},
+    )
+    if not target:
         raise HTTPException(404, "Team member not found")
+    await db.users.delete_one({"id": uid, "dealership_id": current["dealership_id"]})
+    # Cascade: when removing a salesperson, also drop the salespeople record so they
+    # disappear from the leaderboard / dropdowns. Past sold vehicles keep their
+    # salesperson_name snapshot; we just clear the FK so they show as unassigned.
+    sp_id = target.get("salesperson_id")
+    if target.get("role") == "salesperson" and sp_id:
+        await db.salespeople.delete_one({"id": sp_id, "dealership_id": current["dealership_id"]})
+        await db.vehicles.update_many(
+            {"dealership_id": current["dealership_id"], "salesperson_id": sp_id},
+            {"$set": {"salesperson_id": ""}},
+        )
     return {"deleted": True}
 
 
