@@ -632,61 +632,7 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToF
         </div>
       )}
 
-      {/* ===== Weekday Heatmap — last 90 days ===== */}
-      {showHeatmap && (
-        <div data-testid="weekday-heatmap" className="border border-border bg-background p-6 lg:p-8 mb-10 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-72 h-72 bg-gold/5 rounded-full blur-3xl pointer-events-none" />
-          <div className="flex items-center justify-between mb-2 relative">
-            <div className="flex items-center gap-2">
-              <Flame size={14} className="text-gold" />
-              <p className="label-eyebrow text-gold">Vendas · Dia da semana</p>
-            </div>
-            <p className="text-[10px] text-text-secondary uppercase tracking-widest">90 dias</p>
-          </div>
-          <p className="text-[11px] text-text-secondary mb-5 relative">
-            Identifique seus dias mais quentes para vender.
-          </p>
-
-          <div className="grid grid-cols-7 gap-2 mb-3 relative">
-            {weekdayLabels.map((lbl, i) => (
-              <div
-                key={lbl}
-                data-testid={`heat-${lbl.toLowerCase()}`}
-                className="heat-cell flex flex-col items-center justify-center text-center p-3"
-                style={{ background: heatColor(weekdayCounts[i]) }}
-                title={`${lbl}: ${weekdayCounts[i]} venda${weekdayCounts[i] === 1 ? "" : "s"}`}
-              >
-                <span className="font-display font-black text-2xl text-white leading-none drop-shadow">
-                  {weekdayCounts[i]}
-                </span>
-                <span className="text-[10px] uppercase tracking-wider mt-1 text-white/80 font-display font-bold">{lbl}</span>
-              </div>
-            ))}
-          </div>
-
-          {bestWeekday.v > 0 && (
-            <div className="border-t border-gold-soft pt-3 mt-3 flex items-center gap-2 relative">
-              <Star size={12} className="text-gold fill-current" />
-              <p className="text-[11px] text-text-secondary">
-                Dia mais quente: <span className="text-gold font-bold uppercase tracking-wider">{weekdayLabels[bestWeekday.i]}</span>
-              </p>
-            </div>
-          )}
-
-          {/* Legend */}
-          <div className="flex items-center gap-1 mt-4 relative">
-            <span className="text-[9px] text-text-secondary uppercase tracking-widest mr-2">Menos</span>
-            {[0.06, 0.25, 0.5, 0.75, 1].map((a) => (
-              <span
-                key={a}
-                className="w-3 h-3 border border-white/10"
-                style={{ background: `rgba(212, 175, 55, ${a})` }}
-              />
-            ))}
-            <span className="text-[9px] text-text-secondary uppercase tracking-widest ml-2">Mais</span>
-          </div>
-        </div>
-      )}
+      {/* Weekday heatmap REMOVED per user request */}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-border border border-border mb-10">
         {/* Leaderboard — professional podium + list */}
@@ -741,33 +687,7 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToF
                 </div>
               )}
 
-              {/* Rest of leaderboard (ranks 4+) */}
-              {leaderboard.rows.length > 3 && (
-                <div className="pt-4 border-t border-border">
-                  <p className="label-eyebrow text-text-secondary mb-3">{t("leaderboard_others") || "Demais vendedores"}</p>
-                  <div className="space-y-1">
-                    {leaderboard.rows.slice(3, 10).map((r, i) => {
-                      const max = leaderboard.rows[0]?.count || 1;
-                      const pct = max > 0 ? (r.count / max) * 100 : 0;
-                      return (
-                        <div
-                          key={r.salesperson_id || i}
-                          data-testid={`lb-row-${r.salesperson_id || "unassigned"}`}
-                          className="flex items-center gap-3 py-2.5 px-3 hover:bg-surface/60 transition-colors border border-transparent hover:border-border"
-                        >
-                          <span className="w-6 text-center font-display font-black text-text-secondary text-xs">#{r.rank}</span>
-                          <Avatar src={r.photo_url} name={r.salesperson_name} size="sm" />
-                          <p className="flex-1 min-w-0 text-xs font-display font-bold uppercase tracking-wide truncate">{r.salesperson_name}</p>
-                          <div className="hidden sm:block w-28 bg-surface h-1 relative overflow-hidden">
-                            <div className="absolute inset-y-0 left-0 bg-text-secondary/40" style={{ width: `${pct}%` }} />
-                          </div>
-                          <span className="font-display font-black text-base w-8 text-right">{r.count}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+              {/* Rest of leaderboard (ranks 4+) — REMOVED per user request */}
             </div>
           )}
         </div>
