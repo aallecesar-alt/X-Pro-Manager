@@ -160,6 +160,23 @@ Per-car features:
 - New permission `receivables` added to ALL_TAB_PERMISSIONS.
 - 8 pytest tests cover CRUD lifecycle, weekly/biweekly/monthly date math, pay/unpay flow + auto-complete, summary buckets, validation errors, metadata update, salesperson RBAC.
 
+### Programação de Entrega (Delivery Schedules) — Feb 12 2026
+- Replicates the WhatsApp checklist format the owner uses to tell the yard worker what to prep before each delivery (customer name, car description, last 6 of VIN, list of specs, assigned staff, delivery date/time).
+- **Backend** (`server.py`): new `delivery_schedules` collection + CRUD endpoints:
+  - `GET /api/delivery-schedules` (filters by status; salespeople see only theirs)
+  - `POST /api/delivery-schedules` (auto-snapshots vehicle make/model/year/color/vin/buyer when `vehicle_id` is given)
+  - `PUT /api/delivery-schedules/{sid}` (auto-recomputes status: pending → in_progress → completed)
+  - `POST /api/delivery-schedules/{sid}/spec/{spec_id}/toggle` (the yard worker's fast tap — flips one task and re-evaluates status)
+  - `DELETE /api/delivery-schedules/{sid}` (owner/manager only)
+  - `GET /api/delivery-schedules/alerts` (count of schedules with `alert_due_soon=True` — for the red badge)
+- Each list response is enriched with: `vin_last_6`, `total_specs`, `done_specs`, `pending_specs`, `hours_until`, `alert_due_soon` (= true if <24h to delivery and still has pending specs).
+- **Push notification** to the assigned salesperson (`send_push_to_user` helper added) when the last spec is checked off — uses existing VAPID infrastructure.
+- **Permissions**: added new `delivery_schedule` tab permission. Default for owner / gerente / salesperson / geral (the yard person). BDC excluded. `ALL_TAB_PERMISSIONS` updated.
+- **`/team` endpoint** now returns a light payload for non-owners (no password_hash, no permissions) so the assignee picker works for managers and salespeople too.
+- **Frontend**: new component `/app/frontend/src/components/DeliverySchedulesPanel.jsx`. Opens as an inline panel inside the **Esteira de Entrega** tab (button "Programação de Entrega" in the header) with a red badge if `alert_count > 0`. Big-tap checklist designed for the yard worker; assignee chips with avatars from `/api/team`; status filters (Ativas / Concluídas / Todas) with counts.
+- **8 new pytest tests** in `test_delivery_schedules.py`. Existing `test_team_management.py` tests updated for the new light-payload behavior and new `delivery_schedule` permission key.
+- **143 / 143 backend tests passing**.
+
 ### Cascade delete fix for salespeople (Feb 12 2026)
 - Bug: deleting a salesperson team member from "Equipe" left an orphan record in `salespeople`, so the deleted person kept appearing on the leaderboard with 0 sales (e.g. "Julio Cesar #4 / 0").
 - Fix: `DELETE /api/team/{uid}` is now cascade-aware. When the deleted member has `role=salesperson`, the matching `salespeople` doc is also removed and any vehicles previously sold by them have their `salesperson_id` blanked (the `salesperson_name` snapshot is preserved so historical reports still show who sold each car).

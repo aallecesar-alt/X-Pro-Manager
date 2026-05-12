@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Car, LayoutDashboard, Package, TrendingUp, TrendingDown, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks, HandCoins, Printer, Flame, Timer, Activity, Star, ArrowUpRight, ArrowDownRight, Award, BarChart3, Gem, Hourglass } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, TrendingDown, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks, HandCoins, Printer, Flame, Timer, Activity, Star, ArrowUpRight, ArrowDownRight, Award, BarChart3, Gem, Hourglass, ClipboardList } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
+import DeliverySchedulesPanel from "@/components/DeliverySchedulesPanel";
 import { useAuth } from "@/context/AuthContext";
 import { useI18n, LANG_OPTIONS } from "@/lib/i18n.jsx";
 import PhotoUploader from "@/components/PhotoUploader";
@@ -49,6 +50,8 @@ export default function AppShell() {
   const [importPageOpen, setImportPageOpen] = useState(false);
   const [fpAlerts, setFpAlerts] = useState({ overdue: [], today: [], tomorrow: [], total: 0 });
   const [recAlerts, setRecAlerts] = useState({ alert_count: 0, total_remaining: 0 });
+  const [team, setTeam] = useState([]);  // members list for delivery-schedule assignees
+  const [scheduleAlertCount, setScheduleAlertCount] = useState(0);
 
   // Auto-load Floor Plan alerts for owner+gerente every 5 minutes
   useEffect(() => {
@@ -120,6 +123,10 @@ export default function AppShell() {
       if (canAccess("delivery")) { calls.push(api.get("/delivery")); labels.push("deliveries"); }
       // Salespeople list is needed for leads form too
       if (canAccess("salespeople") || canAccess("leads")) { calls.push(api.get("/salespeople")); labels.push("salespeople"); }
+      // Team members (for delivery-schedule assignees) — anyone with delivery_schedule perm
+      if (canAccess("delivery") || canAccess("delivery_schedule") || isOwner) { calls.push(api.get("/team").catch(() => ({ data: { members: [] } }))); labels.push("team"); }
+      // Schedule alerts badge (for staff + yard/salesperson with delivery_schedule perm)
+      if (canAccess("delivery") || isOwner) { calls.push(api.get("/delivery-schedules/alerts").catch(() => ({ data: { count: 0 } }))); labels.push("scheduleAlerts"); }
       const results = await Promise.allSettled(calls);
       results.forEach((r, i) => {
         if (r.status === "fulfilled") {
@@ -127,6 +134,8 @@ export default function AppShell() {
           else if (labels[i] === "vehicles") setVehicles(r.value.data);
           else if (labels[i] === "deliveries") setDeliveries(r.value.data);
           else if (labels[i] === "salespeople") setSalespeople(r.value.data);
+          else if (labels[i] === "team") setTeam(r.value.data?.members || []);
+          else if (labels[i] === "scheduleAlerts") setScheduleAlertCount(r.value.data?.count || 0);
         }
       });
     } catch { toast.error(t("error_generic")); }
@@ -286,7 +295,7 @@ export default function AppShell() {
           />
         )}
         {tab === "pipeline" && canAccess("pipeline") && <Pipeline vehicles={vehicles} t={t} onMove={updateStatus} onEdit={(v) => setEditing(v)} onHistory={setHistoryVid} />}
-        {tab === "delivery" && canAccess("delivery") && <Delivery deliveries={deliveries} salespeople={salespeople} t={t} onReload={reload} isStaff={isStaff} onHistory={setHistoryVid} />}
+        {tab === "delivery" && canAccess("delivery") && <Delivery deliveries={deliveries} vehicles={vehicles} team={team} currentUser={user} scheduleAlertCount={scheduleAlertCount} salespeople={salespeople} t={t} onReload={reload} isStaff={isStaff} onHistory={setHistoryVid} />}
         {tab === "leads" && canAccess("leads") && <LeadsPage t={t} role={user?.role || "owner"} currentSpId={user?.salesperson_id || ""} salespeople={salespeople} />}
         {tab === "salespeople" && canAccess("salespeople") && <SalespeopleTab salespeople={salespeople} t={t} onReload={reload} isSalesperson={isSalesperson} currentSpId={user?.salesperson_id || ""} />}
         {tab === "financial" && canAccess("financial") && <Financial t={t} fpAlerts={isOwner ? fpAlerts : null} />}
@@ -2055,12 +2064,13 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
   );
 }
 
-function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onReload, isStaff = false, onHistory }) {
+function Delivery({ deliveries, vehicles = [], team = [], currentUser, scheduleAlertCount = 0, salespeople: deliveriesSalespeople = [], t, onReload, isStaff = false, onHistory }) {
   const [editing, setEditing] = useState(null); // vehicle being edited (step or notes)
   const [editMode, setEditMode] = useState("step"); // "step" | "notes"
   const [filesOpen, setFilesOpen] = useState(null); // { vehicle, step }
   const [alertsOnly, setAlertsOnly] = useState(false);
   const [showDelivered, setShowDelivered] = useState(false);
+  const [showSchedules, setShowSchedules] = useState(false);
 
   const STEPS = [1, 2, 3, 4, 5, 6, 7, 8];
   // Color per step (mimics screenshot: red→pink→blue→purple→green)
@@ -2122,8 +2132,38 @@ function Delivery({ deliveries, salespeople: deliveriesSalespeople = [], t, onRe
 
   return (
     <div data-testid="delivery-tab">
-      <p className="label-eyebrow text-primary mb-2">{t("delivery_pipeline_title")}</p>
-      <h1 className="font-display font-black text-4xl uppercase tracking-tighter mb-6">{t("delivery")}</h1>
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-6">
+        <div>
+          <p className="label-eyebrow text-primary mb-2">{t("delivery_pipeline_title")}</p>
+          <h1 className="font-display font-black text-4xl uppercase tracking-tighter">{t("delivery")}</h1>
+        </div>
+        <button
+          type="button"
+          data-testid="open-schedules"
+          onClick={() => setShowSchedules(v => !v)}
+          className={`relative inline-flex items-center gap-2 px-4 py-2.5 border font-display font-bold uppercase text-xs tracking-widest transition-colors ${
+            showSchedules ? "bg-primary text-white border-primary" : "border-primary text-primary hover:bg-primary/10"
+          }`}
+        >
+          <ClipboardList size={14} />
+          Programação de Entrega
+          {scheduleAlertCount > 0 && (
+            <span data-testid="schedule-badge" className="absolute -top-2 -right-2 min-w-[20px] h-5 px-1.5 bg-primary text-white text-[10px] font-display font-black flex items-center justify-center border-2 border-background animate-pulse">
+              {scheduleAlertCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {showSchedules && (
+        <DeliverySchedulesPanel
+          vehicles={vehicles}
+          team={team}
+          currentUser={currentUser}
+          t={t}
+          onClose={() => setShowSchedules(false)}
+        />
+      )}
 
       {/* Stuck alerts banner — owner + gerente only */}
       {isStaff && stuckCount > 0 && (

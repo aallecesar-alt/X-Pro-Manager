@@ -176,26 +176,43 @@ class TestListTeam:
         assert "all_permissions" in body
         assert "role_defaults" in body
         assert isinstance(body["members"], list)
-        # all_permissions must contain all known tabs
+        # all_permissions must contain all known tabs (delivery_schedule added in Feb 2026)
         assert set(body["all_permissions"]) == {
-            "overview", "inventory", "pipeline", "delivery", "leads", "salespeople", "financial", "post_sales", "applications", "receivables"
+            "overview", "inventory", "pipeline", "delivery", "leads", "salespeople",
+            "financial", "post_sales", "applications", "receivables", "delivery_schedule",
         }
-        # role_defaults: salesperson default has no financial, includes applications
+        # role_defaults: salesperson default has no financial, includes applications + delivery_schedule
         assert "financial" not in body["role_defaults"]["salesperson"]
         assert set(body["role_defaults"]["salesperson"]) == {
-            "overview", "inventory", "pipeline", "delivery", "leads", "salespeople", "applications"
+            "overview", "inventory", "pipeline", "delivery", "leads", "salespeople",
+            "applications", "delivery_schedule",
         }
         assert set(body["role_defaults"]["bdc"]) == {"overview", "leads", "applications"}
-        assert set(body["role_defaults"]["gerente"]) == {"applications"}
+        assert set(body["role_defaults"]["gerente"]) == {"applications", "delivery_schedule"}
         assert set(body["role_defaults"]["owner"]) == set(body["all_permissions"])
 
-    def test_salesperson_cannot_list_team(self, sales_headers):
+    def test_salesperson_gets_light_team_listing(self, sales_headers):
+        """As of Feb 2026, /team is open so salespeople / managers can pick assignees
+        for delivery-schedule tasks. Non-owners get a light payload (no password
+        hash, no permissions list).
+        """
         r = requests.get(f"{API}/team", headers=sales_headers, timeout=15)
-        assert r.status_code == 403, f"expected 403 got {r.status_code}: {r.text}"
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert isinstance(body.get("members"), list)
+        # Light payload must not leak password_hash and effective_permissions
+        for m in body["members"]:
+            assert "password_hash" not in m
+            assert "effective_permissions" not in m
+            assert m.get("full_name")  # name should be there for the assignee picker
 
-    def test_bdc_cannot_list_team(self, bdc_headers):
+    def test_bdc_gets_light_team_listing(self, bdc_headers):
         r = requests.get(f"{API}/team", headers=bdc_headers, timeout=15)
-        assert r.status_code == 403
+        assert r.status_code == 200
+        body = r.json()
+        for m in body["members"]:
+            assert "password_hash" not in m
+            assert "effective_permissions" not in m
 
 
 # ============================================================
@@ -528,15 +545,21 @@ class TestDefaultPermissions:
         r = requests.get(f"{API}/team", headers=owner_headers, timeout=15)
         assert r.status_code == 200
         rd = r.json()["role_defaults"]
-        assert set(rd["salesperson"]) == {"overview", "inventory", "pipeline", "delivery", "leads", "salespeople", "applications"}
+        assert set(rd["salesperson"]) == {
+            "overview", "inventory", "pipeline", "delivery", "leads", "salespeople",
+            "applications", "delivery_schedule",
+        }
         assert "financial" not in rd["salesperson"]
         assert set(rd["bdc"]) == {"overview", "leads", "applications"}
-        assert set(rd["gerente"]) == {"applications"}
+        assert set(rd["gerente"]) == {"applications", "delivery_schedule"}
 
     def test_seeded_salesperson_default_perms(self, sales_login):
         # joao@intercar.com has permissions=null -> defaults applied
         perms = sales_login["user"]["permissions"]
-        assert set(perms) == {"overview", "inventory", "pipeline", "delivery", "leads", "salespeople", "applications"}
+        assert set(perms) == {
+            "overview", "inventory", "pipeline", "delivery", "leads", "salespeople",
+            "applications", "delivery_schedule",
+        }
 
     def test_seeded_bdc_default_perms(self, bdc_login):
         # The seeded BDC may have customized permissions in production. Validate

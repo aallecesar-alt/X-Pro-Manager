@@ -234,18 +234,20 @@ async def get_current_user(request: Request) -> dict:
 ALL_TAB_PERMISSIONS = [
     "overview", "inventory", "pipeline", "delivery",
     "leads", "salespeople", "financial", "post_sales", "applications",
-    "receivables",
+    "receivables", "delivery_schedule",
 ]
 ROLE_DEFAULT_PERMISSIONS = {
     "owner": ALL_TAB_PERMISSIONS,
     # BDC handles incoming clients → can also see applications.
     "bdc": ["overview", "leads", "applications"],
     # Salespeople need to see credit applications to follow up on financing leads.
-    "salesperson": ["overview", "inventory", "pipeline", "delivery", "leads", "salespeople", "applications"],
+    # They also create and view their own delivery schedules so the yard knows what to prep.
+    "salesperson": ["overview", "inventory", "pipeline", "delivery", "leads", "salespeople", "applications", "delivery_schedule"],
     # Manager — by default sees applications so they can route financing.
-    "gerente": ["applications"],
-    # Geral (yard / parts / shop staff) — defaults to post-sales (handles repairs).
-    "geral": ["post_sales"],
+    "gerente": ["applications", "delivery_schedule"],
+    # Geral (yard / parts / shop staff) — defaults to post-sales + delivery schedule
+    # (this is the menino do pátio who executes the prep tasks).
+    "geral": ["post_sales", "delivery_schedule"],
 }
 
 
@@ -2346,8 +2348,13 @@ async def team_photo_map(current: dict = Depends(get_current_user)):
 
 @api_router.get("/team")
 async def list_team(current: dict = Depends(get_current_user)):
-    """List all non-owner users in this dealership with their permissions."""
-    require_owner(current)
+    """List all non-owner users in this dealership with their permissions.
+
+    Owners get the full payload (with permissions metadata) for the Settings page.
+    Managers / salespeople / yard staff get a lighter listing because they need
+    the names + photos to assign people to delivery-schedule tasks.
+    """
+    is_owner_user = current.get("role") == "owner"
     users = await db.users.find(
         {"dealership_id": current["dealership_id"], "role": {"$in": ["owner", "salesperson", "bdc", "gerente", "geral"]}},
         {"_id": 0, "password_hash": 0}
@@ -2358,7 +2365,10 @@ async def list_team(current: dict = Depends(get_current_user)):
     ).to_list(500)}
     out = []
     for u in users:
-        item = {**u, "effective_permissions": effective_permissions(u)}
+        item = {**u, "effective_permissions": effective_permissions(u)} if is_owner_user else {
+            "id": u.get("id"), "full_name": u.get("full_name"), "email": u.get("email"),
+            "role": u.get("role"), "photo_url": u.get("photo_url", ""),
+        }
         if u.get("salesperson_id") and u["salesperson_id"] in sps:
             item["salesperson_name"] = sps[u["salesperson_id"]].get("name", "")
         out.append(item)
@@ -5153,6 +5163,373 @@ async def send_push_to_role(dealership_id: str, roles: List[str], title: str, bo
     # Prune dead subscriptions
     if dead_endpoints:
         await db.push_subscriptions.delete_many({"endpoint": {"$in": dead_endpoints}})
+
+
+async def send_push_to_user(dealership_id: str, user_id: str, title: str, body: str, url: str = "/"):
+    """Fire-and-forget web-push to all subscriptions of one specific user."""
+    if not _VAPID_PRIVATE or not _VAPID_PUBLIC or not user_id:
+        return
+    try:
+        from pywebpush import webpush, WebPushException
+    except Exception as e:
+        print(f"[push] pywebpush import failed: {e}")
+        return
+
+    subs = await db.push_subscriptions.find(
+        {"dealership_id": dealership_id, "user_id": user_id},
+        {"_id": 0},
+    ).to_list(50)
+    if not subs:
+        return
+
+    payload = json.dumps({"title": title, "body": body, "url": url})
+    dead = []
+    for sub in subs:
+        try:
+            webpush(
+                subscription_info={"endpoint": sub["endpoint"], "keys": sub["keys"]},
+                data=payload,
+                vapid_private_key=_VAPID_PRIVATE,
+                vapid_claims={"sub": _VAPID_CLAIM_EMAIL},
+            )
+        except WebPushException as e:
+            status = getattr(e.response, "status_code", None) if hasattr(e, "response") else None
+            if status in (404, 410):
+                dead.append(sub["endpoint"])
+            else:
+                print(f"[push] user webpush failed: {e}")
+        except Exception as e:  # pragma: no cover
+            print(f"[push] unexpected: {e}")
+    if dead:
+        await db.push_subscriptions.delete_many({"endpoint": {"$in": dead}})
+
+
+# ============================================================
+# DELIVERY SCHEDULES (Programação de Entrega)
+# Para o "menino do pátio" — lista de tarefas a fazer em cada carro antes
+# da entrega (colocar estribo, caporta marítima, lavagem, película, etc.).
+# Espelha o formato que o usuário usa no WhatsApp.
+# ============================================================
+class DeliverySpecBase(BaseModel):
+    text: str
+    done: bool = False
+    done_at: Optional[str] = None
+    done_by: str = ""  # nome do usuário que marcou
+
+
+class DeliveryScheduleBase(BaseModel):
+    vehicle_id: str = ""           # FK to vehicles.id (optional — pode digitar manual)
+    vehicle_label: str = ""        # snapshot "2023 Chevrolet Silverado 1500 (azul)"
+    vin: str = ""                  # cópia do VIN para mostrar os últimos 6
+    customer_name: str = ""
+    customer_phone: str = ""
+    delivery_date: Optional[str] = None  # ISO datetime (YYYY-MM-DDTHH:MM)
+    specifications: List[Dict] = []      # [{id, text, done, done_at, done_by}]
+    assigned_user_ids: List[str] = []    # ids dos membros da equipe (Geral, etc.)
+    assigned_names: List[str] = []       # snapshot dos nomes (mostrado se o user for removido)
+    salesperson_id: str = ""             # quem vendeu (para receber push quando concluir)
+    salesperson_name: str = ""
+    notes: str = ""
+    status: str = "pending"              # pending | in_progress | completed
+
+
+class DeliverySchedule(DeliveryScheduleBase):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    dealership_id: str
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    completed_at: Optional[str] = None
+
+
+class DeliveryScheduleUpdate(BaseModel):
+    vehicle_id: Optional[str] = None
+    vehicle_label: Optional[str] = None
+    vin: Optional[str] = None
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
+    delivery_date: Optional[str] = None
+    specifications: Optional[List[Dict]] = None
+    assigned_user_ids: Optional[List[str]] = None
+    assigned_names: Optional[List[str]] = None
+    salesperson_id: Optional[str] = None
+    salesperson_name: Optional[str] = None
+    notes: Optional[str] = None
+    status: Optional[str] = None
+
+
+def _can_access_schedules(user: dict) -> bool:
+    perms = effective_permissions(user)
+    return "delivery_schedule" in perms or user.get("role") == "owner"
+
+
+def _enrich_schedule(s: dict) -> dict:
+    """Adds derived fields: vin_last_6, days_until, alert_pending."""
+    out = dict(s)
+    out["_id"] = None
+    out.pop("_id", None)
+    vin = (s.get("vin") or "").strip()
+    out["vin_last_6"] = vin[-6:].upper() if vin else ""
+    specs = s.get("specifications") or []
+    out["total_specs"] = len(specs)
+    out["done_specs"] = sum(1 for x in specs if x.get("done"))
+    out["pending_specs"] = out["total_specs"] - out["done_specs"]
+    # Alert: < 24h to delivery AND still has pending specs
+    out["alert_due_soon"] = False
+    out["hours_until"] = None
+    dd = s.get("delivery_date")
+    if dd:
+        try:
+            d = datetime.fromisoformat(dd.replace("Z", "+00:00"))
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=timezone.utc)
+            delta = d - datetime.now(timezone.utc)
+            hours = delta.total_seconds() / 3600.0
+            out["hours_until"] = round(hours, 1)
+            if hours <= 24 and out["pending_specs"] > 0 and s.get("status") != "completed":
+                out["alert_due_soon"] = True
+        except Exception:
+            pass
+    return out
+
+
+@api_router.get("/delivery-schedules")
+async def list_delivery_schedules(
+    status: Optional[str] = None,
+    current: dict = Depends(get_current_user),
+):
+    if not _can_access_schedules(current):
+        raise HTTPException(403, "Forbidden")
+    q = {"dealership_id": current["dealership_id"]}
+    if status:
+        q["status"] = status
+    # Salesperson sees only their own schedules
+    if current.get("role") == "salesperson":
+        q["salesperson_id"] = current.get("salesperson_id") or "__none__"
+    items = await db.delivery_schedules.find(q, {"_id": 0}).sort("delivery_date", 1).to_list(500)
+    return [_enrich_schedule(s) for s in items]
+
+
+@api_router.post("/delivery-schedules", response_model=DeliverySchedule)
+async def create_delivery_schedule(
+    payload: DeliveryScheduleBase,
+    current: dict = Depends(get_current_user),
+):
+    if not _can_access_schedules(current):
+        raise HTTPException(403, "Forbidden")
+    # Normalize specifications: assign ids if missing
+    specs = []
+    for sp in (payload.specifications or []):
+        if not sp.get("text"):
+            continue
+        specs.append({
+            "id": sp.get("id") or str(uuid.uuid4()),
+            "text": sp["text"].strip(),
+            "done": bool(sp.get("done")),
+            "done_at": sp.get("done_at") or None,
+            "done_by": sp.get("done_by") or "",
+        })
+    # Auto-fill vehicle snapshot from vehicle_id when given
+    veh = None
+    if payload.vehicle_id:
+        veh = await db.vehicles.find_one(
+            {"id": payload.vehicle_id, "dealership_id": current["dealership_id"]},
+            {"_id": 0, "make": 1, "model": 1, "year": 1, "color": 1, "vin": 1,
+             "buyer_name": 1, "buyer_phone": 1, "salesperson_id": 1, "salesperson_name": 1},
+        )
+    item = DeliverySchedule(
+        dealership_id=current["dealership_id"],
+        vehicle_id=payload.vehicle_id or "",
+        vehicle_label=payload.vehicle_label or (
+            f"{veh.get('year','')} {veh.get('make','')} {veh.get('model','')} ({veh.get('color','')})"
+            if veh else ""
+        ),
+        vin=payload.vin or (veh.get("vin") if veh else "") or "",
+        customer_name=payload.customer_name or (veh.get("buyer_name") if veh else "") or "",
+        customer_phone=payload.customer_phone or (veh.get("buyer_phone") if veh else "") or "",
+        delivery_date=payload.delivery_date,
+        specifications=specs,
+        assigned_user_ids=payload.assigned_user_ids or [],
+        assigned_names=payload.assigned_names or [],
+        salesperson_id=payload.salesperson_id or (veh.get("salesperson_id") if veh else "") or "",
+        salesperson_name=payload.salesperson_name or (veh.get("salesperson_name") if veh else "") or "",
+        notes=payload.notes or "",
+        status=payload.status or "pending",
+    )
+    await db.delivery_schedules.insert_one(item.model_dump())
+    return item
+
+
+@api_router.put("/delivery-schedules/{sid}")
+async def update_delivery_schedule(
+    sid: str,
+    payload: DeliveryScheduleUpdate,
+    current: dict = Depends(get_current_user),
+):
+    if not _can_access_schedules(current):
+        raise HTTPException(403, "Forbidden")
+    existing = await db.delivery_schedules.find_one(
+        {"id": sid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not existing:
+        raise HTTPException(404, "Schedule not found")
+    upd = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+
+    # Normalize specs (keep done state, add ids)
+    if "specifications" in upd:
+        specs = []
+        for sp in upd["specifications"] or []:
+            if not sp.get("text"):
+                continue
+            specs.append({
+                "id": sp.get("id") or str(uuid.uuid4()),
+                "text": str(sp["text"]).strip(),
+                "done": bool(sp.get("done")),
+                "done_at": sp.get("done_at") or None,
+                "done_by": sp.get("done_by") or "",
+            })
+        upd["specifications"] = specs
+
+    # Auto status: if all specs done → completed; else if any done → in_progress; else pending
+    final_specs = upd.get("specifications", existing.get("specifications") or [])
+    if final_specs:
+        all_done = all(x.get("done") for x in final_specs)
+        any_done = any(x.get("done") for x in final_specs)
+        # Don't override an explicit status sent by client (e.g. user manually completes)
+        if "status" not in upd:
+            upd["status"] = "completed" if all_done else ("in_progress" if any_done else "pending")
+        if upd.get("status") == "completed" and not existing.get("completed_at"):
+            upd["completed_at"] = datetime.now(timezone.utc).isoformat()
+        if upd.get("status") != "completed":
+            upd["completed_at"] = None
+
+    if not upd:
+        raise HTTPException(400, "Nothing to update")
+    await db.delivery_schedules.update_one(
+        {"id": sid, "dealership_id": current["dealership_id"]}, {"$set": upd}
+    )
+    refreshed = await db.delivery_schedules.find_one(
+        {"id": sid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+
+    # Push notification to the salesperson when the schedule flips to "completed"
+    just_completed = (
+        existing.get("status") != "completed" and refreshed.get("status") == "completed"
+    )
+    if just_completed and refreshed.get("salesperson_id"):
+        sp_user = await db.users.find_one(
+            {"dealership_id": current["dealership_id"],
+             "role": "salesperson",
+             "salesperson_id": refreshed["salesperson_id"]},
+            {"_id": 0, "id": 1},
+        )
+        if sp_user:
+            try:
+                await send_push_to_user(
+                    current["dealership_id"], sp_user["id"],
+                    title=f"Carro pronto: {refreshed.get('customer_name') or 'Cliente'}",
+                    body=f"{refreshed.get('vehicle_label') or 'Veículo'} — todas as tarefas concluídas. Pronto para entrega!",
+                    url="/",
+                )
+            except Exception as e:  # pragma: no cover
+                print(f"[push] notify salesperson failed: {e}")
+    return _enrich_schedule(refreshed)
+
+
+@api_router.post("/delivery-schedules/{sid}/spec/{spec_id}/toggle")
+async def toggle_delivery_spec(
+    sid: str,
+    spec_id: str,
+    current: dict = Depends(get_current_user),
+):
+    """Toggle a single spec done/undone — used by the yard worker's fast clicks."""
+    if not _can_access_schedules(current):
+        raise HTTPException(403, "Forbidden")
+    existing = await db.delivery_schedules.find_one(
+        {"id": sid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not existing:
+        raise HTTPException(404, "Schedule not found")
+    specs = existing.get("specifications") or []
+    found = False
+    actor = current.get("full_name") or current.get("email") or ""
+    for sp in specs:
+        if sp.get("id") == spec_id:
+            sp["done"] = not bool(sp.get("done"))
+            sp["done_at"] = datetime.now(timezone.utc).isoformat() if sp["done"] else None
+            sp["done_by"] = actor if sp["done"] else ""
+            found = True
+            break
+    if not found:
+        raise HTTPException(404, "Spec not found")
+
+    # Recompute status
+    all_done = all(x.get("done") for x in specs)
+    any_done = any(x.get("done") for x in specs)
+    new_status = "completed" if all_done else ("in_progress" if any_done else "pending")
+    upd = {"specifications": specs, "status": new_status}
+    if new_status == "completed" and not existing.get("completed_at"):
+        upd["completed_at"] = datetime.now(timezone.utc).isoformat()
+    elif new_status != "completed":
+        upd["completed_at"] = None
+
+    await db.delivery_schedules.update_one(
+        {"id": sid, "dealership_id": current["dealership_id"]}, {"$set": upd}
+    )
+    refreshed = await db.delivery_schedules.find_one(
+        {"id": sid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+
+    # Notify salesperson on completion (same logic as PUT)
+    just_completed = (
+        existing.get("status") != "completed" and refreshed.get("status") == "completed"
+    )
+    if just_completed and refreshed.get("salesperson_id"):
+        sp_user = await db.users.find_one(
+            {"dealership_id": current["dealership_id"],
+             "role": "salesperson",
+             "salesperson_id": refreshed["salesperson_id"]},
+            {"_id": 0, "id": 1},
+        )
+        if sp_user:
+            try:
+                await send_push_to_user(
+                    current["dealership_id"], sp_user["id"],
+                    title=f"Carro pronto: {refreshed.get('customer_name') or 'Cliente'}",
+                    body=f"{refreshed.get('vehicle_label') or 'Veículo'} — todas as tarefas concluídas!",
+                    url="/",
+                )
+            except Exception as e:  # pragma: no cover
+                print(f"[push] notify salesperson failed: {e}")
+
+    return _enrich_schedule(refreshed)
+
+
+@api_router.delete("/delivery-schedules/{sid}")
+async def delete_delivery_schedule(sid: str, current: dict = Depends(get_current_user)):
+    if not _can_access_schedules(current):
+        raise HTTPException(403, "Forbidden")
+    # Only owner/manager can delete (yard worker only marks tasks)
+    if current.get("role") not in ("owner", "gerente"):
+        raise HTTPException(403, "Apenas dono ou gerente pode excluir")
+    res = await db.delivery_schedules.delete_one(
+        {"id": sid, "dealership_id": current["dealership_id"]}
+    )
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Schedule not found")
+    return {"deleted": True}
+
+
+@api_router.get("/delivery-schedules/alerts")
+async def delivery_schedule_alerts(current: dict = Depends(get_current_user)):
+    """Returns the count of schedules with alert_due_soon=True so a badge can be shown."""
+    if not _can_access_schedules(current):
+        return {"count": 0}
+    q = {"dealership_id": current["dealership_id"], "status": {"$ne": "completed"}}
+    if current.get("role") == "salesperson":
+        q["salesperson_id"] = current.get("salesperson_id") or "__none__"
+    items = await db.delivery_schedules.find(q, {"_id": 0}).to_list(500)
+    enriched = [_enrich_schedule(s) for s in items]
+    alerts = [e for e in enriched if e.get("alert_due_soon")]
+    return {"count": len(alerts), "items": alerts}
 
 
 app.include_router(api_router)
