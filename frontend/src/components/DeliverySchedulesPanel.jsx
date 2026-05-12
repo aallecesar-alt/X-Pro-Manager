@@ -142,7 +142,7 @@ export default function DeliverySchedulesPanel({ vehicles = [], team = [], curre
           </button>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {filtered.map((s) => (
             <ScheduleCard
               key={s.id}
@@ -195,82 +195,92 @@ function ScheduleCard({ s, isStaff, onToggleSpec, onEdit, onDelete }) {
   return (
     <div
       data-testid={`schedule-${s.id}`}
-      className={`border bg-background p-4 lg:p-5 ${
+      className={`border bg-background p-3 flex flex-col ${
         completed ? "border-success/40" : s.alert_due_soon ? "border-primary border-2" : "border-border"
       }`}
     >
-      {/* Header line */}
-      <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap mb-1">
-            {completed && (
-              <span className="text-[9px] uppercase tracking-widest px-2 py-0.5 border border-success text-success bg-success/10 inline-flex items-center gap-1">
-                <Check size={10} /> Concluído
-              </span>
-            )}
-            {!completed && s.alert_due_soon && (
-              <span className="text-[9px] uppercase tracking-widest px-2 py-0.5 border border-primary text-primary bg-primary/10 inline-flex items-center gap-1 animate-pulse">
-                <AlertTriangle size={10} /> Urgente
-              </span>
-            )}
-            {!completed && !s.alert_due_soon && s.status === "in_progress" && (
-              <span className="text-[9px] uppercase tracking-widest px-2 py-0.5 border border-warning text-warning bg-warning/10">
-                Em andamento
-              </span>
-            )}
-          </div>
-          <p className="font-display font-black text-lg uppercase tracking-tight truncate text-white">{s.customer_name || "Cliente"}</p>
-          <p className="text-sm text-text-secondary truncate flex items-center gap-1.5 mt-0.5">
-            <CarIcon size={12} className="opacity-60 shrink-0" /> {s.vehicle_label || "—"}
-          </p>
-          {s.vin_last_6 && (
-            <p className="text-[11px] text-text-secondary flex items-center gap-1.5 mt-0.5">
-              <Hash size={11} className="opacity-60" /> Últimos 6 do VIN: <span className="font-mono text-white tracking-wider">{s.vin_last_6}</span>
-            </p>
+      {/* Status chip + actions row */}
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-1 flex-wrap min-w-0">
+          {completed && (
+            <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 border border-success text-success bg-success/10 inline-flex items-center gap-1">
+              <Check size={9} /> Concluído
+            </span>
+          )}
+          {!completed && s.alert_due_soon && (
+            <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 border border-primary text-primary bg-primary/10 inline-flex items-center gap-1 animate-pulse">
+              <AlertTriangle size={9} /> Urgente
+            </span>
+          )}
+          {!completed && !s.alert_due_soon && s.status === "in_progress" && (
+            <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 border border-warning text-warning bg-warning/10">
+              Andamento
+            </span>
+          )}
+          {!completed && s.status === "pending" && (
+            <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 border border-border text-text-secondary">
+              Pendente
+            </span>
           )}
         </div>
-        {/* Right column: date + actions */}
-        <div className="text-right shrink-0">
-          <p className="text-[10px] text-text-secondary uppercase tracking-widest mb-0.5">Entrega prevista</p>
-          <p className="font-display font-bold text-sm text-white inline-flex items-center gap-1.5 justify-end">
-            <Calendar size={12} className="text-primary" /> {dateStr}
-          </p>
-          {countdownLabel && (
-            <p className={`text-xs font-display font-bold uppercase tracking-wider mt-1 ${countdownColor} inline-flex items-center gap-1 justify-end`}>
-              <Clock size={11} /> {countdownLabel}
-            </p>
-          )}
-          <div className="inline-flex gap-1 mt-2">
+        <div className="inline-flex gap-1 shrink-0">
+          <button
+            data-testid={`schedule-edit-${s.id}`}
+            onClick={onEdit}
+            className="w-6 h-6 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
+            title="Editar"
+          >
+            <Edit2 size={10} />
+          </button>
+          {isStaff && (
             <button
-              data-testid={`schedule-edit-${s.id}`}
-              onClick={onEdit}
-              className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
-              title="Editar"
+              data-testid={`schedule-delete-${s.id}`}
+              onClick={onDelete}
+              className="w-6 h-6 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
+              title="Excluir"
             >
-              <Edit2 size={12} />
+              <Trash2 size={10} />
             </button>
-            {isStaff && (
-              <button
-                data-testid={`schedule-delete-${s.id}`}
-                onClick={onDelete}
-                className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
-                title="Excluir"
-              >
-                <Trash2 size={12} />
-              </button>
-            )}
-          </div>
+          )}
         </div>
+      </div>
+
+      {/* Customer + car block */}
+      <div className="mb-2">
+        <p className="font-display font-black text-sm uppercase tracking-tight truncate text-white" title={s.customer_name || ""}>
+          {s.customer_name || "Cliente"}
+        </p>
+        <p className="text-[11px] text-text-secondary truncate flex items-center gap-1 mt-0.5" title={s.vehicle_label || ""}>
+          <CarIcon size={10} className="opacity-60 shrink-0" /> <span className="truncate">{s.vehicle_label || "—"}</span>
+        </p>
+        {s.vin_last_6 && (
+          <p className="text-[10px] text-text-secondary flex items-center gap-1 mt-0.5">
+            <Hash size={9} className="opacity-60" /> <span className="font-mono text-white tracking-wider">{s.vin_last_6}</span>
+          </p>
+        )}
+      </div>
+
+      {/* Delivery date */}
+      <div className="border-t border-border pt-2 mb-2">
+        <p className="text-[9px] text-text-secondary uppercase tracking-widest mb-0.5">Entrega</p>
+        <p className="font-display font-bold text-[11px] text-white inline-flex items-center gap-1">
+          <Calendar size={10} className="text-primary shrink-0" /> <span className="truncate">{dateStr}</span>
+        </p>
+        {countdownLabel && (
+          <p className={`text-[10px] font-display font-bold uppercase tracking-wider ${countdownColor} inline-flex items-center gap-1 mt-0.5`}>
+            <Clock size={9} /> {countdownLabel}
+          </p>
+        )}
       </div>
 
       {/* Progress bar */}
       {s.total_specs > 0 && (
-        <div className="mb-4">
-          <div className="flex items-center justify-between text-[10px] text-text-secondary uppercase tracking-widest mb-1">
+        <div className="mb-2">
+          <div className="flex items-center justify-between text-[9px] text-text-secondary uppercase tracking-widest mb-1">
             <span>Progresso</span>
             <span className="font-display font-black text-white">{s.done_specs}/{s.total_specs}</span>
           </div>
-          <div className="h-1.5 bg-surface relative overflow-hidden">
+          <div className="h-1 bg-surface relative overflow-hidden">
             <div
               className={`absolute inset-y-0 left-0 transition-all ${completed ? "bg-success" : "bg-primary"}`}
               style={{ width: `${s.total_specs > 0 ? (s.done_specs / s.total_specs) * 100 : 0}%` }}
@@ -279,61 +289,68 @@ function ScheduleCard({ s, isStaff, onToggleSpec, onEdit, onDelete }) {
         </div>
       )}
 
-      {/* Big checklist — designed for the yard worker */}
-      <div className="space-y-2 mb-4">
+      {/* Compact checklist — still tappable */}
+      <div className="space-y-1.5 mb-2 flex-1">
         {(s.specifications || []).map((sp) => (
           <button
             type="button"
             key={sp.id}
             data-testid={`schedule-spec-${sp.id}`}
             onClick={() => onToggleSpec(sp.id)}
-            className={`w-full text-left flex items-center gap-3 p-3 border transition-all ${
+            className={`w-full text-left flex items-center gap-2 p-2 border transition-all ${
               sp.done
                 ? "border-success/30 bg-success/5"
                 : "border-border bg-surface/40 hover:border-primary hover:bg-primary/5"
             }`}
           >
-            <div className={`w-7 h-7 border-2 flex items-center justify-center shrink-0 transition-colors ${
+            <div className={`w-5 h-5 border-2 flex items-center justify-center shrink-0 transition-colors ${
               sp.done ? "border-success bg-success" : "border-border bg-background"
             }`}>
-              {sp.done && <Check size={16} className="text-white" strokeWidth={3} />}
+              {sp.done && <Check size={12} className="text-white" strokeWidth={3} />}
             </div>
             <div className="flex-1 min-w-0">
-              <p className={`font-display font-bold text-base ${sp.done ? "line-through text-text-secondary" : "text-white"}`}>
+              <p className={`font-display font-bold text-xs leading-tight ${sp.done ? "line-through text-text-secondary" : "text-white"}`} title={sp.text}>
                 {sp.text}
               </p>
               {sp.done && sp.done_by && (
-                <p className="text-[10px] text-text-secondary uppercase tracking-widest mt-0.5">
-                  por {sp.done_by} · {sp.done_at ? new Date(sp.done_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}
+                <p className="text-[9px] text-text-secondary mt-0.5 truncate">
+                  {sp.done_by}
                 </p>
               )}
             </div>
           </button>
         ))}
         {(s.specifications || []).length === 0 && (
-          <p className="text-xs text-text-secondary text-center py-4 border border-dashed border-border">
-            Sem tarefas cadastradas.
+          <p className="text-[10px] text-text-secondary text-center py-3 border border-dashed border-border">
+            Sem tarefas.
           </p>
         )}
       </div>
 
-      {/* Assignees + notes */}
+      {/* Footer: assignees stacked */}
       {(s.assigned_names || []).length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-border">
-          <p className="text-[10px] text-text-secondary uppercase tracking-widest">Responsáveis:</p>
-          {(s.assigned_names || []).map((name, i) => (
-            <span key={i} className="inline-flex items-center gap-1.5 text-xs bg-surface px-2 py-1 border border-border">
-              <User size={11} className="text-primary" />
-              <span className="font-display font-bold uppercase tracking-wide">{name}</span>
+        <div className="border-t border-border pt-2 flex flex-wrap items-center gap-1">
+          <p className="text-[9px] text-text-secondary uppercase tracking-widest w-full mb-0.5">Responsáveis</p>
+          {(s.assigned_names || []).slice(0, 3).map((name, i) => (
+            <span key={i} className="inline-flex items-center gap-1 text-[10px] bg-surface px-1.5 py-0.5 border border-border max-w-full">
+              <User size={9} className="text-primary shrink-0" />
+              <span className="font-display font-bold uppercase tracking-wide truncate" title={name}>{name}</span>
             </span>
           ))}
+          {(s.assigned_names || []).length > 3 && (
+            <span className="text-[10px] text-text-secondary font-bold">
+              +{s.assigned_names.length - 3}
+            </span>
+          )}
         </div>
       )}
       {s.notes && (
-        <p className="text-xs text-text-secondary mt-3 pt-3 border-t border-border italic">📝 {s.notes}</p>
+        <p className="text-[10px] text-text-secondary mt-2 pt-2 border-t border-border italic truncate" title={s.notes}>
+          📝 {s.notes}
+        </p>
       )}
       {s.salesperson_name && (
-        <p className="text-[10px] text-text-secondary uppercase tracking-widest mt-3">
+        <p className="text-[9px] text-text-secondary uppercase tracking-widest mt-2 truncate" title={s.salesperson_name}>
           Vendedor: <span className="text-white font-display font-bold">{s.salesperson_name}</span>
         </p>
       )}
