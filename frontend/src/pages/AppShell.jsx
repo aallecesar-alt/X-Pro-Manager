@@ -1930,6 +1930,7 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
     transmission: "Automatic", fuel_type: "Gasoline", body_type: "Sedan",
     purchase_price: 0, sale_price: prefill?.price || 0, expenses: 0, description: prefill?.description || "",
     images: [], status: "in_stock", buyer_name: "", buyer_phone: "", buyer_email: "", buyer_address: "", payment_method: "", sold_price: 0, bank_name: "",
+    trade_in_make: "", trade_in_model: "", trade_in_year: 0, trade_in_value: 0, trade_in_payoff_amount: 0, trade_in_payoff_bank: "",
     salesperson_id: "", salesperson_name: "",
     commission_amount: 0, commission_paid: false,
   };
@@ -1947,11 +1948,13 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
     "year", "purchase_price", "sale_price", "expenses", "sold_price", "commission_amount",
     // sold-financing breakdown — must be numeric so deletes (empty string) save as 0
     "down_payment", "bank_check_amount", "registration_cost",
+    "trade_in_year", "trade_in_value", "trade_in_payoff_amount",
   ];
   // Free-text fields that must always be sent as a string (empty when cleared)
   const strFields = [
     "make", "model", "color", "plate", "vin", "transmission", "fuel_type", "body_type",
     "description", "buyer_name", "buyer_phone", "buyer_email", "buyer_address", "payment_method", "bank_name",
+    "trade_in_make", "trade_in_model", "trade_in_payoff_bank",
     "salesperson_id", "salesperson_name",
   ];
 
@@ -2038,16 +2041,18 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
                   set("down_payment", v);
                   const dp = Number(v) || 0;
                   const bc = Number(form.bank_check_amount) || 0;
+                  const ti = Number(form.trade_in_value) || 0;
                   const reg = Number(form.registration_cost) || 0;
-                  const final = dp + bc - reg;
+                  const final = dp + bc + ti - reg;
                   set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
                 }} testid="f-down-payment" />
                 <Input label={`🏦 ${t("bank_check_amount")}`} type="number" value={form.bank_check_amount ?? ""} set={(v) => {
                   set("bank_check_amount", v);
                   const bc = Number(v) || 0;
                   const dp = Number(form.down_payment) || 0;
+                  const ti = Number(form.trade_in_value) || 0;
                   const reg = Number(form.registration_cost) || 0;
-                  const final = dp + bc - reg;
+                  const final = dp + bc + ti - reg;
                   set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
                 }} testid="f-bank-check" />
                 <Input label={`🧾 ${t("registration_cost")}`} type="number" value={form.registration_cost ?? ""} set={(v) => {
@@ -2055,10 +2060,51 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
                   const reg = Number(v) || 0;
                   const dp = Number(form.down_payment) || 0;
                   const bc = Number(form.bank_check_amount) || 0;
-                  const final = dp + bc - reg;
+                  const ti = Number(form.trade_in_value) || 0;
+                  const final = dp + bc + ti - reg;
                   set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
                 }} testid="f-registration" />
               </div>
+            </div>
+
+            {/* TRADE-IN (Veículo na troca) — auto-creates a new stock vehicle on save */}
+            <div data-testid="trade-in-section" className="bg-warning/5 border border-warning/30 p-4 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <p className="label-eyebrow text-warning">🔄 Veículo na troca</p>
+                {Number(form.trade_in_value) > 0 && (
+                  <p className="text-[10px] uppercase tracking-widest text-text-secondary">
+                    Soma como pagamento → vai pro estoque após salvar
+                  </p>
+                )}
+                {form.trade_in_vehicle_id && (
+                  <span className="text-[10px] uppercase tracking-widest px-2 py-0.5 border border-success text-success bg-success/10 inline-flex items-center gap-1">
+                    <Check size={10} /> Já no estoque
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <Input label="Marca" value={form.trade_in_make || ""} set={(v) => set("trade_in_make", v)} testid="f-ti-make" />
+                <Input label="Modelo" value={form.trade_in_model || ""} set={(v) => set("trade_in_model", v)} testid="f-ti-model" />
+                <Input label="Ano" type="number" value={form.trade_in_year || ""} set={(v) => set("trade_in_year", v)} testid="f-ti-year" />
+                <Input label="💰 Valor avaliado" type="number" value={form.trade_in_value ?? ""} set={(v) => {
+                  set("trade_in_value", v);
+                  const ti = Number(v) || 0;
+                  const dp = Number(form.down_payment) || 0;
+                  const bc = Number(form.bank_check_amount) || 0;
+                  const reg = Number(form.registration_cost) || 0;
+                  const final = dp + bc + ti - reg;
+                  set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
+                }} testid="f-ti-value" />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Input label="Saldo devedor no banco" type="number" value={form.trade_in_payoff_amount ?? ""} set={(v) => set("trade_in_payoff_amount", v)} testid="f-ti-payoff" />
+                <Input label="Banco financiador" value={form.trade_in_payoff_bank || ""} set={(v) => set("trade_in_payoff_bank", v)} testid="f-ti-payoff-bank" />
+              </div>
+              {Number(form.trade_in_payoff_amount) > 0 && (
+                <p className="text-[11px] text-text-secondary italic">
+                  ⚠️ A quitação de R$ {Number(form.trade_in_payoff_amount).toLocaleString("pt-BR")} será lançada automaticamente como despesa do veículo no estoque.
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

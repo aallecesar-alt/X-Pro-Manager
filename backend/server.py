@@ -96,6 +96,18 @@ class VehicleBase(BaseModel):
     # Cost to register/title/plate the vehicle in the buyer's name (US emplacamento).
     # Auto-synced into expense_items with category="registration" so it deducts from profit.
     registration_cost: float = 0
+    # Trade-in vehicle (carro entregue pelo cliente como parte do pagamento).
+    # When trade_in_value > 0, it counts toward the total payment (alongside down_payment
+    # and bank_check_amount). When the sale is recorded, the trade-in car is auto-created
+    # as a new vehicle in stock so it can be re-sold. trade_in_vehicle_id holds the
+    # generated stock vehicle's id so subsequent updates don't duplicate it.
+    trade_in_make: str = ""
+    trade_in_model: str = ""
+    trade_in_year: int = 0
+    trade_in_value: float = 0
+    trade_in_payoff_amount: float = 0   # saldo devedor no banco
+    trade_in_payoff_bank: str = ""      # banco financiador
+    trade_in_vehicle_id: str = ""       # FK to the auto-created stock vehicle
     # Delivery pipeline (1..8). 0 = not in delivery yet.
     # 1 Vendido | 2 Dados cliente | 3 Contrato banco | 4 Manutencao | 5 Seguro | 6 Titulo | 7 Registro | 8 Entregue
     delivery_step: int = 0
@@ -155,11 +167,18 @@ class VehicleUpdate(BaseModel):
     down_payment: Optional[float] = None
     bank_check_amount: Optional[float] = None
     registration_cost: Optional[float] = None
+    trade_in_make: Optional[str] = None
+    trade_in_model: Optional[str] = None
+    trade_in_year: Optional[int] = None
+    trade_in_value: Optional[float] = None
+    trade_in_payoff_amount: Optional[float] = None
+    trade_in_payoff_bank: Optional[str] = None
     delivery_step: Optional[int] = None
 
     @field_validator("sold_price", "down_payment", "bank_check_amount", "registration_cost",
+                     "trade_in_value", "trade_in_payoff_amount",
                      "purchase_price", "sale_price", "expenses", "commission_amount",
-                     "year", "mileage", "delivery_step", mode="before")
+                     "year", "mileage", "delivery_step", "trade_in_year", mode="before")
     @classmethod
     def _empty_to_none(cls, v):
         # Treat empty strings / blank inputs as None so optional numeric fields
@@ -170,6 +189,7 @@ class VehicleUpdate(BaseModel):
 
     @field_validator("buyer_name", "buyer_phone", "buyer_email", "buyer_address",
                      "payment_method", "bank_name",
+                     "trade_in_make", "trade_in_model", "trade_in_payoff_bank",
                      "delivery_notes", "salesperson_name", "color", "description",
                      "vin", "plate", "make", "model", "transmission", "fuel_type", "body_type",
                      mode="before")
@@ -703,14 +723,15 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
         and (upd.get("delivery_step") or 0) < 8
     ):
         upd["delivered_at"] = ""
-    # Auto-compute sold_price when down_payment / bank_check_amount / registration_cost changes.
-    # Final sale price = entrada + cheque do banco − emplacamento (registration is netted out
-    # because it's a cost the dealership absorbs from the buyer's payment).
-    if any(k in upd for k in ("down_payment", "bank_check_amount", "registration_cost")):
+    # Auto-compute sold_price when down_payment / bank_check_amount / trade_in_value / registration_cost changes.
+    # Final sale price = entrada + cheque do banco + valor da troca − emplacamento.
+    # (Registration is netted out because it's a cost the dealership absorbs from the buyer's payment.)
+    if any(k in upd for k in ("down_payment", "bank_check_amount", "registration_cost", "trade_in_value")):
         dp = float(upd.get("down_payment") if "down_payment" in upd else (existing or {}).get("down_payment") or 0)
         bc = float(upd.get("bank_check_amount") if "bank_check_amount" in upd else (existing or {}).get("bank_check_amount") or 0)
+        ti = float(upd.get("trade_in_value") if "trade_in_value" in upd else (existing or {}).get("trade_in_value") or 0)
         reg = float(upd.get("registration_cost") if "registration_cost" in upd else (existing or {}).get("registration_cost") or 0)
-        final = dp + bc - reg
+        final = dp + bc + ti - reg
         # Always sync sold_price (including 0) so clearing the fields resets the sale total.
         upd["sold_price"] = round(final, 2) if final > 0 else 0
 
@@ -734,6 +755,14 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
         upd["buyer_address"] = ""
         upd["payment_method"] = ""
         upd["bank_name"] = ""
+        # Wipe trade-in metadata too (but DO NOT delete the auto-created stock car —
+        # it's now an independent vehicle in inventory that the dealership owns).
+        upd["trade_in_make"] = ""
+        upd["trade_in_model"] = ""
+        upd["trade_in_year"] = 0
+        upd["trade_in_value"] = 0
+        upd["trade_in_payoff_amount"] = 0
+        upd["trade_in_payoff_bank"] = ""
 
     # Mirror registration_cost into expense_items so it appears in the per-vehicle
     # profit breakdown (same pattern as Floor Plan + Post-Sales). Idempotent.
@@ -788,6 +817,114 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
             )
         except Exception as e:
             print(f"[push] sold notification failed: {e}")
+
+    # Auto-create a stock vehicle from the trade-in (only on first transition to sold
+    # with trade-in info, and only if we haven't created one yet for this sale).
+    # The trade-in car becomes an in_stock vehicle owned by the dealership. If there's
+    # a payoff to the bank, that's recorded as an expense on the new vehicle.
+    if (
+        upd.get("status") == "sold"
+        and (v.get("trade_in_value") or 0) > 0
+        and (v.get("trade_in_make") or v.get("trade_in_model"))
+        and not v.get("trade_in_vehicle_id")
+    ):
+        try:
+            ti_make = (v.get("trade_in_make") or "").strip() or "Trade-In"
+            ti_model = (v.get("trade_in_model") or "").strip() or "—"
+            ti_year = int(v.get("trade_in_year") or 0) or 0
+            ti_value = float(v.get("trade_in_value") or 0)
+            ti_payoff = float(v.get("trade_in_payoff_amount") or 0)
+            ti_payoff_bank = (v.get("trade_in_payoff_bank") or "").strip()
+            buyer_name = v.get("buyer_name") or ""
+
+            new_stock_id = str(uuid.uuid4())
+            stock_expense_items = []
+            if ti_payoff > 0:
+                stock_expense_items.append({
+                    "id": f"payoff-{new_stock_id}",
+                    "category": "trade_in_payoff",
+                    "description": f"Quitação financiamento{(' (' + ti_payoff_bank + ')') if ti_payoff_bank else ''}",
+                    "amount": ti_payoff,
+                    "date": (v.get("sold_at") or datetime.now(timezone.utc).isoformat())[:10],
+                    "attachments": [],
+                })
+
+            stock_doc = {
+                "id": new_stock_id,
+                "dealership_id": current["dealership_id"],
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "make": ti_make,
+                "model": ti_model,
+                "year": ti_year,
+                "color": "",
+                "plate": "",
+                "vin": "",
+                "mileage": 0,
+                "transmission": "Automatic",
+                "fuel_type": "Gasoline",
+                "body_type": "Sedan",
+                # Purchase price = the value credited to the customer PLUS any bank
+                # payoff we had to absorb (true cost basis for resale margin math).
+                "purchase_price": round(ti_value + ti_payoff, 2),
+                "sale_price": 0,
+                "expenses": ti_payoff,
+                "description": (
+                    f"Veículo recebido na troca da venda de "
+                    f"{v.get('year','')} {v.get('make','')} {v.get('model','')}"
+                    + (f" para {buyer_name}" if buyer_name else "")
+                ).strip(),
+                "images": [],
+                "status": "in_stock",
+                "buyer_name": "",
+                "buyer_phone": "",
+                "buyer_email": "",
+                "buyer_address": "",
+                "payment_method": "",
+                "sold_at": None,
+                "sold_price": 0,
+                "down_payment": 0,
+                "bank_check_amount": 0,
+                "registration_cost": 0,
+                "trade_in_make": "",
+                "trade_in_model": "",
+                "trade_in_year": 0,
+                "trade_in_value": 0,
+                "trade_in_payoff_amount": 0,
+                "trade_in_payoff_bank": "",
+                "trade_in_vehicle_id": "",
+                "delivery_step": 0,
+                "delivery_step_updated_at": None,
+                "bank_contract_signed": False,
+                "bank_contract_signed_at": None,
+                "bank_name": "",
+                "delivery_notes": "",
+                "delivered_at": None,
+                "step_files": {},
+                "step_notes": {},
+                "expense_items": stock_expense_items,
+                "salesperson_id": "",
+                "salesperson_name": "",
+                "commission_amount": 0,
+                "commission_paid": False,
+                "history": [{
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "type": "created_from_trade_in",
+                    "from_vehicle_id": vid,
+                    "value": ti_value,
+                    "payoff": ti_payoff,
+                    "payoff_bank": ti_payoff_bank,
+                    "actor": current.get("full_name") or current.get("email") or "",
+                }],
+            }
+            await db.vehicles.insert_one(stock_doc)
+            # Link the new stock car back to the sold car so we never duplicate it.
+            await db.vehicles.update_one(
+                {"id": vid, "dealership_id": current["dealership_id"]},
+                {"$set": {"trade_in_vehicle_id": new_stock_id}},
+            )
+            v["trade_in_vehicle_id"] = new_stock_id
+        except Exception as e:
+            print(f"[trade-in] failed to auto-create stock vehicle: {e}")
 
     if is_salesperson(current):
         v = strip_vehicle_for_salesperson(v)
