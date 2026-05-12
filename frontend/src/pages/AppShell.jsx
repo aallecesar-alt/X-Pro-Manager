@@ -4,6 +4,7 @@ import { Car, LayoutDashboard, Package, TrendingUp, TrendingDown, Truck, Users, 
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import DeliverySchedulesPanel from "@/components/DeliverySchedulesPanel";
+import VehicleScheduleModal from "@/components/VehicleScheduleModal";
 import { useAuth } from "@/context/AuthContext";
 import { useI18n, LANG_OPTIONS } from "@/lib/i18n.jsx";
 import PhotoUploader from "@/components/PhotoUploader";
@@ -2071,6 +2072,7 @@ function Delivery({ deliveries, vehicles = [], team = [], currentUser, scheduleA
   const [alertsOnly, setAlertsOnly] = useState(false);
   const [showDelivered, setShowDelivered] = useState(false);
   const [showSchedules, setShowSchedules] = useState(false);
+  const [progVehicle, setProgVehicle] = useState(null);  // car-scoped programação modal
 
   const STEPS = [1, 2, 3, 4, 5, 6, 7, 8];
   // Color per step (mimics screenshot: red→pink→blue→purple→green)
@@ -2266,6 +2268,17 @@ function Delivery({ deliveries, vehicles = [], team = [], currentUser, scheduleA
                   >
                     {v.bank_contract_signed ? <Check size={14} /> : <FileText size={14} />}
                     <span className="hidden sm:inline">{t("bank_contract_short")}</span>
+                  </button>
+                  {/* Programação de Entrega (per-car) */}
+                  <button
+                    type="button"
+                    data-testid={`open-prog-${v.id}`}
+                    onClick={() => setProgVehicle(v)}
+                    title="Programação de entrega deste carro"
+                    className="px-3 h-12 inline-flex items-center gap-1.5 border border-border text-text-secondary hover:border-primary hover:text-primary text-[10px] uppercase tracking-wider font-display font-bold transition-colors"
+                  >
+                    <ClipboardList size={14} />
+                    <span className="hidden sm:inline">Programação</span>
                   </button>
                   {step > 1 && (
                     <button
@@ -2518,6 +2531,16 @@ function Delivery({ deliveries, vehicles = [], team = [], currentUser, scheduleA
           t={t}
           onClose={() => setFilesOpen(null)}
           onChanged={onReload}
+        />
+      )}
+
+      {progVehicle && (
+        <VehicleScheduleModal
+          vehicle={progVehicle}
+          team={team}
+          currentUser={currentUser}
+          t={t}
+          onClose={() => setProgVehicle(null)}
         />
       )}
     </div>

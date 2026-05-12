@@ -172,8 +172,9 @@ export default function DeliverySchedulesPanel({ vehicles = [], team = [], curre
 
 // ============================================================
 // ScheduleCard — one schedule with big checkboxes for the yard guy
+// (Exported so it can be reused in the per-vehicle programação modal.)
 // ============================================================
-function ScheduleCard({ s, isStaff, onToggleSpec, onEdit, onDelete }) {
+export function ScheduleCard({ s, isStaff, onToggleSpec, onEdit, onDelete }) {
   const completed = s.status === "completed";
   const dd = s.delivery_date ? new Date(s.delivery_date) : null;
   const dateStr = dd ? dd.toLocaleString("pt-BR", {
@@ -360,10 +361,13 @@ function ScheduleCard({ s, isStaff, onToggleSpec, onEdit, onDelete }) {
 
 // ============================================================
 // ScheduleForm — create / edit modal
+// Exported so the per-vehicle programação modal can reuse it.
+// Accepts an optional `prefill` object used when creating a brand new schedule
+// for a specific car (the panel locks the vehicle picker to a single car).
 // ============================================================
-function ScheduleForm({ schedule, vehicles, team, t, onClose, onSaved }) {
+export function ScheduleForm({ schedule, prefill, vehicles, team, t, onClose, onSaved }) {
   const isEdit = !!schedule;
-  const initial = schedule || {
+  const initial = schedule || prefill || {
     vehicle_id: "",
     vehicle_label: "",
     vin: "",
