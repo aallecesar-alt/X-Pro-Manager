@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { ClipboardList, Check, Plus, AlertTriangle, Clock, Edit2 } from "lucide-react";
+import { ClipboardList, Check, Plus, AlertTriangle, Edit2 } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 
@@ -81,20 +81,23 @@ export default function InlineSchedule({ vehicle, onOpenModal }) {
 function InlineScheduleCard({ s, onToggleSpec, onEdit }) {
   const completed = s.status === "completed";
   const dd = s.delivery_date ? new Date(s.delivery_date) : null;
-  const dateStr = dd ? dd.toLocaleString("pt-BR", {
-    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
-  }).replace(".", "") : null;
+  // Highlighted date pieces (centered hero)
+  const dayNum = dd ? String(dd.getDate()).padStart(2, "0") : null;
+  const monthShort = dd ? dd.toLocaleString("pt-BR", { month: "short" }).replace(".", "").toUpperCase() : null;
+  const timeStr = dd ? dd.toLocaleString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : null;
+  const weekdayStr = dd ? dd.toLocaleString("pt-BR", { weekday: "long" }) : null;
 
   let countdown = "";
-  let countdownColor = "text-text-secondary";
   if (typeof s.hours_until === "number") {
     const h = s.hours_until;
-    if (h < 0) { countdown = "Atrasada"; countdownColor = "text-primary"; }
-    else if (h < 1) { countdown = "Menos 1h"; countdownColor = "text-primary"; }
-    else if (h < 24) { countdown = `Em ${Math.round(h)}h`; countdownColor = "text-warning"; }
-    else if (h < 48) { countdown = "Amanhã"; countdownColor = "text-warning"; }
-    else { countdown = `Em ${Math.round(h / 24)}d`; countdownColor = "text-text-secondary"; }
+    if (h < 0) countdown = "Atrasada";
+    else if (h < 1) countdown = "Menos de 1h";
+    else if (h < 24) countdown = `Em ${Math.round(h)}h`;
+    else if (h < 48) countdown = "Amanhã";
+    else countdown = `Em ${Math.round(h / 24)} dias`;
   }
+  // Date hero color logic: completed → green, urgent → bright red, otherwise red.
+  const heroColor = completed ? "text-success" : "text-primary";
 
   return (
     <div className={`border bg-background/60 ${
@@ -119,23 +122,32 @@ function InlineScheduleCard({ s, onToggleSpec, onEdit }) {
             <span className="text-[9px] uppercase tracking-widest px-1.5 py-0 border border-warning text-warning">Andamento</span>
           )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {dateStr && (
-            <p className={`text-[10px] font-display font-bold uppercase tracking-wider inline-flex items-center gap-1 ${countdownColor}`}>
-              <Clock size={9} /> {dateStr}{countdown ? ` · ${countdown}` : ""}
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={onEdit}
-            title="Editar programação"
-            className="text-text-secondary hover:text-primary"
-            data-testid={`inline-edit-${s.id}`}
-          >
-            <Edit2 size={11} />
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onEdit}
+          title="Editar programação"
+          className="text-text-secondary hover:text-primary shrink-0"
+          data-testid={`inline-edit-${s.id}`}
+        >
+          <Edit2 size={11} />
+        </button>
       </div>
+
+      {/* CENTERED, BIG, BOLD delivery-date hero */}
+      {dd && (
+        <div className="px-3 py-3 border-b border-border/40 text-center">
+          <p className="label-eyebrow text-[10px] text-text-secondary mb-2">Data de entrega</p>
+          <div className={`flex items-baseline justify-center gap-3 leading-none font-display font-black ${heroColor} drop-shadow-[0_0_18px_rgba(217,45,32,0.35)]`}>
+            <span className="text-5xl sm:text-6xl tracking-tighter">{dayNum}</span>
+            <span className="text-2xl sm:text-3xl tracking-widest">{monthShort}</span>
+            <span className="text-3xl sm:text-4xl tracking-tight ml-2">{timeStr}</span>
+          </div>
+          <p className="mt-2 text-[10px] uppercase tracking-[0.3em] text-text-secondary font-display font-bold">
+            <span className="text-white">{weekdayStr}</span>
+            {countdown && <span className={` ${completed ? "text-success" : s.alert_due_soon ? "text-primary" : "text-warning"}`}> · {countdown}</span>}
+          </p>
+        </div>
+      )}
 
       {/* Specs checklist (compact, but still tappable) */}
       <div className="px-3 py-2">
