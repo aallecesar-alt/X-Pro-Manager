@@ -1993,6 +1993,137 @@ async def stats(current: dict = Depends(get_current_user)):
 
 
 # ============================================================
+# OVERVIEW INSIGHTS — premium dashboard data (current vs previous month,
+# avg days in stock, weekday sales heatmap). Owner / manager only;
+# salespeople receive a stripped-down payload (counts only, no money).
+# ============================================================
+def _parse_iso_utc(s: Optional[str]) -> Optional[datetime]:
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+@api_router.get("/overview-insights")
+async def overview_insights(current: dict = Depends(get_current_user)):
+    """Premium overview metrics:
+    - current_month / previous_month aggregates (sales_count, revenue, profit, avg_ticket)
+    - deltas (% change vs prior month)
+    - avg/max days_in_stock for vehicles still in stock or reserved
+    - weekday_counts: vendas por dia da semana nos últimos 90 dias (Mon..Sun)
+    """
+    did = current["dealership_id"]
+    now = datetime.now(timezone.utc)
+    y, m = now.year, now.month
+    pm_y, pm_m = (y, m - 1) if m > 1 else (y - 1, 12)
+    cur_start, cur_end = _month_range(y, m)
+    prev_start, prev_end = _month_range(pm_y, pm_m)
+
+    def _agg_month(start: str, end: str):
+        """Sum sales_count / revenue / profit between [start, end) using sold_at ISO prefix match."""
+        return [
+            {"$match": {
+                "dealership_id": did,
+                "status": "sold",
+                "sold_at": {"$gte": f"{start}T00:00:00", "$lt": f"{end}T00:00:00"},
+            }},
+            {"$group": {
+                "_id": None,
+                "count": {"$sum": 1},
+                "revenue": {"$sum": {"$ifNull": ["$sold_price", 0]}},
+                "cost": {"$sum": {"$add": [
+                    {"$ifNull": ["$purchase_price", 0]},
+                    {"$ifNull": ["$expenses", 0]},
+                ]}},
+            }},
+        ]
+
+    cur = await db.vehicles.aggregate(_agg_month(cur_start, cur_end)).to_list(1)
+    prev = await db.vehicles.aggregate(_agg_month(prev_start, prev_end)).to_list(1)
+
+    def _shape(row):
+        if not row:
+            return {"sales_count": 0, "revenue": 0.0, "profit": 0.0, "avg_ticket": 0.0}
+        c = row[0]
+        count = int(c.get("count") or 0)
+        revenue = float(c.get("revenue") or 0)
+        cost = float(c.get("cost") or 0)
+        profit = revenue - cost
+        avg = (revenue / count) if count else 0.0
+        return {"sales_count": count, "revenue": revenue, "profit": profit, "avg_ticket": avg}
+
+    current_m = _shape(cur)
+    previous_m = _shape(prev)
+
+    def _delta(c: float, p: float) -> Optional[float]:
+        if p == 0:
+            return None if c == 0 else 100.0  # 100% lift from zero
+        return ((c - p) / p) * 100.0
+
+    deltas = {
+        "sales_count_pct": _delta(current_m["sales_count"], previous_m["sales_count"]),
+        "revenue_pct": _delta(current_m["revenue"], previous_m["revenue"]),
+        "profit_pct": _delta(current_m["profit"], previous_m["profit"]),
+        "avg_ticket_pct": _delta(current_m["avg_ticket"], previous_m["avg_ticket"]),
+    }
+
+    # ---- Avg days in stock for unsold inventory (in_stock + reserved) ----
+    available = await db.vehicles.find(
+        {"dealership_id": did, "status": {"$in": ["in_stock", "reserved"]}},
+        {"_id": 0, "purchase_date": 1, "created_at": 1, "make": 1, "model": 1, "year": 1, "id": 1},
+    ).to_list(2000)
+    spans = []
+    longest = None
+    for v in available:
+        anchor = _parse_iso_utc(v.get("purchase_date") or v.get("created_at"))
+        if not anchor:
+            continue
+        days = max((now - anchor).days, 0)
+        spans.append(days)
+        if not longest or days > longest["days"]:
+            longest = {
+                "vehicle_id": v.get("id"),
+                "label": " ".join(str(x) for x in [v.get("year") or "", v.get("make") or "", v.get("model") or ""]).strip(),
+                "days": days,
+            }
+    avg_days = round(sum(spans) / len(spans), 1) if spans else 0.0
+
+    # ---- Weekday heatmap (last 90 days) ----
+    cutoff = now - timedelta(days=90)
+    weekday_counts = [0, 0, 0, 0, 0, 0, 0]  # Mon..Sun (datetime.weekday(): Mon=0)
+    recent_sold = await db.vehicles.find(
+        {"dealership_id": did, "status": "sold", "sold_at": {"$ne": None}},
+        {"_id": 0, "sold_at": 1},
+    ).to_list(2000)
+    for v in recent_sold:
+        dt = _parse_iso_utc(v.get("sold_at"))
+        if not dt or dt < cutoff:
+            continue
+        weekday_counts[dt.weekday()] += 1
+
+    if is_salesperson(current):
+        return {
+            "current_month": {"sales_count": current_m["sales_count"]},
+            "previous_month": {"sales_count": previous_m["sales_count"]},
+            "deltas": {"sales_count_pct": deltas["sales_count_pct"]},
+            "avg_days_in_stock": avg_days,
+            "longest_in_stock": longest,
+            "weekday_counts": weekday_counts,
+        }
+
+    return {
+        "current_month": current_m,
+        "previous_month": previous_m,
+        "deltas": deltas,
+        "avg_days_in_stock": avg_days,
+        "longest_in_stock": longest,
+        "weekday_counts": weekday_counts,
+    }
+
+
+# ============================================================
 # DEALERSHIP (settings + API token)
 # ============================================================
 @api_router.get("/dealership")

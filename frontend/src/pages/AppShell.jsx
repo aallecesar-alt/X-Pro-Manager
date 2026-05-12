@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Car, LayoutDashboard, Package, TrendingUp, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks, HandCoins, Printer } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, TrendingDown, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks, HandCoins, Printer, Flame, Timer, Activity, Star, ArrowUpRight, ArrowDownRight, Award, BarChart3, Gem, Hourglass } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -545,11 +545,22 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToF
   const [leaderboard, setLeaderboard] = useState({ rows: [], total_sold: 0 });
   const [promotion, setPromotion] = useState(null);
   const [editingPromo, setEditingPromo] = useState(false);
+  const [insights, setInsights] = useState(null);
 
   useEffect(() => {
     let cancel = false;
-    Promise.all([api.get("/leaderboard"), api.get("/promotion")])
-      .then(([lb, pm]) => { if (!cancel) { setLeaderboard(lb.data); setPromotion(pm.data); } })
+    Promise.all([
+      api.get("/leaderboard"),
+      api.get("/promotion"),
+      api.get("/overview-insights").catch(() => ({ data: null })),
+    ])
+      .then(([lb, pm, ins]) => {
+        if (!cancel) {
+          setLeaderboard(lb.data);
+          setPromotion(pm.data);
+          setInsights(ins.data);
+        }
+      })
       .catch(() => {});
     return () => { cancel = true; };
   }, []);
@@ -560,7 +571,7 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToF
 
   // Show count cards only when we have stats (user has /stats access via inventory permission OR is owner)
   const hasStats = !!stats;
-  const cards = hasStats ? [
+  const inventoryCards = hasStats ? [
     { label: t("total_vehicles"), value: stats.total_vehicles, icon: Car },
     { label: t("in_stock"), value: stats.in_stock, icon: Package },
     { label: t("reserved"), value: stats.reserved, icon: Clock },
@@ -579,27 +590,183 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToF
   }
   const maxBar = Math.max(...monthly.map(m => m.count || 0), 1);
   const monthLabel = today.toLocaleString(undefined, { month: "long", year: "numeric" });
+  const prevMonthLabel = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+    .toLocaleString(undefined, { month: "long" });
+
+  // ---- Premium KPI data derived from insights ----
+  const ins = insights || null;
+  const showMoneyKpis = ins && !isSalesperson && ins.current_month && ("revenue" in ins.current_month);
+  const fmtPct = (v) => {
+    if (v === null || v === undefined) return null;
+    const sign = v >= 0 ? "+" : "";
+    return `${sign}${Math.round(v)}%`;
+  };
+  const premiumKpis = ins ? (
+    showMoneyKpis ? [
+      {
+        label: "Vendas no mês",
+        value: ins.current_month.sales_count ?? 0,
+        delta: ins.deltas?.sales_count_pct,
+        suffix: " carros",
+        prevValue: ins.previous_month.sales_count,
+        icon: Car,
+        accent: "gold",
+        testid: "kpi-sales",
+      },
+      {
+        label: "Receita do mês",
+        value: formatCurrency(ins.current_month.revenue || 0),
+        delta: ins.deltas?.revenue_pct,
+        prevValue: formatCurrency(ins.previous_month.revenue || 0),
+        icon: DollarSign,
+        accent: "gold",
+        testid: "kpi-revenue",
+      },
+      {
+        label: "Lucro do mês",
+        value: formatCurrency(ins.current_month.profit || 0),
+        delta: ins.deltas?.profit_pct,
+        prevValue: formatCurrency(ins.previous_month.profit || 0),
+        icon: TrendingUp,
+        accent: "gold",
+        testid: "kpi-profit",
+      },
+      {
+        label: "Tempo médio em estoque",
+        value: `${ins.avg_days_in_stock ?? 0}`,
+        suffix: " dias",
+        sub: ins.longest_in_stock ? `+ velho: ${ins.longest_in_stock.label} · ${ins.longest_in_stock.days}d` : null,
+        icon: Hourglass,
+        accent: "gold",
+        testid: "kpi-days",
+      },
+    ] : [
+      {
+        label: "Vendas no mês",
+        value: ins.current_month?.sales_count ?? 0,
+        delta: ins.deltas?.sales_count_pct,
+        suffix: " carros",
+        prevValue: ins.previous_month?.sales_count,
+        icon: Car,
+        accent: "gold",
+        testid: "kpi-sales",
+      },
+      {
+        label: "Tempo médio em estoque",
+        value: `${ins.avg_days_in_stock ?? 0}`,
+        suffix: " dias",
+        sub: ins.longest_in_stock ? `+ velho: ${ins.longest_in_stock.label} · ${ins.longest_in_stock.days}d` : null,
+        icon: Hourglass,
+        accent: "gold",
+        testid: "kpi-days",
+      },
+    ]
+  ) : [];
+
+  // Weekday heatmap — Mon..Sun (matching backend datetime.weekday())
+  const weekdayLabels = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+  const weekdayCounts = ins?.weekday_counts || [0,0,0,0,0,0,0];
+  const heatMax = Math.max(...weekdayCounts, 1);
+  const heatColor = (n) => {
+    if (n <= 0) return "rgba(212, 175, 55, 0.06)";
+    const intensity = Math.min(n / heatMax, 1);
+    // Blend from translucent gold to bright gold
+    const alpha = 0.15 + intensity * 0.85;
+    return `rgba(212, 175, 55, ${alpha.toFixed(2)})`;
+  };
+  const bestWeekday = weekdayCounts.reduce((acc, v, i) => v > acc.v ? { v, i } : acc, { v: -1, i: 0 });
 
   return (
     <div data-testid="overview-tab">
-      {/* Hero with subtle shield watermark */}
-      <div className="mb-6 lg:mb-10 bg-shield-watermark border border-border bg-surface/30 p-5 lg:p-8 relative overflow-hidden" style={{ "--shield-url": "url('/intercar-logo.png')" }}>
-        <div className="bg-stripes-overlay absolute inset-0 opacity-50" />
-        <div className="relative">
-          <p className="label-eyebrow text-primary mb-2">{t("dashboard")} · {monthLabel}</p>
-          <h1 className="font-display font-black text-3xl sm:text-4xl lg:text-5xl uppercase tracking-tighter mb-2">{t("overview")}</h1>
+      {/* ===== PREMIUM HERO ===== */}
+      <div data-testid="overview-hero" className="hero-crest noise-overlay mb-8 lg:mb-12 p-6 sm:p-8 lg:p-10 relative">
+        <div className="relative z-10 flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <span className="gold-pulse w-1.5 h-1.5" />
+              <p className="label-eyebrow text-gold tracking-[0.3em]">{t("dashboard")} · {monthLabel}</p>
+            </div>
+            <h1 className="font-display font-black text-4xl sm:text-5xl lg:text-6xl uppercase tracking-tighter leading-none">
+              <span className="text-gold-foil">VISÃO</span>{" "}
+              <span className="text-white">GERAL</span>
+            </h1>
+            <div className="hairline-gold w-32 mt-4" />
+          </div>
+
+          {/* Premium status chip — right side */}
+          <div className="hidden sm:flex items-center gap-3 border border-gold-soft bg-gold-tint px-4 py-2.5">
+            <Gem size={16} className="text-gold" />
+            <div className="leading-tight">
+              <p className="text-[9px] uppercase tracking-[0.25em] text-text-secondary">Painel Executivo</p>
+              <p className="font-display font-black text-xs uppercase tracking-wider text-gold">Premium</p>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* KPI cards (hidden when user has no stats access — e.g. BDC) */}
+      {/* ===== PREMIUM KPI STRIP — revenue / profit / sales / time in stock ===== */}
+      {premiumKpis.length > 0 && (
+        <div data-testid="premium-kpi-strip" className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-border border border-border mb-10">
+          {premiumKpis.map((k, i) => {
+            const Icon = k.icon;
+            const deltaTxt = fmtPct(k.delta);
+            const positive = (k.delta ?? 0) >= 0;
+            return (
+              <div
+                key={i}
+                data-testid={k.testid}
+                className="surface-premium kpi-tile p-5 lg:p-6 relative"
+              >
+                <div className="flex items-start justify-between mb-3 relative">
+                  <p className="label-eyebrow text-[10px] text-text-secondary leading-tight max-w-[70%]">{k.label}</p>
+                  <div className="w-9 h-9 border border-gold-soft bg-gold-tint flex items-center justify-center">
+                    <Icon size={15} className="text-gold" />
+                  </div>
+                </div>
+                <p className="font-display font-black text-2xl lg:text-3xl text-gold-foil leading-none kpi-count-in tracking-tight">
+                  {k.value}
+                  {k.suffix && <span className="text-sm text-text-secondary ml-1 font-bold">{k.suffix}</span>}
+                </p>
+                {(deltaTxt || k.sub) && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wider">
+                    {deltaTxt && (
+                      <span
+                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 border font-display font-bold ${
+                          positive
+                            ? "border-success/40 text-success bg-success/5"
+                            : "border-primary/40 text-primary bg-primary/5"
+                        }`}
+                      >
+                        {positive ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
+                        {deltaTxt}
+                      </span>
+                    )}
+                    {k.prevValue !== undefined && k.prevValue !== null && (
+                      <span className="text-text-secondary/80">vs {prevMonthLabel}: <b className="text-text-secondary">{k.prevValue}</b></span>
+                    )}
+                    {k.sub && (
+                      <span className="text-text-secondary/80 normal-case tracking-normal" title={k.sub}>{k.sub}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ===== INVENTORY COUNTS (compact strip) ===== */}
       {hasStats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border border border-border mb-10">
-          {cards.map((c, i) => {
+        <div data-testid="inventory-kpi-strip" className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border border border-border mb-10">
+          {inventoryCards.map((c, i) => {
             const Icon = c.icon;
             return (
-              <div key={i} data-testid={`stat-${i}`} className="bg-background p-6 relative overflow-hidden group">
-                <Icon size={64} className="absolute -bottom-4 -right-4 text-text-secondary/5 group-hover:text-primary/10 transition-colors" />
-                <p className="label-eyebrow mb-3 relative">{c.label}</p>
+              <div key={i} data-testid={`stat-${i}`} className="bg-background kpi-tile p-5 relative overflow-hidden group">
+                <Icon size={48} className="absolute -bottom-2 -right-2 text-text-secondary/5 group-hover:text-gold/15 transition-colors" />
+                <div className="flex items-center gap-2 mb-2 relative">
+                  <Icon size={12} className="text-gold opacity-60" />
+                  <p className="label-eyebrow text-[10px] m-0">{c.label}</p>
+                </div>
                 <p className="font-display font-black text-3xl text-white relative">{c.value}</p>
               </div>
             );
@@ -607,26 +774,152 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToF
         </div>
       )}
 
+      {/* ===== COMPARATIVO MÊS vs MÊS + WEEKDAY HEATMAP ===== */}
+      {ins && (
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-px bg-border border border-border mb-10">
+          {/* Comparativo mês vs mês (3 cols) */}
+          <div data-testid="month-comparison" className="surface-premium lg:col-span-3 p-6 lg:p-8 relative">
+            <div className="flex items-center justify-between mb-6 relative">
+              <div className="flex items-center gap-2">
+                <Activity size={14} className="text-gold" />
+                <p className="label-eyebrow text-gold">{monthLabel} vs {prevMonthLabel}</p>
+              </div>
+              <p className="text-[10px] text-text-secondary uppercase tracking-widest">Comparativo</p>
+            </div>
+
+            {showMoneyKpis ? (
+              <div className="space-y-5">
+                {[
+                  { lbl: "Vendas", cur: ins.current_month.sales_count, prev: ins.previous_month.sales_count, delta: ins.deltas?.sales_count_pct, fmt: (v) => `${v} carros` },
+                  { lbl: "Receita", cur: ins.current_month.revenue, prev: ins.previous_month.revenue, delta: ins.deltas?.revenue_pct, fmt: (v) => formatCurrency(v || 0) },
+                  { lbl: "Lucro", cur: ins.current_month.profit, prev: ins.previous_month.profit, delta: ins.deltas?.profit_pct, fmt: (v) => formatCurrency(v || 0) },
+                ].map((row, idx) => {
+                  const max = Math.max(row.cur || 0, row.prev || 0, 1);
+                  const curPct = ((row.cur || 0) / max) * 100;
+                  const prevPct = ((row.prev || 0) / max) * 100;
+                  const positive = (row.delta ?? 0) >= 0;
+                  return (
+                    <div key={idx} data-testid={`compare-row-${idx}`}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <p className="text-[10px] uppercase tracking-widest text-text-secondary font-display font-bold">{row.lbl}</p>
+                        {row.delta !== null && row.delta !== undefined && (
+                          <span className={`inline-flex items-center gap-0.5 text-[10px] font-display font-bold ${positive ? "text-success" : "text-primary"}`}>
+                            {positive ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
+                            {fmtPct(row.delta)}
+                          </span>
+                        )}
+                      </div>
+                      {/* Current month bar (gold) */}
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="w-12 text-[9px] uppercase tracking-widest text-gold flex-shrink-0">Atual</span>
+                        <div className="flex-1 h-3 bg-surface relative overflow-hidden">
+                          <div
+                            className="absolute inset-y-0 left-0 transition-all"
+                            style={{
+                              width: `${curPct}%`,
+                              background: "linear-gradient(90deg, #8C7218 0%, #D4AF37 60%, #F1C950 100%)",
+                            }}
+                          />
+                        </div>
+                        <span className="font-display font-black text-xs text-gold w-28 text-right truncate">{row.fmt(row.cur)}</span>
+                      </div>
+                      {/* Previous month bar (muted) */}
+                      <div className="flex items-center gap-2">
+                        <span className="w-12 text-[9px] uppercase tracking-widest text-text-secondary flex-shrink-0">Anter.</span>
+                        <div className="flex-1 h-3 bg-surface relative overflow-hidden">
+                          <div
+                            className="absolute inset-y-0 left-0 bg-text-secondary/30 transition-all"
+                            style={{ width: `${prevPct}%` }}
+                          />
+                        </div>
+                        <span className="font-display font-bold text-xs text-text-secondary w-28 text-right truncate">{row.fmt(row.prev)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-10 text-text-secondary text-sm">
+                Sem dados financeiros para comparar.
+              </div>
+            )}
+          </div>
+
+          {/* Heatmap por dia da semana (2 cols) */}
+          <div data-testid="weekday-heatmap" className="surface-premium lg:col-span-2 p-6 lg:p-8 relative">
+            <div className="flex items-center justify-between mb-2 relative">
+              <div className="flex items-center gap-2">
+                <Flame size={14} className="text-gold" />
+                <p className="label-eyebrow text-gold">Vendas · Dia da semana</p>
+              </div>
+              <p className="text-[10px] text-text-secondary uppercase tracking-widest">90 dias</p>
+            </div>
+            <p className="text-[11px] text-text-secondary mb-5 relative">
+              Identifique seus dias mais quentes para vender.
+            </p>
+
+            <div className="grid grid-cols-7 gap-2 mb-3 relative">
+              {weekdayLabels.map((lbl, i) => (
+                <div
+                  key={lbl}
+                  data-testid={`heat-${lbl.toLowerCase()}`}
+                  className="heat-cell flex flex-col items-center justify-center text-center p-1"
+                  style={{ background: heatColor(weekdayCounts[i]) }}
+                  title={`${lbl}: ${weekdayCounts[i]} venda${weekdayCounts[i] === 1 ? "" : "s"}`}
+                >
+                  <span className="font-display font-black text-lg text-white leading-none drop-shadow">
+                    {weekdayCounts[i]}
+                  </span>
+                  <span className="text-[9px] uppercase tracking-wider mt-0.5 text-white/70 font-display font-bold">{lbl}</span>
+                </div>
+              ))}
+            </div>
+
+            {bestWeekday.v > 0 && (
+              <div className="border-t border-gold-soft pt-3 mt-3 flex items-center gap-2 relative">
+                <Star size={12} className="text-gold fill-current" />
+                <p className="text-[11px] text-text-secondary">
+                  Dia mais quente: <span className="text-gold font-bold uppercase tracking-wider">{weekdayLabels[bestWeekday.i]}</span>
+                </p>
+              </div>
+            )}
+
+            {/* Legend */}
+            <div className="flex items-center gap-1 mt-4 relative">
+              <span className="text-[9px] text-text-secondary uppercase tracking-widest mr-2">Menos</span>
+              {[0.06, 0.25, 0.5, 0.75, 1].map((a) => (
+                <span
+                  key={a}
+                  className="w-3 h-3 border border-white/10"
+                  style={{ background: `rgba(212, 175, 55, ${a})` }}
+                />
+              ))}
+              <span className="text-[9px] text-text-secondary uppercase tracking-widest ml-2">Mais</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-border border border-border mb-10">
         {/* Leaderboard — professional podium + list */}
         <div className="bg-background p-6 lg:col-span-2 relative overflow-hidden">
           {/* Background flair */}
-          <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute bottom-0 left-0 w-48 h-48 bg-yellow-500/5 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute top-0 right-0 w-64 h-64 bg-gold/5 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-48 h-48 bg-primary/5 rounded-full blur-3xl pointer-events-none" />
 
           {/* Header */}
           <div className="flex items-center justify-between mb-6 relative">
             <div className="flex items-center gap-3">
-              <div className="w-11 h-11 bg-primary/10 border border-primary/40 flex items-center justify-center">
-                <Trophy size={20} className="text-primary" />
+              <div className="w-11 h-11 bg-gold-tint border border-gold-soft flex items-center justify-center">
+                <Trophy size={20} className="text-gold" />
               </div>
               <div>
-                <p className="label-eyebrow text-primary">{t("leaderboard_title")}</p>
+                <p className="label-eyebrow text-gold">{t("leaderboard_title")}</p>
                 <p className="text-[10px] text-text-secondary uppercase tracking-widest mt-0.5">{monthLabel}</p>
               </div>
             </div>
             <div className="text-right">
-              <p className="font-display font-black text-3xl">{leaderboard.total_sold}</p>
+              <p className="font-display font-black text-3xl text-gold-foil">{leaderboard.total_sold}</p>
               <p className="text-[10px] text-text-secondary uppercase tracking-widest">{t("sales_count")}</p>
             </div>
           </div>
@@ -672,7 +965,7 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToF
                         <div
                           key={r.salesperson_id || i}
                           data-testid={`lb-row-${r.salesperson_id || "unassigned"}`}
-                          className="flex items-center gap-3 py-2.5 px-3 hover:bg-surface/60 transition-colors border border-transparent hover:border-border"
+                          className="flex items-center gap-3 py-2.5 px-3 hover:bg-surface/60 transition-colors border border-transparent hover:border-gold-soft"
                         >
                           <span className="w-6 text-center font-display font-black text-text-secondary text-xs">#{r.rank}</span>
                           <Avatar src={r.photo_url} name={r.salesperson_name} size="sm" />
@@ -695,14 +988,14 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToF
         <div className="bg-background p-6 relative overflow-hidden">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <Sparkles size={16} className="text-primary" />
-              <p className="label-eyebrow text-primary">{t("weekly_promo_title")}</p>
+              <Sparkles size={16} className="text-gold" />
+              <p className="label-eyebrow text-gold">{t("weekly_promo_title")}</p>
             </div>
             {!isSalesperson && (
               <button
                 data-testid="edit-promotion"
                 onClick={() => setEditingPromo(true)}
-                className="w-7 h-7 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
+                className="w-7 h-7 border border-border hover:border-gold hover:text-gold flex items-center justify-center transition-colors"
                 title={t("edit")}
               >
                 <Edit2 size={12} />
@@ -754,32 +1047,41 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToF
 
       {/* Monthly chart (hidden when user has no stats access) */}
       {hasStats && (
-        <div className="border border-border p-6">
-          <div className="flex items-center justify-between mb-6">
+        <div className="surface-premium p-6 lg:p-8 relative">
+          <div className="flex items-center justify-between mb-6 relative">
             <div className="flex items-center gap-2">
-              <TrendingUp size={16} className="text-primary" />
-              <p className="label-eyebrow text-primary">{t("monthly_performance")}</p>
+              <BarChart3 size={14} className="text-gold" />
+              <p className="label-eyebrow text-gold">{t("monthly_performance")}</p>
             </div>
-            <p className="text-xs text-text-secondary">6 {t("months_short")}</p>
+            <p className="text-[10px] text-text-secondary uppercase tracking-widest">6 {t("months_short")}</p>
           </div>
           {monthly.length === 0 ? (
             <p className="text-text-secondary text-sm py-8 text-center">—</p>
           ) : (
-            <div className="flex items-end gap-3 h-40 px-2">
-              {monthly.map((m) => {
+            <div className="flex items-end gap-3 h-44 px-2 relative">
+              {monthly.map((m, idx) => {
                 const h = Math.max(((m.count || 0) / maxBar) * 100, 2);
+                const isCurrent = idx === monthly.length - 1;
                 return (
                   <div key={m.month} className="flex-1 flex flex-col items-center gap-2 h-full">
                     <div className="flex-1 w-full flex items-end relative group">
                       <div
-                        className="w-full bg-gradient-to-t from-primary to-primary/60 transition-all hover:from-primary/80 hover:to-primary"
-                        style={{ height: `${h}%` }}
+                        className="w-full transition-all"
+                        style={{
+                          height: `${h}%`,
+                          background: isCurrent
+                            ? "linear-gradient(180deg, #F1C950 0%, #D4AF37 50%, #8C7218 100%)"
+                            : "linear-gradient(180deg, rgba(212, 175, 55, 0.45) 0%, rgba(140, 114, 24, 0.3) 100%)",
+                          boxShadow: isCurrent ? "0 0 24px -8px rgba(212, 175, 55, 0.5)" : "none",
+                        }}
                       />
-                      <span className="absolute -top-5 left-1/2 -translate-x-1/2 font-display font-bold text-xs">
+                      <span className={`absolute -top-5 left-1/2 -translate-x-1/2 font-display font-bold text-xs ${isCurrent ? "text-gold" : ""}`}>
                         {m.count || 0}
                       </span>
                     </div>
-                    <span className="font-display font-bold text-[10px] uppercase tracking-wider text-text-secondary">{m.month.slice(5)}/{m.month.slice(2, 4)}</span>
+                    <span className={`font-display font-bold text-[10px] uppercase tracking-wider ${isCurrent ? "text-gold" : "text-text-secondary"}`}>
+                      {m.month.slice(5)}/{m.month.slice(2, 4)}
+                    </span>
                   </div>
                 );
               })}
