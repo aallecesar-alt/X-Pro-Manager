@@ -3,6 +3,7 @@ import { X, Plus, Trash2, Calendar, Clock, AlertTriangle, Check, User, Car as Ca
 import { toast } from "sonner";
 import api from "@/lib/api";
 import Avatar from "@/components/Avatar";
+import DateTimePicker from "@/components/DateTimePicker";
 
 // ============================================================
 // DeliverySchedulesPanel
@@ -535,12 +536,11 @@ function ScheduleForm({ schedule, vehicles, team, t, onClose, onSaved }) {
         {/* Delivery date */}
         <div>
           <label className="label-eyebrow block mb-2">Data e hora da entrega *</label>
-          <input
-            data-testid="sched-date"
-            type="datetime-local"
+          <DateTimePicker
+            testid="sched-date"
             value={form.delivery_date || ""}
-            onChange={e => set("delivery_date", e.target.value)}
-            className="w-full bg-surface border border-border px-3 py-2.5 text-sm"
+            onChange={(v) => set("delivery_date", v)}
+            placeholder="Escolha o dia e a hora"
           />
         </div>
 
