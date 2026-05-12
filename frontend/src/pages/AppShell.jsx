@@ -571,7 +571,7 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToF
 
   // Show count cards only when we have stats (user has /stats access via inventory permission OR is owner)
   const hasStats = !!stats;
-  const inventoryCards = hasStats ? [
+  const cards = hasStats ? [
     { label: t("total_vehicles"), value: stats.total_vehicles, icon: Car },
     { label: t("in_stock"), value: stats.in_stock, icon: Package },
     { label: t("reserved"), value: stats.reserved, icon: Clock },
@@ -589,9 +589,424 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToF
     monthly.push(monthMap.get(key) || { month: key, count: 0 });
   }
   const maxBar = Math.max(...monthly.map(m => m.count || 0), 1);
+  const totalSixMonths = monthly.reduce((s, m) => s + (m.count || 0), 0);
   const monthLabel = today.toLocaleString(undefined, { month: "long", year: "numeric" });
-  const prevMonthLabel = new Date(today.getFullYear(), today.getMonth() - 1, 1)
-    .toLocaleString(undefined, { month: "long" });
+
+  // Weekday heatmap (last 90 days) — comes from /overview-insights
+  const weekdayLabels = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+  const weekdayCounts = insights?.weekday_counts || [0, 0, 0, 0, 0, 0, 0];
+  const heatMax = Math.max(...weekdayCounts, 1);
+  const heatColor = (n) => {
+    if (n <= 0) return "rgba(212, 175, 55, 0.06)";
+    const intensity = Math.min(n / heatMax, 1);
+    const alpha = 0.15 + intensity * 0.85;
+    return `rgba(212, 175, 55, ${alpha.toFixed(2)})`;
+  };
+  const bestWeekday = weekdayCounts.reduce((acc, v, i) => v > acc.v ? { v, i } : acc, { v: -1, i: 0 });
+  const showHeatmap = !!insights;
+
+  return (
+    <div data-testid="overview-tab">
+      {/* Hero with subtle shield watermark */}
+      <div className="mb-6 lg:mb-10 bg-shield-watermark border border-border bg-surface/30 p-5 lg:p-8 relative overflow-hidden" style={{ "--shield-url": "url('/intercar-logo.png')" }}>
+        <div className="bg-stripes-overlay absolute inset-0 opacity-50" />
+        <div className="relative">
+          <p className="label-eyebrow text-primary mb-2">{t("dashboard")} · {monthLabel}</p>
+          <h1 className="font-display font-black text-3xl sm:text-4xl lg:text-5xl uppercase tracking-tighter mb-2">{t("overview")}</h1>
+        </div>
+      </div>
+
+      {/* KPI cards (hidden when user has no stats access — e.g. BDC) */}
+      {hasStats && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border border border-border mb-10">
+          {cards.map((c, i) => {
+            const Icon = c.icon;
+            return (
+              <div key={i} data-testid={`stat-${i}`} className="bg-background p-6 relative overflow-hidden group">
+                <Icon size={64} className="absolute -bottom-4 -right-4 text-text-secondary/5 group-hover:text-primary/10 transition-colors" />
+                <p className="label-eyebrow mb-3 relative">{c.label}</p>
+                <p className="font-display font-black text-3xl text-white relative">{c.value}</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ===== Weekday Heatmap — last 90 days ===== */}
+      {showHeatmap && (
+        <div data-testid="weekday-heatmap" className="border border-border bg-background p-6 lg:p-8 mb-10 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-72 h-72 bg-gold/5 rounded-full blur-3xl pointer-events-none" />
+          <div className="flex items-center justify-between mb-2 relative">
+            <div className="flex items-center gap-2">
+              <Flame size={14} className="text-gold" />
+              <p className="label-eyebrow text-gold">Vendas · Dia da semana</p>
+            </div>
+            <p className="text-[10px] text-text-secondary uppercase tracking-widest">90 dias</p>
+          </div>
+          <p className="text-[11px] text-text-secondary mb-5 relative">
+            Identifique seus dias mais quentes para vender.
+          </p>
+
+          <div className="grid grid-cols-7 gap-2 mb-3 relative">
+            {weekdayLabels.map((lbl, i) => (
+              <div
+                key={lbl}
+                data-testid={`heat-${lbl.toLowerCase()}`}
+                className="heat-cell flex flex-col items-center justify-center text-center p-3"
+                style={{ background: heatColor(weekdayCounts[i]) }}
+                title={`${lbl}: ${weekdayCounts[i]} venda${weekdayCounts[i] === 1 ? "" : "s"}`}
+              >
+                <span className="font-display font-black text-2xl text-white leading-none drop-shadow">
+                  {weekdayCounts[i]}
+                </span>
+                <span className="text-[10px] uppercase tracking-wider mt-1 text-white/80 font-display font-bold">{lbl}</span>
+              </div>
+            ))}
+          </div>
+
+          {bestWeekday.v > 0 && (
+            <div className="border-t border-gold-soft pt-3 mt-3 flex items-center gap-2 relative">
+              <Star size={12} className="text-gold fill-current" />
+              <p className="text-[11px] text-text-secondary">
+                Dia mais quente: <span className="text-gold font-bold uppercase tracking-wider">{weekdayLabels[bestWeekday.i]}</span>
+              </p>
+            </div>
+          )}
+
+          {/* Legend */}
+          <div className="flex items-center gap-1 mt-4 relative">
+            <span className="text-[9px] text-text-secondary uppercase tracking-widest mr-2">Menos</span>
+            {[0.06, 0.25, 0.5, 0.75, 1].map((a) => (
+              <span
+                key={a}
+                className="w-3 h-3 border border-white/10"
+                style={{ background: `rgba(212, 175, 55, ${a})` }}
+              />
+            ))}
+            <span className="text-[9px] text-text-secondary uppercase tracking-widest ml-2">Mais</span>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-border border border-border mb-10">
+        {/* Leaderboard — professional podium + list */}
+        <div className="bg-background p-6 lg:col-span-2 relative overflow-hidden">
+          {/* Background flair */}
+          <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-48 h-48 bg-yellow-500/5 rounded-full blur-3xl pointer-events-none" />
+
+          {/* Header */}
+          <div className="flex items-center justify-between mb-6 relative">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 bg-primary/10 border border-primary/40 flex items-center justify-center">
+                <Trophy size={20} className="text-primary" />
+              </div>
+              <div>
+                <p className="label-eyebrow text-primary">{t("leaderboard_title")}</p>
+                <p className="text-[10px] text-text-secondary uppercase tracking-widest mt-0.5">{monthLabel}</p>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="font-display font-black text-3xl">{leaderboard.total_sold}</p>
+              <p className="text-[10px] text-text-secondary uppercase tracking-widest">{t("sales_count")}</p>
+            </div>
+          </div>
+
+          {leaderboard.rows.length === 0 || leaderboard.total_sold === 0 ? (
+            <div className="text-center py-14 border border-dashed border-border relative">
+              <Trophy size={36} className="mx-auto text-text-secondary/30 mb-3" />
+              <p className="text-text-secondary text-sm">{t("leaderboard_empty")}</p>
+            </div>
+          ) : (
+            <div className="relative">
+              {/* Podium for top 3 (or 1-2 if less) */}
+              {leaderboard.rows.length >= 3 ? (
+                <div className="grid grid-cols-3 gap-3 mb-5 items-end">
+                  <PodiumCard rank={2} row={leaderboard.rows[1]} accent="silver" t={t} />
+                  <PodiumCard rank={1} row={leaderboard.rows[0]} accent="gold" featured t={t} />
+                  <PodiumCard rank={3} row={leaderboard.rows[2]} accent="bronze" t={t} />
+                </div>
+              ) : (
+                <div className={`grid ${leaderboard.rows.length === 2 ? "grid-cols-2" : "grid-cols-1 max-w-xs mx-auto"} gap-3 mb-5`}>
+                  {leaderboard.rows.slice(0, 2).map((r, i) => (
+                    <PodiumCard
+                      key={r.salesperson_id || i}
+                      rank={r.rank}
+                      row={r}
+                      accent={r.rank === 1 ? "gold" : "silver"}
+                      featured={r.rank === 1}
+                      t={t}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* Rest of leaderboard (ranks 4+) */}
+              {leaderboard.rows.length > 3 && (
+                <div className="pt-4 border-t border-border">
+                  <p className="label-eyebrow text-text-secondary mb-3">{t("leaderboard_others") || "Demais vendedores"}</p>
+                  <div className="space-y-1">
+                    {leaderboard.rows.slice(3, 10).map((r, i) => {
+                      const max = leaderboard.rows[0]?.count || 1;
+                      const pct = max > 0 ? (r.count / max) * 100 : 0;
+                      return (
+                        <div
+                          key={r.salesperson_id || i}
+                          data-testid={`lb-row-${r.salesperson_id || "unassigned"}`}
+                          className="flex items-center gap-3 py-2.5 px-3 hover:bg-surface/60 transition-colors border border-transparent hover:border-border"
+                        >
+                          <span className="w-6 text-center font-display font-black text-text-secondary text-xs">#{r.rank}</span>
+                          <Avatar src={r.photo_url} name={r.salesperson_name} size="sm" />
+                          <p className="flex-1 min-w-0 text-xs font-display font-bold uppercase tracking-wide truncate">{r.salesperson_name}</p>
+                          <div className="hidden sm:block w-28 bg-surface h-1 relative overflow-hidden">
+                            <div className="absolute inset-y-0 left-0 bg-text-secondary/40" style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="font-display font-black text-base w-8 text-right">{r.count}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Weekly Promotion — notebook page */}
+        <div className="bg-background p-6 relative overflow-hidden">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Sparkles size={16} className="text-primary" />
+              <p className="label-eyebrow text-primary">{t("weekly_promo_title")}</p>
+            </div>
+            {!isSalesperson && (
+              <button
+                data-testid="edit-promotion"
+                onClick={() => setEditingPromo(true)}
+                className="w-7 h-7 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
+                title={t("edit")}
+              >
+                <Edit2 size={12} />
+              </button>
+            )}
+          </div>
+          {!promotion?.title && !promotion?.description && !promotion?.image_url ? (
+            <div data-testid="promo-empty" className="notebook-paper py-12 px-16 min-h-[320px] flex flex-col items-center justify-center text-center">
+              <p className="notebook-handwriting text-4xl mb-2 italic" style={{ color: '#9ca3af' }}>
+                {t("no_promotion")}
+              </p>
+              {!isSalesperson && (
+                <button
+                  data-testid="add-promotion-cta"
+                  onClick={() => setEditingPromo(true)}
+                  className="notebook-handwriting text-3xl mt-4 underline decoration-2 underline-offset-4 transition-colors hover:opacity-80"
+                  style={{ color: '#d92d20' }}
+                >
+                  {t("create_promotion")} →
+                </button>
+              )}
+            </div>
+          ) : (
+            <div data-testid="promotion-card" className="notebook-paper py-8 px-16 min-h-[320px]">
+              {promotion.image_url && (
+                <div className="aspect-video bg-white/30 overflow-hidden mb-4 rotate-[-1.5deg] shadow-md mt-2 mx-2">
+                  <img src={promotion.image_url} alt={promotion.title} className="w-full h-full object-cover" />
+                </div>
+              )}
+              {promotion.title && (
+                <p className="notebook-handwriting text-6xl font-bold mb-4 leading-none" style={{ color: '#d92d20' }}>
+                  {promotion.title}
+                </p>
+              )}
+              {promotion.description && (
+                <p className="notebook-handwriting text-4xl whitespace-pre-line" style={{ color: '#1e3a8a' }}>
+                  {promotion.description}
+                </p>
+              )}
+              {promotion.valid_until && (
+                <p className="notebook-handwriting text-2xl mt-6 inline-flex items-center gap-2" style={{ color: '#dc2626' }}>
+                  <Calendar size={18} /> {t("valid_until")}: {promotion.valid_until}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ===== Performance mensal — REDESENHADO (gráfico de área + barras + sparkline) ===== */}
+      {hasStats && (
+        <div data-testid="monthly-performance" className="border border-border bg-background p-6 lg:p-8 relative overflow-hidden">
+          {/* Ambient backdrop */}
+          <div className="absolute -top-24 -right-24 w-80 h-80 bg-primary/5 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-24 -left-24 w-80 h-80 bg-gold/5 rounded-full blur-3xl pointer-events-none" />
+
+          {/* Header */}
+          <div className="flex items-center justify-between mb-6 relative flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 bg-primary/10 border border-primary/40 flex items-center justify-center">
+                <BarChart3 size={18} className="text-primary" />
+              </div>
+              <div>
+                <p className="label-eyebrow text-primary">{t("monthly_performance")}</p>
+                <p className="text-[10px] text-text-secondary uppercase tracking-widest mt-0.5">Últimos 6 meses</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-6">
+              <div className="text-right">
+                <p className="text-[9px] uppercase tracking-widest text-text-secondary">Total no período</p>
+                <p className="font-display font-black text-2xl text-white leading-none">{totalSixMonths}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[9px] uppercase tracking-widest text-text-secondary">Mês atual</p>
+                <p className="font-display font-black text-2xl text-primary leading-none">{monthly[monthly.length - 1]?.count || 0}</p>
+              </div>
+            </div>
+          </div>
+
+          {monthly.length === 0 ? (
+            <p className="text-text-secondary text-sm py-8 text-center">—</p>
+          ) : (
+            <div className="relative">
+              {/* Chart area with horizontal grid lines */}
+              <div className="relative h-56 px-1 pt-4 pb-1">
+                {/* Y-axis grid lines (4 levels) */}
+                <div className="absolute inset-x-0 inset-y-4 flex flex-col justify-between pointer-events-none">
+                  {[1, 0.75, 0.5, 0.25, 0].map((level, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <span className="text-[9px] text-text-secondary/60 font-mono w-6 text-right">
+                        {Math.round(maxBar * level)}
+                      </span>
+                      <div className="flex-1 border-t border-border/40 border-dashed" />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Area path (SVG) behind bars */}
+                <svg
+                  className="absolute inset-0 w-full h-full pointer-events-none"
+                  viewBox={`0 0 ${monthly.length * 100} 100`}
+                  preserveAspectRatio="none"
+                >
+                  <defs>
+                    <linearGradient id="areaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop offset="0%" stopColor="#D92D20" stopOpacity="0.45" />
+                      <stop offset="100%" stopColor="#D92D20" stopOpacity="0" />
+                    </linearGradient>
+                    <linearGradient id="lineGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stopColor="#D4AF37" />
+                      <stop offset="100%" stopColor="#F1C950" />
+                    </linearGradient>
+                  </defs>
+                  {(() => {
+                    const points = monthly.map((m, i) => {
+                      const x = i * 100 + 50;
+                      const y = 100 - Math.max(((m.count || 0) / maxBar) * 100, 1);
+                      return [x, y];
+                    });
+                    const pathLine = points.map((p, i) => `${i === 0 ? "M" : "L"}${p[0]},${p[1]}`).join(" ");
+                    const pathArea = pathLine + ` L${points[points.length - 1][0]},100 L${points[0][0]},100 Z`;
+                    return (
+                      <>
+                        <path d={pathArea} fill="url(#areaGrad)" />
+                        <path d={pathLine} fill="none" stroke="url(#lineGrad)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                        {points.map((p, i) => (
+                          <circle
+                            key={i}
+                            cx={p[0]}
+                            cy={p[1]}
+                            r={i === points.length - 1 ? 3 : 2}
+                            fill={i === points.length - 1 ? "#F1C950" : "#D4AF37"}
+                            stroke="#0A0A0A"
+                            strokeWidth="1.2"
+                            vectorEffect="non-scaling-stroke"
+                          />
+                        ))}
+                      </>
+                    );
+                  })()}
+                </svg>
+
+                {/* Bars overlay */}
+                <div className="absolute inset-x-0 inset-y-4 flex items-end gap-2 pl-8 pr-1">
+                  {monthly.map((m, idx) => {
+                    const h = Math.max(((m.count || 0) / maxBar) * 100, 1.5);
+                    const isCurrent = idx === monthly.length - 1;
+                    const prevCount = idx > 0 ? (monthly[idx - 1].count || 0) : null;
+                    const delta = prevCount === null ? null : (m.count || 0) - prevCount;
+                    return (
+                      <div key={m.month} className="flex-1 flex flex-col items-center h-full justify-end relative group">
+                        {/* Tooltip */}
+                        <div className="absolute -top-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-surface border border-border px-2 py-1 text-[10px] whitespace-nowrap z-10 pointer-events-none">
+                          <p className="font-display font-bold text-white">{m.count || 0} {t("sales_count")?.toLowerCase()}</p>
+                          {delta !== null && delta !== 0 && (
+                            <p className={`text-[9px] ${delta > 0 ? "text-success" : "text-primary"}`}>
+                              {delta > 0 ? "+" : ""}{delta} vs mês ant.
+                            </p>
+                          )}
+                        </div>
+                        {/* Bar */}
+                        <div
+                          className="w-full max-w-[44px] transition-all duration-300 ease-out group-hover:scale-y-105 origin-bottom relative"
+                          style={{
+                            height: `${h}%`,
+                            background: isCurrent
+                              ? "linear-gradient(180deg, #F87171 0%, #D92D20 60%, #991B1B 100%)"
+                              : "linear-gradient(180deg, rgba(217, 45, 32, 0.4) 0%, rgba(120, 20, 14, 0.35) 100%)",
+                            boxShadow: isCurrent ? "0 -2px 24px -4px rgba(217, 45, 32, 0.55)" : "none",
+                            borderTop: isCurrent ? "1px solid #F1C950" : "none",
+                          }}
+                        >
+                          {/* Value label */}
+                          <span
+                            className={`absolute -top-5 left-1/2 -translate-x-1/2 font-display font-black text-xs ${
+                              isCurrent ? "text-white" : "text-text-secondary"
+                            }`}
+                          >
+                            {m.count || 0}
+                          </span>
+                          {/* Top shine */}
+                          {isCurrent && (
+                            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-gold to-transparent" />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* X-axis labels with delta vs previous */}
+              <div className="flex gap-2 pl-8 pr-1 mt-2">
+                {monthly.map((m, idx) => {
+                  const isCurrent = idx === monthly.length - 1;
+                  const [yr, mo] = m.month.split("-");
+                  const labelDate = new Date(parseInt(yr), parseInt(mo) - 1, 1);
+                  const monthName = labelDate.toLocaleString(undefined, { month: "short" }).replace(".", "");
+                  return (
+                    <div key={m.month} className="flex-1 text-center">
+                      <p className={`font-display font-bold text-[10px] uppercase tracking-wider ${isCurrent ? "text-primary" : "text-text-secondary"}`}>
+                        {monthName}
+                      </p>
+                      <p className="font-mono text-[9px] text-text-secondary/60">/{m.month.slice(2, 4)}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {editingPromo && !isSalesperson && (
+        <PromotionForm
+          promotion={promotion}
+          t={t}
+          onClose={() => setEditingPromo(false)}
+          onSaved={() => { setEditingPromo(false); reloadPromo(); }}
+        />
+      )}
+    </div>
+  );
 
   // ---- Premium KPI data derived from insights ----
   const ins = insights || null;
