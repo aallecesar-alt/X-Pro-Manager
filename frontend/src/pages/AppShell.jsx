@@ -40,6 +40,21 @@ export default function AppShell() {
   const isStaff = isOwner || isManager;
   const [tab, setTab] = useState("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false); // mobile drawer state
+  // Desktop: when the user collapses the sidebar it shows only icons. Hover
+  // expands it back temporarily. Persisted in localStorage so the choice sticks
+  // across reloads.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem("sidebar_collapsed") === "1"; } catch { return false; }
+  });
+  const [sidebarHovered, setSidebarHovered] = useState(false);
+  const sidebarExpanded = !sidebarCollapsed || sidebarHovered; // visual expanded state on desktop
+  const toggleSidebarCollapse = () => {
+    setSidebarCollapsed((v) => {
+      const next = !v;
+      try { localStorage.setItem("sidebar_collapsed", next ? "1" : "0"); } catch { /* noop */ }
+      return next;
+    });
+  };
   const [stats, setStats] = useState(null);
   const [vehicles, setVehicles] = useState([]);
   const [deliveries, setDeliveries] = useState([]);
@@ -187,47 +202,79 @@ export default function AppShell() {
 
       {/* SIDEBAR */}
       <aside
-        className={`w-64 border-r border-border min-h-screen flex flex-col bg-background backdrop-blur-sm
-          fixed lg:relative inset-y-0 left-0 z-50 transition-transform duration-200 lg:flex-shrink-0
-          ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}
+        data-testid="sidebar"
+        onMouseEnter={() => sidebarCollapsed && setSidebarHovered(true)}
+        onMouseLeave={() => setSidebarHovered(false)}
+        className={`group/sidebar border-r border-border min-h-screen flex flex-col bg-background backdrop-blur-sm
+          fixed lg:relative inset-y-0 left-0 z-50 transition-[width,transform] duration-200 lg:flex-shrink-0
+          ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0
+          ${sidebarExpanded ? "w-64" : "w-16"}`}
       >
-        <div className="p-6 border-b border-border bg-stripes-overlay">
-          <div className="flex items-center gap-3">
-            <div className="relative w-12 h-12 shrink-0">
+        {/* Desktop-only collapse toggle (the arrow) */}
+        <button
+          type="button"
+          data-testid="sidebar-collapse-toggle"
+          onClick={toggleSidebarCollapse}
+          title={sidebarCollapsed ? "Expandir menu" : "Recolher menu"}
+          className="hidden lg:flex absolute top-6 -right-3 z-10 w-6 h-6 items-center justify-center bg-background border border-border hover:border-primary hover:text-primary text-text-secondary transition-colors"
+        >
+          {sidebarCollapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
+        </button>
+
+        <div className={`border-b border-border bg-stripes-overlay ${sidebarExpanded ? "p-6" : "p-3"}`}>
+          <div className={`flex items-center gap-3 ${sidebarExpanded ? "" : "justify-center"}`}>
+            <div className={`relative shrink-0 ${sidebarExpanded ? "w-12 h-12" : "w-10 h-10"}`}>
               <div className="absolute inset-0 bg-primary/30 blur-xl rounded-full" />
               <img
                 src="/intercar-logo.png"
                 alt="Intercar"
-                className="relative w-12 h-12 object-contain drop-shadow-lg"
+                className="relative w-full h-full object-contain drop-shadow-lg"
               />
             </div>
-            <div className="min-w-0">
-              <p className="font-display font-black uppercase text-sm truncate tracking-tight">{dealership?.name || "..."}</p>
-              <p className="label-eyebrow text-[10px] truncate">{user?.email}</p>
-            </div>
+            {sidebarExpanded && (
+              <div className="min-w-0">
+                <p className="font-display font-black uppercase text-sm truncate tracking-tight">{dealership?.name || "..."}</p>
+                <p className="label-eyebrow text-[10px] truncate">{user?.email}</p>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Logged-in user profile chip with editable avatar */}
-        <UserProfileChip user={user} t={t} onPhotoChanged={refreshUser} />
+        {/* Logged-in user profile chip with editable avatar — only when expanded */}
+        {sidebarExpanded && <UserProfileChip user={user} t={t} onPhotoChanged={refreshUser} />}
 
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className={`flex-1 space-y-1 ${sidebarExpanded ? "p-3" : "p-2"}`}>
           {tabs.map((tb) => {
             const showStuckBadge = tb.id === "delivery" && isStaff && stuckCount > 0;
             const showFpBadge = tb.id === "financial" && isStaff && fpAlerts.total > 0;
             const showRecBadge = tb.id === "receivables" && recAlerts.alert_count > 0;
+            const badgeCount = showStuckBadge ? stuckCount : showFpBadge ? fpAlerts.total : showRecBadge ? recAlerts.alert_count : 0;
             return (
               <button
                 key={tb.id}
                 data-testid={`nav-${tb.id}`}
                 onClick={() => { setTab(tb.id); setSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-display uppercase tracking-wider font-semibold transition-colors ${
+                title={tb.label}
+                className={`w-full flex items-center font-display uppercase tracking-wider font-semibold transition-colors relative ${
+                  sidebarExpanded ? "gap-3 px-4 py-3 text-sm" : "justify-center px-2 py-3 text-sm"
+                } ${
                   tab === tb.id ? "bg-primary text-white" : "text-text-secondary hover:bg-surface hover:text-white"
                 }`}
               >
-                <tb.icon size={16} />
-                <span className="flex-1 text-left">{tb.label}</span>
-                {showStuckBadge && (
+                <span className="relative shrink-0">
+                  <tb.icon size={16} />
+                  {/* Mini badge over the icon when collapsed */}
+                  {!sidebarExpanded && badgeCount > 0 && (
+                    <span
+                      data-testid={`nav-${tb.id}-mini-badge`}
+                      className="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 px-1 rounded-full bg-primary text-white text-[8px] font-black flex items-center justify-center shadow-[0_0_8px_rgba(217,45,32,0.6)]"
+                    >
+                      {badgeCount > 9 ? "9+" : badgeCount}
+                    </span>
+                  )}
+                </span>
+                {sidebarExpanded && <span className="flex-1 text-left whitespace-nowrap overflow-hidden">{tb.label}</span>}
+                {sidebarExpanded && showStuckBadge && (
                   <span
                     data-testid="nav-delivery-stuck-badge"
                     className="min-w-[20px] h-5 px-1.5 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center shadow-[0_0_10px_rgba(217,45,32,0.6)]"
@@ -236,7 +283,7 @@ export default function AppShell() {
                     {stuckCount}
                   </span>
                 )}
-                {showFpBadge && (
+                {sidebarExpanded && showFpBadge && (
                   <span
                     data-testid="nav-financial-fp-badge"
                     className="min-w-[20px] h-5 px-1.5 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center shadow-[0_0_10px_rgba(217,45,32,0.6)] animate-pulse"
@@ -245,7 +292,7 @@ export default function AppShell() {
                     {fpAlerts.total}
                   </span>
                 )}
-                {showRecBadge && (
+                {sidebarExpanded && showRecBadge && (
                   <span
                     data-testid="nav-receivables-badge"
                     className="min-w-[20px] h-5 px-1.5 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center shadow-[0_0_10px_rgba(217,45,32,0.6)] animate-pulse"
@@ -259,27 +306,32 @@ export default function AppShell() {
           })}
         </nav>
 
-        <div className="p-3 border-t border-border space-y-3">
-          <div className="flex gap-1" data-testid="lang-switcher-shell">
-            {LANG_OPTIONS.map((l) => (
-              <button
-                key={l.code}
-                onClick={() => setLang(l.code)}
-                data-testid={`shell-lang-${l.code}`}
-                className={`flex-1 h-8 text-[10px] font-display font-bold uppercase border transition-colors ${
-                  lang === l.code ? "border-primary text-primary" : "border-border text-text-secondary hover:text-white"
-                }`}
-              >
-                {l.flag}
-              </button>
-            ))}
-          </div>
+        <div className={`border-t border-border space-y-3 ${sidebarExpanded ? "p-3" : "p-2"}`}>
+          {sidebarExpanded && (
+            <div className="flex gap-1" data-testid="lang-switcher-shell">
+              {LANG_OPTIONS.map((l) => (
+                <button
+                  key={l.code}
+                  onClick={() => setLang(l.code)}
+                  data-testid={`shell-lang-${l.code}`}
+                  className={`flex-1 h-8 text-[10px] font-display font-bold uppercase border transition-colors ${
+                    lang === l.code ? "border-primary text-primary" : "border-border text-text-secondary hover:text-white"
+                  }`}
+                >
+                  {l.flag}
+                </button>
+              ))}
+            </div>
+          )}
           <button
             data-testid="logout-btn"
             onClick={logout}
-            className="w-full flex items-center gap-2 px-4 py-2 text-xs text-text-secondary hover:text-primary transition-colors"
+            title={t("sign_out")}
+            className={`w-full flex items-center text-xs text-text-secondary hover:text-primary transition-colors ${
+              sidebarExpanded ? "gap-2 px-4 py-2" : "justify-center px-2 py-2"
+            }`}
           >
-            <LogOut size={14} /> {t("sign_out")}
+            <LogOut size={14} /> {sidebarExpanded && t("sign_out")}
           </button>
         </div>
       </aside>
