@@ -166,22 +166,15 @@ Per-car features:
 - New test `test_delete_salesperson_team_member_cascades_to_salespeople` covers the full flow (create → assert leaderboard contains → delete → assert leaderboard cleared).
 - 127 / 127 backend tests passing.
 
-### Premium "Visão Geral" redesign (Feb 12 2026)
-- User requested a more professional / differentiating Overview. Direction: **Premium Dark + Gold** (luxury — Mercedes/BMW vibe).
-- **New CSS palette** in `index.css`: `--gold #D4AF37`, `--gold-bright #F1C950`, `--gold-soft`, `--gold-deep`, `--champagne` + utilities `text-gold-foil`, `hairline-gold`, `surface-premium`, `hero-crest`, `kpi-tile`, `heat-cell`, `gold-pulse`, `kpi-count-in`, `noise-overlay`.
-- **New backend endpoint** `GET /api/overview-insights` (owner/manager get money fields; salesperson gets a stripped payload). Returns:
-  - `current_month` / `previous_month`: sales_count, revenue, profit, avg_ticket
-  - `deltas`: pct change for each metric (null when both zero, +100 when prev=0 and current>0)
-  - `avg_days_in_stock` + `longest_in_stock` (oldest unsold vehicle)
-  - `weekday_counts`: vendas dos últimos 90 dias por dia da semana (Mon..Sun)
-- **Redesigned Overview** (`AppShell.jsx`, `Overview` component):
-  - Hero "crest" with gold-foil metallic title ("VISÃO" GERAL), pulsing gold dot, "Painel Executivo Premium" gem chip, gold hairline divider, noise overlay.
-  - Premium KPI strip (4 cards): Vendas no mês, Receita do mês, Lucro do mês, Tempo médio em estoque — all values in gold foil with delta chips (+/-% vs previous month).
-  - Compact inventory counts strip with gold icon accents.
-  - "X vs Y" Comparativo: side-by-side bar pairs (current gold gradient vs previous muted) for vendas/receita/lucro.
-  - Weekday Heatmap: 7 cells colored by intensity, hottest day highlighted with a star + legend "Menos … Mais".
-  - Leaderboard, Promoção da Semana, Performance Mensal kept; primary accents shifted from red to gold; current month bar in monthly chart now shines with metallic gold gradient + glow.
-- **5 new pytest tests** in `test_overview_insights.py` (full payload shape, delta math, weekday count integrity, days-in-stock sanity, auth required).
+### Premium "Visão Geral" partial redesign (Feb 12 2026)
+- User requested a more professional / differentiating Overview. Initial direction: Premium Dark + Gold. After v1 user rolled it back and asked to keep just two things.
+- **What stayed:**
+  - **Weekday Heatmap** block "Vendas · Dia da semana" (7 cells colored by intensity over last 90 days, hottest day highlighted with a star + legend).
+  - **Redesigned Performance Mensal** chart: SVG area + gold line overlay on the red bars, Y-axis grid lines with numeric thresholds, headline stats (Total no período / Mês atual), current-month bar with metallic glow + gold shine, hover tooltip showing the delta vs the previous month.
+- **What reverted:** Hero, premium KPI strip (Receita/Lucro/Tempo médio), Comparativo bars, inventory cards — all back to the original red layout.
+- **Backend endpoint `GET /api/overview-insights`** kept (still powers `weekday_counts`). Owner/manager see money fields; salesperson gets a stripped payload.
+- Gold CSS variables / utilities kept in `index.css` (used by the two surviving blocks).
+- **5 new pytest tests** in `test_overview_insights.py` (payload shape, delta math, weekday count integrity, days-in-stock sanity, auth required).
 - **132 / 132 backend tests passing**.
 
 ## Test credentials
