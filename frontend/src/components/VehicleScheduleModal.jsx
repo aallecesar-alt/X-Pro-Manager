@@ -14,12 +14,20 @@ export default function VehicleScheduleModal({ vehicle, team, currentUser, t, on
   const [editing, setEditing] = useState(null); // null | {} new | { schedule object } edit
   const isStaff = ["owner", "gerente"].includes(currentUser?.role);
 
+  // Notify inline view when this modal closes
+  const closeModal = () => {
+    window.dispatchEvent(new CustomEvent("schedule:reload", { detail: { vehicleId: vehicle.id } }));
+    onClose();
+  };
+
   const reload = async () => {
     setLoading(true);
     try {
       const r = await api.get("/delivery-schedules");
       const onlyMine = (r.data || []).filter(s => s.vehicle_id === vehicle.id);
       setSchedules(onlyMine);
+      // Notify any inline view watching this vehicle that data has changed.
+      window.dispatchEvent(new CustomEvent("schedule:reload", { detail: { vehicleId: vehicle.id } }));
       // Auto-open the create form when there's nothing yet — saves the user a click.
       if (onlyMine.length === 0) {
         setEditing({});
@@ -100,7 +108,7 @@ export default function VehicleScheduleModal({ vehicle, team, currentUser, t, on
             </button>
             <button
               data-testid="veh-sched-close"
-              onClick={onClose}
+              onClick={closeModal}
               className="w-9 h-9 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
               title="Fechar"
             >
@@ -153,7 +161,7 @@ export default function VehicleScheduleModal({ vehicle, team, currentUser, t, on
             setEditing(null);
             // If there are no schedules yet, closing the auto-opened form should
             // also close the whole modal (better UX — the user cancelled creation).
-            if (schedules.length === 0) onClose();
+            if (schedules.length === 0) closeModal();
           }}
           onSaved={() => { setEditing(null); reload(); }}
         />

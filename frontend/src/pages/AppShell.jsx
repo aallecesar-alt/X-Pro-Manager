@@ -4,6 +4,7 @@ import { Car, LayoutDashboard, Package, TrendingUp, TrendingDown, Truck, Users, 
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import VehicleScheduleModal from "@/components/VehicleScheduleModal";
+import InlineSchedule from "@/components/InlineSchedule";
 import { useAuth } from "@/context/AuthContext";
 import { useI18n, LANG_OPTIONS } from "@/lib/i18n.jsx";
 import PhotoUploader from "@/components/PhotoUploader";
@@ -2303,17 +2304,6 @@ function Delivery({ deliveries, vehicles = [], team = [], currentUser, scheduleA
                     {v.bank_contract_signed ? <Check size={14} /> : <FileText size={14} />}
                     <span className="hidden sm:inline">{t("bank_contract_short")}</span>
                   </button>
-                  {/* Programação de Entrega (per-car) */}
-                  <button
-                    type="button"
-                    data-testid={`open-prog-${v.id}`}
-                    onClick={() => setProgVehicle(v)}
-                    title="Programação de entrega deste carro"
-                    className="px-3 h-12 inline-flex items-center gap-1.5 border border-border text-text-secondary hover:border-primary hover:text-primary text-[10px] uppercase tracking-wider font-display font-bold transition-colors"
-                  >
-                    <ClipboardList size={14} />
-                    <span className="hidden sm:inline">Programação</span>
-                  </button>
                   {step > 1 && (
                     <button
                       data-testid={`back-${v.id}`}
@@ -2423,6 +2413,12 @@ function Delivery({ deliveries, vehicles = [], team = [], currentUser, scheduleA
 
               {/* Receipts panel — visible from step 2 onward */}
               {step >= 2 && <ReceiptsPanel v={v} t={t} />}
+
+              {/* Inline programação de entrega */}
+              <InlineSchedule
+                vehicle={v}
+                onOpenModal={() => setProgVehicle(v)}
+              />
 
               {/* Actions */}
               <div className={`grid grid-cols-1 ${onHistory ? "sm:grid-cols-3" : "sm:grid-cols-2"} gap-2`}>
