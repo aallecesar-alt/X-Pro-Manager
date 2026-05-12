@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import { Car, LayoutDashboard, Package, TrendingUp, TrendingDown, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks, HandCoins, Printer, Flame, Timer, Activity, Star, ArrowUpRight, ArrowDownRight, Award, BarChart3, Gem, Hourglass, ClipboardList } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
-import DeliverySchedulesPanel from "@/components/DeliverySchedulesPanel";
 import VehicleScheduleModal from "@/components/VehicleScheduleModal";
 import { useAuth } from "@/context/AuthContext";
 import { useI18n, LANG_OPTIONS } from "@/lib/i18n.jsx";
@@ -2123,7 +2122,6 @@ function Delivery({ deliveries, vehicles = [], team = [], currentUser, scheduleA
   const [filesOpen, setFilesOpen] = useState(null); // { vehicle, step }
   const [alertsOnly, setAlertsOnly] = useState(false);
   const [showDelivered, setShowDelivered] = useState(false);
-  const [showSchedules, setShowSchedules] = useState(false);
   const [progVehicle, setProgVehicle] = useState(null);  // car-scoped programação modal
 
   const STEPS = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -2191,33 +2189,17 @@ function Delivery({ deliveries, vehicles = [], team = [], currentUser, scheduleA
           <p className="label-eyebrow text-primary mb-2">{t("delivery_pipeline_title")}</p>
           <h1 className="font-display font-black text-4xl uppercase tracking-tighter">{t("delivery")}</h1>
         </div>
-        <button
-          type="button"
-          data-testid="open-schedules"
-          onClick={() => setShowSchedules(v => !v)}
-          className={`relative inline-flex items-center gap-2 px-4 py-2.5 border font-display font-bold uppercase text-xs tracking-widest transition-colors ${
-            showSchedules ? "bg-primary text-white border-primary" : "border-primary text-primary hover:bg-primary/10"
-          }`}
-        >
-          <ClipboardList size={14} />
-          Programação de Entrega
-          {scheduleAlertCount > 0 && (
-            <span data-testid="schedule-badge" className="absolute -top-2 -right-2 min-w-[20px] h-5 px-1.5 bg-primary text-white text-[10px] font-display font-black flex items-center justify-center border-2 border-background animate-pulse">
-              {scheduleAlertCount}
-            </span>
-          )}
-        </button>
+        {scheduleAlertCount > 0 && (
+          <span
+            data-testid="schedule-alert-chip-header"
+            className="inline-flex items-center gap-2 px-3 py-2 border border-primary bg-primary/10 text-primary text-[10px] font-display font-bold uppercase tracking-widest animate-pulse"
+            title="Programação de entrega com tarefas pendentes a menos de 24h"
+          >
+            <ClipboardList size={12} />
+            {scheduleAlertCount} programação{scheduleAlertCount === 1 ? "" : "ões"} urgente{scheduleAlertCount === 1 ? "" : "s"}
+          </span>
+        )}
       </div>
-
-      {showSchedules && (
-        <DeliverySchedulesPanel
-          vehicles={vehicles}
-          team={team}
-          currentUser={currentUser}
-          t={t}
-          onClose={() => setShowSchedules(false)}
-        />
-      )}
 
       {/* Stuck alerts banner — owner + gerente only */}
       {isStaff && stuckCount > 0 && (

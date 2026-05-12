@@ -469,6 +469,10 @@ export function ScheduleForm({ schedule, prefill, vehicles, team, t, onClose, on
     }
   };
 
+  // Compact mode = called from the per-car modal where car & customer are auto-filled.
+  // We collapse those fields into a read-only summary and focus the user on date + tasks.
+  const compact = !isEdit && !!prefill;
+
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-12 px-4">
       <form onSubmit={submit} className="bg-background border border-border w-full max-w-2xl p-6 space-y-4">
@@ -484,75 +488,102 @@ export function ScheduleForm({ schedule, prefill, vehicles, team, t, onClose, on
           </button>
         </div>
 
-        {/* Vehicle picker */}
-        <div>
-          <label className="label-eyebrow block mb-2">Carro</label>
-          <select
-            data-testid="sched-vehicle"
-            value={form.vehicle_id || ""}
-            onChange={e => onPickVehicle(e.target.value)}
-            className="w-full bg-surface border border-border px-3 py-2.5 text-sm"
-          >
-            <option value="">— Escolha um veículo (ou preencha manualmente abaixo) —</option>
-            {(vehicles || []).map(v => (
-              <option key={v.id} value={v.id}>
-                {v.year} {v.make} {v.model} {v.color ? `· ${v.color}` : ""} {v.vin ? `· ${v.vin.slice(-6).toUpperCase()}` : ""}
-              </option>
-            ))}
-          </select>
-        </div>
+        {compact ? (
+          /* Compact read-only summary of the linked vehicle + customer */
+          <div className="bg-surface/40 border border-border p-3 space-y-1">
+            <p className="text-[10px] uppercase tracking-widest text-text-secondary">Vinculado a</p>
+            <p className="font-display font-black text-base uppercase tracking-tight">{form.vehicle_label || "—"}</p>
+            <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs">
+              {form.vin && (
+                <span className="text-text-secondary">
+                  VIN: <span className="font-mono text-primary">{form.vin.slice(-6).toUpperCase()}</span>
+                </span>
+              )}
+              {form.customer_name && (
+                <span className="text-text-secondary">
+                  Cliente: <span className="text-white font-bold">{form.customer_name}</span>
+                </span>
+              )}
+              {form.customer_phone && (
+                <span className="text-text-secondary">
+                  Tel: <span className="text-white">{form.customer_phone}</span>
+                </span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Vehicle picker */}
+            <div>
+              <label className="label-eyebrow block mb-2">Carro</label>
+              <select
+                data-testid="sched-vehicle"
+                value={form.vehicle_id || ""}
+                onChange={e => onPickVehicle(e.target.value)}
+                className="w-full bg-surface border border-border px-3 py-2.5 text-sm"
+              >
+                <option value="">— Escolha um veículo (ou preencha manualmente abaixo) —</option>
+                {(vehicles || []).map(v => (
+                  <option key={v.id} value={v.id}>
+                    {v.year} {v.make} {v.model} {v.color ? `· ${v.color}` : ""} {v.vin ? `· ${v.vin.slice(-6).toUpperCase()}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <label className="label-eyebrow block mb-2">Descrição do carro</label>
-            <input
-              data-testid="sched-veh-label"
-              value={form.vehicle_label}
-              onChange={e => set("vehicle_label", e.target.value)}
-              placeholder="2023 Chevrolet Silverado 1500 (azul)"
-              className="w-full bg-surface border border-border px-3 py-2.5 text-sm"
-            />
-          </div>
-          <div>
-            <label className="label-eyebrow block mb-2">VIN completo</label>
-            <input
-              data-testid="sched-vin"
-              value={form.vin}
-              onChange={e => set("vin", e.target.value.toUpperCase())}
-              placeholder="1GCUDDED3PZ181772"
-              maxLength={17}
-              className="w-full bg-surface border border-border px-3 py-2.5 text-sm font-mono tracking-wider"
-            />
-            {form.vin && (
-              <p className="text-[10px] text-text-secondary mt-1 uppercase tracking-widest">
-                Últimos 6: <span className="text-primary font-bold">{form.vin.slice(-6).toUpperCase()}</span>
-              </p>
-            )}
-          </div>
-        </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="label-eyebrow block mb-2">Descrição do carro</label>
+                <input
+                  data-testid="sched-veh-label"
+                  value={form.vehicle_label}
+                  onChange={e => set("vehicle_label", e.target.value)}
+                  placeholder="2023 Chevrolet Silverado 1500 (azul)"
+                  className="w-full bg-surface border border-border px-3 py-2.5 text-sm"
+                />
+              </div>
+              <div>
+                <label className="label-eyebrow block mb-2">VIN completo</label>
+                <input
+                  data-testid="sched-vin"
+                  value={form.vin}
+                  onChange={e => set("vin", e.target.value.toUpperCase())}
+                  placeholder="1GCUDDED3PZ181772"
+                  maxLength={17}
+                  className="w-full bg-surface border border-border px-3 py-2.5 text-sm font-mono tracking-wider"
+                />
+                {form.vin && (
+                  <p className="text-[10px] text-text-secondary mt-1 uppercase tracking-widest">
+                    Últimos 6: <span className="text-primary font-bold">{form.vin.slice(-6).toUpperCase()}</span>
+                  </p>
+                )}
+              </div>
+            </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <label className="label-eyebrow block mb-2">Nome do cliente *</label>
-            <input
-              data-testid="sched-customer"
-              value={form.customer_name}
-              onChange={e => set("customer_name", e.target.value)}
-              placeholder="DIESSICA P BARBOSA"
-              required
-              className="w-full bg-surface border border-border px-3 py-2.5 text-sm uppercase"
-            />
-          </div>
-          <div>
-            <label className="label-eyebrow block mb-2">Telefone</label>
-            <input
-              data-testid="sched-phone"
-              value={form.customer_phone || ""}
-              onChange={e => set("customer_phone", e.target.value)}
-              className="w-full bg-surface border border-border px-3 py-2.5 text-sm"
-            />
-          </div>
-        </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="label-eyebrow block mb-2">Nome do cliente *</label>
+                <input
+                  data-testid="sched-customer"
+                  value={form.customer_name}
+                  onChange={e => set("customer_name", e.target.value)}
+                  placeholder="DIESSICA P BARBOSA"
+                  required
+                  className="w-full bg-surface border border-border px-3 py-2.5 text-sm uppercase"
+                />
+              </div>
+              <div>
+                <label className="label-eyebrow block mb-2">Telefone</label>
+                <input
+                  data-testid="sched-phone"
+                  value={form.customer_phone || ""}
+                  onChange={e => set("customer_phone", e.target.value)}
+                  className="w-full bg-surface border border-border px-3 py-2.5 text-sm"
+                />
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Delivery date */}
         <div>

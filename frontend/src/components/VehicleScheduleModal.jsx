@@ -20,6 +20,10 @@ export default function VehicleScheduleModal({ vehicle, team, currentUser, t, on
       const r = await api.get("/delivery-schedules");
       const onlyMine = (r.data || []).filter(s => s.vehicle_id === vehicle.id);
       setSchedules(onlyMine);
+      // Auto-open the create form when there's nothing yet — saves the user a click.
+      if (onlyMine.length === 0) {
+        setEditing({});
+      }
     } catch (e) {
       toast.error("Erro ao carregar programação");
     } finally {
@@ -145,7 +149,12 @@ export default function VehicleScheduleModal({ vehicle, team, currentUser, t, on
           vehicles={[vehicle]}  // limit picker to this car
           team={team}
           t={t}
-          onClose={() => setEditing(null)}
+          onClose={() => {
+            setEditing(null);
+            // If there are no schedules yet, closing the auto-opened form should
+            // also close the whole modal (better UX — the user cancelled creation).
+            if (schedules.length === 0) onClose();
+          }}
           onSaved={() => { setEditing(null); reload(); }}
         />
       )}
