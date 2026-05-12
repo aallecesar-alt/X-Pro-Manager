@@ -84,6 +84,8 @@ class VehicleBase(BaseModel):
     status: str = "in_stock"  # in_stock | reserved | sold
     buyer_name: str = ""
     buyer_phone: str = ""
+    buyer_email: str = ""
+    buyer_address: str = ""
     payment_method: str = ""
     sold_at: Optional[str] = None
     sold_price: float = 0
@@ -146,6 +148,8 @@ class VehicleUpdate(BaseModel):
     status: Optional[str] = None
     buyer_name: Optional[str] = None
     buyer_phone: Optional[str] = None
+    buyer_email: Optional[str] = None
+    buyer_address: Optional[str] = None
     payment_method: Optional[str] = None
     sold_price: Optional[float] = None
     down_payment: Optional[float] = None
@@ -164,7 +168,8 @@ class VehicleUpdate(BaseModel):
             return None
         return v
 
-    @field_validator("buyer_name", "buyer_phone", "payment_method", "bank_name",
+    @field_validator("buyer_name", "buyer_phone", "buyer_email", "buyer_address",
+                     "payment_method", "bank_name",
                      "delivery_notes", "salesperson_name", "color", "description",
                      "vin", "plate", "make", "model", "transmission", "fuel_type", "body_type",
                      mode="before")
@@ -718,6 +723,15 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
         upd["registration_cost"] = 0
         upd["sold_price"] = 0
         upd["sold_at"] = None
+        # Also wipe customer + payment metadata so a future sale starts clean.
+        # Without this, switching a sold car back to in_stock would keep the buyer
+        # name / phone / email / address / payment_method / bank_name on the record.
+        upd["buyer_name"] = ""
+        upd["buyer_phone"] = ""
+        upd["buyer_email"] = ""
+        upd["buyer_address"] = ""
+        upd["payment_method"] = ""
+        upd["bank_name"] = ""
 
     # Mirror registration_cost into expense_items so it appears in the per-vehicle
     # profit breakdown (same pattern as Floor Plan + Post-Sales). Idempotent.

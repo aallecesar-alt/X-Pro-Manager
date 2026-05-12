@@ -166,6 +166,13 @@ Per-car features:
 - New test `test_delete_salesperson_team_member_cascades_to_salespeople` covers the full flow (create → assert leaderboard contains → delete → assert leaderboard cleared).
 - 127 / 127 backend tests passing.
 
+### Buyer contact fields + revert-to-in_stock cleanup (Feb 12 2026)
+- New `buyer_email` and `buyer_address` fields on the Vehicle model. When marking a car as "Vendido", the form now collects: Nome, Telefone, **Email**, **Endereço**, Forma de pagamento, Nome do banco, Entrada / Cheque / Emplacamento.
+- Fixed the long-standing P0 bug where reverting a "Vendido" vehicle back to "Em estoque" left residual buyer / payment data on the record. The backend now wipes `buyer_name`, `buyer_phone`, `buyer_email`, `buyer_address`, `payment_method`, `bank_name`, `down_payment`, `bank_check_amount`, `registration_cost`, `sold_price`, `sold_at` and removes any phantom `registration` expense — all in a single PUT, regardless of what the client echoes back.
+- Translations added in PT / EN / ES.
+- 3 new pytest tests in `test_buyer_contact_fields.py` covering create-with-email/address, revert wipe (including all 6 buyer/payment fields), and backwards-compat (email/address optional).
+- 135 / 135 backend tests passing.
+
 ### Premium "Visão Geral" partial redesign (Feb 12 2026)
 - User requested a more professional / differentiating Overview. Initial direction: Premium Dark + Gold. After v1 user rolled it back and asked to keep just two things.
 - **What stayed:**

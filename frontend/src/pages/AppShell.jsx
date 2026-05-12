@@ -1947,7 +1947,7 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
     make: prefill?.make || "", model: prefill?.model || "", year: prefill?.year || 2024, color: "", vin: prefill?.vin || "",
     transmission: "Automatic", fuel_type: "Gasoline", body_type: "Sedan",
     purchase_price: 0, sale_price: prefill?.price || 0, expenses: 0, description: prefill?.description || "",
-    images: [], status: "in_stock", buyer_name: "", buyer_phone: "", payment_method: "", sold_price: 0, bank_name: "",
+    images: [], status: "in_stock", buyer_name: "", buyer_phone: "", buyer_email: "", buyer_address: "", payment_method: "", sold_price: 0, bank_name: "",
     salesperson_id: "", salesperson_name: "",
     commission_amount: 0, commission_paid: false,
   };
@@ -1969,7 +1969,7 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
   // Free-text fields that must always be sent as a string (empty when cleared)
   const strFields = [
     "make", "model", "color", "plate", "vin", "transmission", "fuel_type", "body_type",
-    "description", "buyer_name", "buyer_phone", "payment_method", "bank_name",
+    "description", "buyer_name", "buyer_phone", "buyer_email", "buyer_address", "payment_method", "bank_name",
     "salesperson_id", "salesperson_name",
   ];
 
@@ -2042,6 +2042,8 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Input label={t("buyer_name")} value={form.buyer_name} set={(v) => set("buyer_name", v)} testid="f-buyer-name" />
               <Input label={t("buyer_phone")} value={form.buyer_phone} set={(v) => set("buyer_phone", v)} testid="f-buyer-phone" />
+              <Input label={t("buyer_email") || "Email do comprador"} type="email" value={form.buyer_email || ""} set={(v) => set("buyer_email", v)} testid="f-buyer-email" />
+              <Input label={t("buyer_address") || "Endereço do comprador"} value={form.buyer_address || ""} set={(v) => set("buyer_address", v)} testid="f-buyer-address" />
               <Input label={t("payment_method")} value={form.payment_method} set={(v) => set("payment_method", v)} testid="f-payment" />
               <Input label={t("bank_name_label")} value={form.bank_name || ""} set={(v) => set("bank_name", v)} testid="f-bank" />
             </div>
