@@ -634,7 +634,6 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToF
   // Show count cards only when we have stats (user has /stats access via inventory permission OR is owner)
   const hasStats = !!stats;
   const cards = hasStats ? [
-    { label: t("total_vehicles"), value: stats.total_vehicles, icon: Car },
     { label: t("in_stock"), value: stats.in_stock, icon: Package },
     { label: t("reserved"), value: stats.reserved, icon: Clock },
     { label: t("sold"), value: stats.sold, icon: CheckCircle2 },
@@ -680,7 +679,7 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToF
 
       {/* KPI cards (hidden when user has no stats access — e.g. BDC) */}
       {hasStats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border border border-border mb-10">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-border border border-border mb-10">
           {cards.map((c, i) => {
             const Icon = c.icon;
             return (
