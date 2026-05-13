@@ -108,14 +108,14 @@ def render_installment_receipt(
     c.rect(margin, y - 38, w - 2 * margin, 38, fill=1, stroke=0)
     c.setFillColor(colors.white)
     c.setFont("Helvetica-Bold", 18)
-    c.drawString(margin + 14, y - 24, "RECIBO DE PAGAMENTO")
+    c.drawString(margin + 14, y - 24, "PAYMENT RECEIPT")
     # Right side: receipt no + date
     c.setFont("Helvetica", 9)
     paid_at = installment.get("paid_at") or datetime.utcnow().isoformat()
     info_lines = []
     if receipt_no:
-        info_lines.append(f"Recibo Nº  {receipt_no}")
-    info_lines.append(f"Data  {_fmt_date(paid_at)}")
+        info_lines.append(f"Receipt #  {receipt_no}")
+    info_lines.append(f"Date  {_fmt_date(paid_at)}")
     for i, line in enumerate(info_lines):
         c.drawRightString(w - margin - 12, y - 16 - (i * 12), line)
 
@@ -132,7 +132,7 @@ def render_installment_receipt(
     c.roundRect(margin, y - card_h, col_w, card_h, 6, fill=0, stroke=1)
     c.setFillColor(GREY)
     c.setFont("Helvetica-Bold", 8)
-    c.drawString(margin + 10, y - 14, "EMITIDO PARA")
+    c.drawString(margin + 10, y - 14, "ISSUED TO")
     c.setFillColor(INK)
     c.setFont("Helvetica-Bold", 13)
     c.drawString(margin + 10, y - 32, (receivable.get("customer_name") or "—")[:34])
@@ -140,10 +140,10 @@ def render_installment_receipt(
     c.setFillColor(GREY)
     cy = y - 48
     if receivable.get("customer_phone"):
-        c.drawString(margin + 10, cy, f"Tel: {receivable.get('customer_phone')}")
+        c.drawString(margin + 10, cy, f"Phone: {receivable.get('customer_phone')}")
         cy -= 12
     if receivable.get("vehicle_label"):
-        c.drawString(margin + 10, cy, f"Veículo: {receivable.get('vehicle_label')[:50]}")
+        c.drawString(margin + 10, cy, f"Vehicle: {receivable.get('vehicle_label')[:50]}")
 
     # Installment card
     col2_x = margin + col_w + 14
@@ -152,21 +152,21 @@ def render_installment_receipt(
     c.roundRect(col2_x, y - card_h, col_w, card_h, 6, fill=0, stroke=1)
     c.setFillColor(GREY)
     c.setFont("Helvetica-Bold", 8)
-    c.drawString(col2_x + 10, y - 14, "REFERENTE À PARCELA")
+    c.drawString(col2_x + 10, y - 14, "FOR INSTALLMENT")
     c.setFillColor(INK)
     c.setFont("Helvetica-Bold", 22)
     total_parcels = len(receivable.get("installments") or []) or "—"
     inst_no = installment.get("number")
-    c.drawString(col2_x + 10, y - 40, f"{inst_no} de {total_parcels}")
+    c.drawString(col2_x + 10, y - 40, f"{inst_no} of {total_parcels}")
     c.setFont("Helvetica", 9)
     c.setFillColor(GREY)
     cy = y - 54
-    c.drawString(col2_x + 10, cy, f"Vencimento: {_fmt_date(installment.get('due_date'))}")
+    c.drawString(col2_x + 10, cy, f"Due date:   {_fmt_date(installment.get('due_date'))}")
     cy -= 12
-    c.drawString(col2_x + 10, cy, f"Pago em:    {_fmt_date(installment.get('paid_at'))}")
+    c.drawString(col2_x + 10, cy, f"Paid on:    {_fmt_date(installment.get('paid_at'))}")
     if installment.get("payment_method"):
         cy -= 12
-        c.drawString(col2_x + 10, cy, f"Pagamento:  {installment.get('payment_method')}")
+        c.drawString(col2_x + 10, cy, f"Payment:    {installment.get('payment_method')}")
 
     # ---------- AMOUNT BOX (HERO) ----------
     y -= card_h + 22
@@ -178,12 +178,12 @@ def render_installment_receipt(
     c.roundRect(margin, y - amount_h, w - 2 * margin, amount_h, 6, fill=0, stroke=1)
     c.setFillColor(GREY)
     c.setFont("Helvetica-Bold", 9)
-    c.drawString(margin + 16, y - 18, "VALOR RECEBIDO")
+    c.drawString(margin + 16, y - 18, "AMOUNT RECEIVED")
     c.setFillColor(BRAND_RED_DARK)
     c.setFont("Helvetica-Bold", 34)
     c.drawString(margin + 16, y - 56, _money(installment.get("amount")))
     # Status chip on right
-    _draw_chip(c, w - margin - 80, y - 38, "QUITADA", GREEN)
+    _draw_chip(c, w - margin - 80, y - 38, "PAID", GREEN)
 
     # ---------- BALANCE SUMMARY ----------
     y -= amount_h + 18
@@ -201,10 +201,10 @@ def render_installment_receipt(
 
     cell_w = (w - 2 * margin) / 4
     cells = [
-        ("PARCELAS PAGAS", f"{paid_count} de {len(insts)}"),
-        ("TOTAL DO CONTRATO", _money(total_amount)),
-        ("PAGO ATÉ AGORA", _money(paid_amount)),
-        ("SALDO RESTANTE", _money(remaining)),
+        ("PAID INSTALLMENTS", f"{paid_count} of {len(insts)}"),
+        ("CONTRACT TOTAL", _money(total_amount)),
+        ("PAID SO FAR", _money(paid_amount)),
+        ("REMAINING BALANCE", _money(remaining)),
     ]
     for i, (lbl, val) in enumerate(cells):
         cx = margin + i * cell_w
@@ -225,8 +225,8 @@ def render_installment_receipt(
     c.setFillColor(INK)
     c.setFont("Helvetica", 8.5)
     note = (
-        "Este recibo certifica o pagamento da parcela acima referente ao contrato firmado com o cliente. "
-        "Em caso de dúvidas, entre em contato com a INTERCAR Auto Sales."
+        "This receipt certifies the payment of the installment referenced above under the contract "
+        "with the customer. For any questions, please contact INTERCAR Auto Sales."
     )
     # naive word-wrap
     words = note.split()
@@ -251,8 +251,8 @@ def render_installment_receipt(
     c.line(margin + line_w + 30, y, w - margin, y)
     c.setFillColor(GREY)
     c.setFont("Helvetica", 8)
-    c.drawString(margin, y - 12, "Assinatura do Cliente")
-    c.drawString(margin + line_w + 30, y - 12, "Assinatura do Vendedor / Caixa")
+    c.drawString(margin, y - 12, "Customer Signature")
+    c.drawString(margin + line_w + 30, y - 12, "Dealer / Cashier Signature")
     if issued_by_name:
         c.setFillColor(INK)
         c.setFont("Helvetica-Bold", 9)
@@ -261,7 +261,7 @@ def render_installment_receipt(
     # Footer
     c.setFillColor(GREY)
     c.setFont("Helvetica", 7.5)
-    c.drawCentredString(w / 2, margin / 2, f"INTERCAR AUTO SALES · {store.get('website','')} · Documento emitido eletronicamente")
+    c.drawCentredString(w / 2, margin / 2, f"INTERCAR AUTO SALES · {store.get('website','')} · Electronically issued document")
 
     c.showPage()
     c.save()

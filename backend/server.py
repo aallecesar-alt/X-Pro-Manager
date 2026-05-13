@@ -3801,7 +3801,7 @@ async def installment_receipt_pdf(rid: str, number: int, current: dict = Depends
         issued_by_name=current.get("full_name") or current.get("name"),
     )
     return _Resp(content=pdf, media_type="application/pdf", headers={
-        "Content-Disposition": f"inline; filename=\"recibo_parcela_{number}.pdf\"",
+        "Content-Disposition": f"inline; filename=\"payment_receipt_{number}.pdf\"",
     })
 
 
