@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Edit2, Trash2, X, Check, Search, Phone, Mail, MessageCircle, UserPlus, Download, AlertCircle, Globe } from "lucide-react";
+import { Plus, Edit2, Trash2, X, Check, Search, Phone, Mail, MessageCircle, UserPlus, Download, AlertCircle, Globe, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import Avatar from "@/components/Avatar";
@@ -41,6 +41,33 @@ export default function LeadsPage({ t, role, currentSpId, salespeople = [] }) {
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState(null); // {} for new, lead obj for edit
   const [importing, setImporting] = useState(false);
+  const [notesEditing, setNotesEditing] = useState(null);  // lead id being inline-edited
+  const [notesDraft, setNotesDraft] = useState("");
+  const [notesSaving, setNotesSaving] = useState(false);
+
+  const openNotesEditor = (lead) => {
+    setNotesEditing(lead.id);
+    setNotesDraft(lead.notes || "");
+  };
+  const cancelNotesEditor = () => {
+    setNotesEditing(null);
+    setNotesDraft("");
+  };
+  const saveNotes = async () => {
+    if (!notesEditing) return;
+    setNotesSaving(true);
+    try {
+      await api.put(`/leads/${notesEditing}`, { notes: notesDraft });
+      toast.success("Andamento atualizado");
+      setNotesEditing(null);
+      setNotesDraft("");
+      reload();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || t("error_generic"));
+    } finally {
+      setNotesSaving(false);
+    }
+  };
 
   const reload = async () => {
     try {
@@ -189,6 +216,7 @@ export default function LeadsPage({ t, role, currentSpId, salespeople = [] }) {
               <th className="text-left p-3 label-eyebrow">{t("contact")}</th>
               <th className="text-left p-3 label-eyebrow">{t("source")}</th>
               <th className="text-left p-3 label-eyebrow">{t("status")}</th>
+              <th className="text-left p-3 label-eyebrow w-[28%]">Andamento</th>
               <th className="text-left p-3 label-eyebrow">{t("salesperson")}</th>
               <th className="text-left p-3 label-eyebrow">{t("last_contact")}</th>
               <th className="text-right p-3 label-eyebrow"></th>
@@ -196,7 +224,7 @@ export default function LeadsPage({ t, role, currentSpId, salespeople = [] }) {
           </thead>
           <tbody>
             {leads.length === 0 && (
-              <tr><td colSpan={7} className="p-12 text-center text-text-secondary">{t("no_leads")}</td></tr>
+              <tr><td colSpan={8} className="p-12 text-center text-text-secondary">{t("no_leads")}</td></tr>
             )}
             {leads.map(l => (
               <tr key={l.id} data-testid={`lead-row-${l.id}`} className="border-b border-border hover:bg-surface transition-colors">
@@ -234,6 +262,60 @@ export default function LeadsPage({ t, role, currentSpId, salespeople = [] }) {
                   <span className={`text-[10px] font-display font-bold uppercase tracking-wider px-2 py-1 border ${STATUS_COLORS[l.status] || "border-border text-text-secondary"}`}>
                     {t(`lead_status_${l.status}`) || l.status}
                   </span>
+                </td>
+                <td className="p-3 align-top" data-testid={`lead-notes-cell-${l.id}`}>
+                  {notesEditing === l.id ? (
+                    <div className="space-y-2">
+                      <textarea
+                        autoFocus
+                        data-testid={`lead-notes-textarea-${l.id}`}
+                        value={notesDraft}
+                        onChange={(e) => setNotesDraft(e.target.value)}
+                        rows={3}
+                        placeholder="Como está o andamento com o cliente?"
+                        className="w-full bg-background border border-primary px-2 py-1.5 text-xs"
+                      />
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={saveNotes}
+                          disabled={notesSaving}
+                          data-testid={`lead-notes-save-${l.id}`}
+                          className="px-2 py-1 bg-success hover:opacity-90 text-white text-[10px] uppercase tracking-wider inline-flex items-center gap-1 disabled:opacity-50"
+                        >
+                          <Check size={10} /> Salvar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelNotesEditor}
+                          data-testid={`lead-notes-cancel-${l.id}`}
+                          className="px-2 py-1 border border-border hover:border-primary hover:text-primary text-[10px] uppercase tracking-wider inline-flex items-center gap-1"
+                        >
+                          <X size={10} /> Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => canEdit || isSp ? openNotesEditor(l) : null}
+                      disabled={!(canEdit || isSp)}
+                      title={(canEdit || isSp) ? "Clique para editar o andamento" : ""}
+                      data-testid={`lead-notes-display-${l.id}`}
+                      className={`w-full text-left text-xs flex items-start gap-1.5 group ${(canEdit || isSp) ? "cursor-text hover:text-white" : "cursor-default"}`}
+                    >
+                      <MessageSquare size={11} className={`mt-0.5 shrink-0 ${l.notes ? "text-primary" : "text-text-secondary/40"}`} />
+                      {l.notes ? (
+                        <span className="text-text-secondary whitespace-pre-wrap line-clamp-3 group-hover:text-white">
+                          {l.notes}
+                        </span>
+                      ) : (
+                        <span className="text-text-secondary/50 italic">
+                          {(canEdit || isSp) ? "Adicionar andamento…" : "—"}
+                        </span>
+                      )}
+                    </button>
+                  )}
                 </td>
                 <td className="p-3 text-xs">
                   {l.salesperson_name ? (
