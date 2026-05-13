@@ -86,6 +86,20 @@ export default function Receivables({ t }) {
     }
   };
 
+  const printInstallmentReceipt = async (rid, number) => {
+    try {
+      const res = await api.get(
+        `/receivables/${rid}/installments/${number}/receipt.pdf`,
+        { responseType: "blob" }
+      );
+      const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      toast.error("Erro ao gerar recibo");
+    }
+  };
+
   return (
     <div data-testid="receivables-tab">
       <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
@@ -182,6 +196,7 @@ export default function Receivables({ t }) {
               onPay={(n) => payInstallment(r.id, n)}
               onUnpay={(n) => unpayInstallment(r.id, n)}
               onPrint={() => printSchedule(r.id)}
+              onPrintReceipt={(n) => printInstallmentReceipt(r.id, n)}
             />
           ))}
         </div>
@@ -238,7 +253,7 @@ function ReminderColumn({ title, items, accent, t, onPay, testid }) {
   );
 }
 
-function ReceivableCard({ r, t, today, expanded, onToggle, onEdit, onDelete, onPay, onUnpay, onPrint }) {
+function ReceivableCard({ r, t, today, expanded, onToggle, onEdit, onDelete, onPay, onUnpay, onPrint, onPrintReceipt }) {
   const v = r.vehicle;
   const totalPaid = r.paid_total || 0;
   const total = r.total_amount || 0;
@@ -331,9 +346,20 @@ function ReceivableCard({ r, t, today, expanded, onToggle, onEdit, onDelete, onP
                       <td className="p-3 font-mono text-[10px]">{ins.paid_at ? formatDate(ins.paid_at) : "—"}</td>
                       <td className="p-3 text-right">
                         {ins.status === "paid" ? (
-                          <button data-testid={`rec-unpay-${r.id}-${ins.number}`} onClick={() => onUnpay(ins.number)} title={t("rec_undo_paid")} className="text-[10px] uppercase tracking-wider px-2 py-1 border border-border hover:border-primary hover:text-primary inline-flex items-center gap-1">
-                            <RotateCcw size={10} /> {t("rec_undo_paid")}
-                          </button>
+                          <div className="inline-flex items-center gap-1">
+                            <a
+                              data-testid={`rec-receipt-${r.id}-${ins.number}`}
+                              href="#"
+                              onClick={(e) => { e.preventDefault(); onPrintReceipt && onPrintReceipt(ins.number); }}
+                              title="Gerar recibo de pagamento"
+                              className="text-[10px] uppercase tracking-wider px-2 py-1 border border-success/50 bg-success/10 text-success hover:bg-success hover:text-white inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              <Printer size={10} /> Recibo
+                            </a>
+                            <button data-testid={`rec-unpay-${r.id}-${ins.number}`} onClick={() => onUnpay(ins.number)} title={t("rec_undo_paid")} className="text-[10px] uppercase tracking-wider px-2 py-1 border border-border hover:border-primary hover:text-primary inline-flex items-center gap-1">
+                              <RotateCcw size={10} /> {t("rec_undo_paid")}
+                            </button>
+                          </div>
                         ) : (
                           <button data-testid={`rec-pay-${r.id}-${ins.number}`} onClick={() => onPay(ins.number)} className="text-[10px] uppercase tracking-wider px-3 py-1 bg-success hover:opacity-90 text-white inline-flex items-center gap-1">
                             <Check size={10} /> {t("rec_mark_paid")}

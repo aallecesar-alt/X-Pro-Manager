@@ -3773,6 +3773,38 @@ async def unpay_installment(rid: str, number: int, current: dict = Depends(get_c
     return r
 
 
+@api_router.get("/receivables/{rid}/installments/{number}/receipt.pdf")
+async def installment_receipt_pdf(rid: str, number: int, current: dict = Depends(get_current_user)):
+    """Render a payment receipt PDF for a single (paid) installment.
+    Used by the 'Recibo' button shown right after marking an installment paid.
+    """
+    from fastapi.responses import Response as _Resp
+    from installment_receipt_pdf import render_installment_receipt
+    require_receivables(current)
+    r = await db.receivables.find_one(
+        {"id": rid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not r:
+        raise HTTPException(404, "Receivable not found")
+    installment = next((i for i in (r.get("installments") or []) if i.get("number") == number), None)
+    if not installment:
+        raise HTTPException(404, "Installment not found")
+    if installment.get("status") != "paid":
+        raise HTTPException(400, "Installment is not paid yet")
+
+    store = await _receipt_store_for_pdf(current["dealership_id"])
+    pdf = render_installment_receipt(
+        receivable=r,
+        installment=installment,
+        store=store,
+        receipt_no=f"P{r.get('id','')[:6].upper()}-{number:02d}",
+        issued_by_name=current.get("full_name") or current.get("name"),
+    )
+    return _Resp(content=pdf, media_type="application/pdf", headers={
+        "Content-Disposition": f"inline; filename=\"recibo_parcela_{number}.pdf\"",
+    })
+
+
 # ============================================================
 # LOST SALES — when a sale fell through and the car returns to inventory
 # ============================================================
