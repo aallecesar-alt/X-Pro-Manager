@@ -129,6 +129,26 @@ export default function Financial({ t, fpAlerts }) {
     } catch { toast.error(t("error_generic")); }
   };
 
+  // Undo a payment that auto-generated this credit: unmark the receivable installment as paid.
+  // The backend cascades — once the installment is unpaid, the linked credit is auto-removed.
+  const undoAutoCredit = async (credit) => {
+    if (!credit?.receivable_id || !credit?.installment_number) {
+      toast.error("Crédito sem vínculo com Recebíveis. Não posso desfazer automaticamente.");
+      return;
+    }
+    if (!window.confirm(
+      `Desmarcar a parcela ${credit.installment_number} como NÃO paga? ` +
+      `Isso vai remover este crédito e voltar a parcela para pendente em Recebíveis.`
+    )) return;
+    try {
+      await api.post(`/receivables/${credit.receivable_id}/installments/${credit.installment_number}/unpay`);
+      toast.success("Pagamento desfeito");
+      reload();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || t("error_generic"));
+    }
+  };
+
   const monthOptions = useMemo(() => Array.from({ length: 12 }, (_, i) => ({
     value: i + 1, label: new Date(2000, i, 1).toLocaleString(undefined, { month: "long" }),
   })), []);
@@ -551,9 +571,25 @@ export default function Financial({ t, fpAlerts }) {
                       </td>
                       <td className="p-3 text-right font-display font-bold text-success">+{formatCurrency(c.amount)}</td>
                       <td className="p-3 text-right">
-                        <div className="inline-flex gap-1">
+                        <div className="inline-flex gap-1 items-center">
                           {c.auto ? (
-                            <span className="text-[10px] text-text-secondary uppercase tracking-widest px-2 py-1" title={t("credit_auto_tooltip")}>{t("credit_managed_in_receivables")}</span>
+                            <>
+                              <span
+                                className="text-[10px] text-text-secondary uppercase tracking-widest px-2 py-1 border border-info/40 bg-info/5"
+                                title={t("credit_auto_tooltip")}
+                              >
+                                {t("credit_managed_in_receivables")}
+                              </span>
+                              <button
+                                type="button"
+                                data-testid={`undo-credit-${c.id}`}
+                                onClick={() => undoAutoCredit(c)}
+                                title="Desfazer pagamento — marca a parcela como NÃO paga em Recebíveis"
+                                className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"
+                              >
+                                <RotateCcw size={14} />
+                              </button>
+                            </>
                           ) : (
                             <>
                               <button data-testid={`edit-credit-${c.id}`} onClick={() => setEditingCredit(c)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Edit2 size={14} /></button>
