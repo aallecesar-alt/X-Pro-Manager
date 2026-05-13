@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Car, LayoutDashboard, Package, TrendingUp, TrendingDown, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks, HandCoins, Printer, Flame, Timer, Activity, Star, ArrowUpRight, ArrowDownRight, Award, BarChart3, Gem, Hourglass, ClipboardList } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, TrendingDown, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks, HandCoins, Printer, Flame, Timer, Activity, Star, ArrowUpRight, ArrowDownRight, Award, BarChart3, Gem, Hourglass, ClipboardList, Gauge } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import VehicleScheduleModal from "@/components/VehicleScheduleModal";
@@ -1307,6 +1307,9 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onImportPa
                 <th className="text-left p-3 label-eyebrow w-20"></th>
                 <th className="text-left p-3 label-eyebrow">{t("make")}/{t("model")}</th>
                 <th className="text-left p-3 label-eyebrow">{t("year")}</th>
+                <th className="text-left p-3 label-eyebrow">
+                  <span className="inline-flex items-center gap-1"><Gauge size={11} /> Milhas</span>
+                </th>
                 <th className="text-left p-3 label-eyebrow">{t("vin")}</th>
                 <th className="text-left p-3 label-eyebrow">{t("sale_price")}</th>
                 <th className="text-left p-3 label-eyebrow">{t("status")}</th>
@@ -1325,6 +1328,15 @@ function Inventory({ vehicles, t, search, setSearch, onAdd, onImport, onImportPa
                   </td>
                   <td className="p-3"><p className="font-display font-bold">{v.make} {v.model}</p><p className="text-xs text-text-secondary">{v.color}</p></td>
                   <td className="p-3">{v.year}</td>
+                  <td className="p-3 font-mono text-xs">
+                    {v.mileage > 0 ? (
+                      <span className="inline-flex items-center gap-1 text-primary">
+                        <Gauge size={11} />
+                        {Number(v.mileage).toLocaleString("en-US")}
+                        <span className="text-text-secondary text-[10px]">mi</span>
+                      </span>
+                    ) : <span className="text-text-secondary">—</span>}
+                  </td>
                   <td className="p-3 font-mono text-xs">{v.vin || "—"}</td>
                   <td className="p-3 font-display font-bold">{formatCurrency(v.sale_price)}</td>
                   <td className="p-3"><StatusPill status={v.status} t={t} /></td>
@@ -1378,6 +1390,17 @@ function VehicleCard({ v, t, onEdit, onDelete, onHistory, isSalesperson }) {
           <div className="min-w-0 flex-1">
             <p className="font-display font-bold uppercase truncate text-xs leading-tight">{v.make} {v.model}</p>
             <p className="text-[10px] text-text-secondary truncate">{v.year}{v.color ? ` · ${v.color}` : ""}</p>
+            <p className="text-[10px] truncate inline-flex items-center gap-1 mt-0.5">
+              <Gauge size={10} className="text-primary shrink-0" />
+              {v.mileage > 0 ? (
+                <>
+                  <span className="font-mono text-white">{Number(v.mileage).toLocaleString("en-US")}</span>
+                  <span className="text-text-secondary/70">mi</span>
+                </>
+              ) : (
+                <span className="text-text-secondary">— mi</span>
+              )}
+            </p>
           </div>
           <div className="flex gap-0.5 shrink-0">
             {onHistory && (
