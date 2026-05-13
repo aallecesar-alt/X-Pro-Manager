@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, Edit2, Trash2, X, Check, Search, Phone, Mail, MessageCircle, UserPlus, Download, AlertCircle, Globe, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import Avatar from "@/components/Avatar";
 import NameWithAvatar from "@/components/NameWithAvatar";
 
@@ -29,6 +30,7 @@ const STATUS_COLORS = {
 };
 
 export default function LeadsPage({ t, role, currentSpId, salespeople = [] }) {
+  const { user: currentUser } = useAuth();
   const isOwner = role === "owner";
   const isBdc = role === "bdc";
   const isSp = role === "salesperson";
@@ -42,25 +44,38 @@ export default function LeadsPage({ t, role, currentSpId, salespeople = [] }) {
   const [editing, setEditing] = useState(null); // {} for new, lead obj for edit
   const [importing, setImporting] = useState(false);
   const [notesEditing, setNotesEditing] = useState(null);  // lead id being inline-edited
-  const [notesDraft, setNotesDraft] = useState("");
+  const [notesDraft, setNotesDraft] = useState("");        // ONLY the NEW entry the user is adding
+  const [notesExisting, setNotesExisting] = useState(""); // read-only history shown below
   const [notesSaving, setNotesSaving] = useState(false);
 
   const openNotesEditor = (lead) => {
     setNotesEditing(lead.id);
-    setNotesDraft(lead.notes || "");
+    setNotesDraft("");                       // user starts with empty input
+    setNotesExisting(lead.notes || "");      // previous history shown below
   };
   const cancelNotesEditor = () => {
     setNotesEditing(null);
     setNotesDraft("");
+    setNotesExisting("");
   };
   const saveNotes = async () => {
     if (!notesEditing) return;
+    const newEntry = notesDraft.trim();
+    if (!newEntry) {
+      cancelNotesEditor();
+      return;
+    }
     setNotesSaving(true);
+    // Format timestamp: "[13/05 14:30 - Carlos]"
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const stamp = `[${pad(now.getDate())}/${pad(now.getMonth() + 1)} ${pad(now.getHours())}:${pad(now.getMinutes())} - ${(currentUser?.full_name || currentUser?.name || "Você").split(" ")[0]}]`;
+    const entry = `${stamp} ${newEntry}`;
+    const merged = notesExisting ? `${entry}\n${notesExisting}` : entry;
     try {
-      await api.put(`/leads/${notesEditing}`, { notes: notesDraft });
-      toast.success("Andamento atualizado");
-      setNotesEditing(null);
-      setNotesDraft("");
+      await api.put(`/leads/${notesEditing}`, { notes: merged });
+      toast.success("Andamento adicionado");
+      cancelNotesEditor();
       reload();
     } catch (err) {
       toast.error(err.response?.data?.detail || t("error_generic"));
@@ -271,19 +286,29 @@ export default function LeadsPage({ t, role, currentSpId, salespeople = [] }) {
                         data-testid={`lead-notes-textarea-${l.id}`}
                         value={notesDraft}
                         onChange={(e) => setNotesDraft(e.target.value)}
-                        rows={3}
-                        placeholder="Como está o andamento com o cliente?"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveNotes(); }
+                          if (e.key === "Escape") { e.preventDefault(); cancelNotesEditor(); }
+                        }}
+                        rows={2}
+                        placeholder="Digite a nova atualização da conversa…"
                         className="w-full bg-background border border-primary px-2 py-1.5 text-xs"
                       />
+                      <p className="text-[9px] text-text-secondary uppercase tracking-widest">
+                        Será registrado como{" "}
+                        <span className="text-primary font-bold">
+                          [{String(new Date().getDate()).padStart(2,"0")}/{String(new Date().getMonth()+1).padStart(2,"0")} {String(new Date().getHours()).padStart(2,"0")}:{String(new Date().getMinutes()).padStart(2,"0")} - {(currentUser?.full_name || "Você").split(" ")[0]}]
+                        </span>
+                      </p>
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
                           onClick={saveNotes}
-                          disabled={notesSaving}
+                          disabled={notesSaving || !notesDraft.trim()}
                           data-testid={`lead-notes-save-${l.id}`}
                           className="px-2 py-1 bg-success hover:opacity-90 text-white text-[10px] uppercase tracking-wider inline-flex items-center gap-1 disabled:opacity-50"
                         >
-                          <Check size={10} /> Salvar
+                          <Check size={10} /> Adicionar
                         </button>
                         <button
                           type="button"
@@ -294,21 +319,34 @@ export default function LeadsPage({ t, role, currentSpId, salespeople = [] }) {
                           <X size={10} /> Cancelar
                         </button>
                       </div>
+                      {notesExisting && (
+                        <div className="border-t border-border pt-2 mt-1">
+                          <p className="text-[9px] text-text-secondary uppercase tracking-widest mb-1">Histórico</p>
+                          <pre className="text-[10px] text-text-secondary whitespace-pre-wrap font-sans max-h-32 overflow-y-auto leading-snug">
+                            {notesExisting}
+                          </pre>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <button
                       type="button"
                       onClick={() => canEdit || isSp ? openNotesEditor(l) : null}
                       disabled={!(canEdit || isSp)}
-                      title={(canEdit || isSp) ? "Clique para editar o andamento" : ""}
+                      title={(canEdit || isSp) ? "Clique para adicionar uma nova atualização" : ""}
                       data-testid={`lead-notes-display-${l.id}`}
                       className={`w-full text-left text-xs flex items-start gap-1.5 group ${(canEdit || isSp) ? "cursor-text hover:text-white" : "cursor-default"}`}
                     >
                       <MessageSquare size={11} className={`mt-0.5 shrink-0 ${l.notes ? "text-primary" : "text-text-secondary/40"}`} />
                       {l.notes ? (
-                        <span className="text-text-secondary whitespace-pre-wrap line-clamp-3 group-hover:text-white">
-                          {l.notes}
-                        </span>
+                        <div className="text-text-secondary whitespace-pre-wrap line-clamp-3 group-hover:text-white leading-snug">
+                          {/* Highlight each [DD/MM HH:MM - Name] timestamp tag in red so the log reads naturally */}
+                          {l.notes.split(/(\[\d{1,2}\/\d{1,2}\s\d{1,2}:\d{2}\s-\s[^\]]+\])/g).map((part, idx) => (
+                            part.startsWith("[") && part.endsWith("]")
+                              ? <span key={idx} className="text-primary font-display font-bold text-[10px]">{part} </span>
+                              : <span key={idx}>{part}</span>
+                          ))}
+                        </div>
                       ) : (
                         <span className="text-text-secondary/50 italic">
                           {(canEdit || isSp) ? "Adicionar andamento…" : "—"}
