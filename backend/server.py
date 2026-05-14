@@ -434,6 +434,49 @@ async def me(current: dict = Depends(get_current_user)):
     return {"user": out_user, "dealership": dealership}
 
 
+class DeleteAccountRequest(BaseModel):
+    password: str
+    confirmation: str  # must be the exact string "DELETE MY ACCOUNT"
+
+
+@api_router.post("/auth/delete-account")
+async def delete_account(payload: DeleteAccountRequest, current: dict = Depends(get_current_user)):
+    """Permanently delete the current user's dealership and ALL its data.
+
+    Owner-only. Requires the password and a confirmation phrase to avoid mistakes.
+    Removes the dealership document, every user, salesperson, vehicle, lead, sale,
+    receivable, application, etc. tied to the dealership_id.
+    """
+    if current.get("role") != "owner":
+        raise HTTPException(403, "Only the owner can delete the dealership account")
+    if payload.confirmation.strip() != "DELETE MY ACCOUNT":
+        raise HTTPException(400, "Invalid confirmation phrase")
+    # Re-fetch user with password_hash (current dict was already stripped)
+    user_row = await db.users.find_one({"id": current["id"]})
+    if not user_row or not verify_password(payload.password, user_row["password_hash"]):
+        raise HTTPException(401, "Wrong password")
+    did = current["dealership_id"]
+    cascade_cols = [
+        "dealerships", "users", "salespeople", "vehicles", "leads",
+        "monthly_closings", "operational_credits", "operational_expenses",
+        "floor_plans", "post_sales", "credit_applications", "receivables",
+        "receipts", "lost_sales", "delivery_schedules", "chat_messages",
+        "chat_reads", "promotions", "push_subscriptions",
+    ]
+    removed = {}
+    for col in cascade_cols:
+        try:
+            if col == "dealerships":
+                res = await db[col].delete_many({"id": did})
+            else:
+                res = await db[col].delete_many({"dealership_id": did})
+            if res.deleted_count:
+                removed[col] = res.deleted_count
+        except Exception as e:
+            print(f"[delete-account] {col}: {e}")
+    return {"deleted": True, "stats": removed}
+
+
 # ============================================================
 # VEHICLES (multi-tenant)
 # ============================================================

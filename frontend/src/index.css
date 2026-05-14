@@ -24,12 +24,12 @@
 }
 
 /* ============================================================
-   X-PRO MOTORS — "Showroom Racing" theme.
-   Warm cream paper canvas + matte black sidebar (X-Pro brand colors)
-   + huge bold typography + red racing accents. Inspired by high-end
-   automotive brochures (Porsche / Lamborghini media kits).
+   SHOWROOM theme (light/cream variant — opt-in per dealership).
+   Activated by setting `dealership.theme = "showroom"` in Settings.
+   Designed for dealerships that prefer a warm, automotive-brochure feel
+   (Porsche / Lamborghini media kits) instead of the default dark theme.
    ============================================================ */
-html[data-theme="xpro"] {
+html[data-theme="showroom"] {
   --background: #F5F1E8;     /* warm parchment (showroom paper) */
   --surface: #FFFFFF;        /* pure white cards */
   --surface-hover: #FAF7F0;
@@ -43,7 +43,7 @@ html[data-theme="xpro"] {
 }
 
 /* Page canvas: warm cream + faint racing checker watermark */
-html[data-theme="xpro"] body {
+html[data-theme="showroom"] body {
   background:
     radial-gradient(1200px 600px at -10% -10%, rgba(225, 29, 43, 0.06), transparent 55%),
     radial-gradient(1100px 500px at 110% 110%, rgba(10, 10, 10, 0.04), transparent 60%),
@@ -52,7 +52,7 @@ html[data-theme="xpro"] body {
 }
 
 /* Top racing stripe across the whole page */
-html[data-theme="xpro"] body::before {
+html[data-theme="showroom"] body::before {
   content: '';
   position: fixed;
   top: 0;
@@ -71,7 +71,7 @@ html[data-theme="xpro"] body::before {
 }
 
 /* Diagonal speed-line backdrop (very subtle) */
-html[data-theme="xpro"] body::after {
+html[data-theme="showroom"] body::after {
   content: '';
   position: fixed;
   inset: 0;
@@ -87,62 +87,62 @@ html[data-theme="xpro"] body::after {
 }
 
 /* SIDEBAR — keep it MATTE BLACK with red brand accents (signature X-Pro look) */
-html[data-theme="xpro"] aside {
+html[data-theme="showroom"] aside {
   background:
     linear-gradient(180deg, #0A0A0A 0%, #181010 100%) !important;
   border-right: 2px solid var(--primary) !important;
   color: #F4F4F4;
 }
-html[data-theme="xpro"] aside p,
-html[data-theme="xpro"] aside button,
-html[data-theme="xpro"] aside span:not(.text-primary) {
+html[data-theme="showroom"] aside p,
+html[data-theme="showroom"] aside button,
+html[data-theme="showroom"] aside span:not(.text-primary) {
   color: inherit;
 }
-html[data-theme="xpro"] aside .text-white { color: #F4F4F4 !important; }
-html[data-theme="xpro"] aside .text-text-secondary,
-html[data-theme="xpro"] aside [class*="text-text-secondary"] {
+html[data-theme="showroom"] aside .text-white { color: #F4F4F4 !important; }
+html[data-theme="showroom"] aside .text-text-secondary,
+html[data-theme="showroom"] aside [class*="text-text-secondary"] {
   color: rgba(244, 244, 244, 0.65) !important;
 }
-html[data-theme="xpro"] aside .border-border { border-color: #2A1818 !important; }
-html[data-theme="xpro"] aside .bg-surface { background-color: rgba(255, 255, 255, 0.04) !important; }
-html[data-theme="xpro"] aside .hover\:bg-surface:hover { background-color: rgba(255, 255, 255, 0.06) !important; }
-html[data-theme="xpro"] aside .hover\:text-white:hover { color: #FFFFFF !important; }
-html[data-theme="xpro"] aside button[data-testid^="nav-"]:not(.bg-primary) {
+html[data-theme="showroom"] aside .border-border { border-color: #2A1818 !important; }
+html[data-theme="showroom"] aside .bg-surface { background-color: rgba(255, 255, 255, 0.04) !important; }
+html[data-theme="showroom"] aside .hover\:bg-surface:hover { background-color: rgba(255, 255, 255, 0.06) !important; }
+html[data-theme="showroom"] aside .hover\:text-white:hover { color: #FFFFFF !important; }
+html[data-theme="showroom"] aside button[data-testid^="nav-"]:not(.bg-primary) {
   color: rgba(244, 244, 244, 0.72) !important;
 }
 
 /* MAIN CONTENT: white cards with bold red top stripe */
-html[data-theme="xpro"] main { position: relative; z-index: 1; }
-html[data-theme="xpro"] .bg-background { background-color: var(--surface) !important; }
-html[data-theme="xpro"] .bg-surface\/30 { background-color: rgba(255, 255, 255, 0.7) !important; }
-html[data-theme="xpro"] .bg-surface\/60 { background-color: rgba(255, 255, 255, 0.85) !important; }
-html[data-theme="xpro"] .bg-surface { background-color: var(--surface-hover) !important; }
-html[data-theme="xpro"] .border-border { border-color: var(--border) !important; }
-html[data-theme="xpro"] .text-white { color: var(--text-primary) !important; }
+html[data-theme="showroom"] main { position: relative; z-index: 1; }
+html[data-theme="showroom"] .bg-background { background-color: var(--surface) !important; }
+html[data-theme="showroom"] .bg-surface\/30 { background-color: rgba(255, 255, 255, 0.7) !important; }
+html[data-theme="showroom"] .bg-surface\/60 { background-color: rgba(255, 255, 255, 0.85) !important; }
+html[data-theme="showroom"] .bg-surface { background-color: var(--surface-hover) !important; }
+html[data-theme="showroom"] .border-border { border-color: var(--border) !important; }
+html[data-theme="showroom"] .text-white { color: var(--text-primary) !important; }
 
 /* KPI / stat cards — red top border + bold soft shadow (showroom card feel) */
-html[data-theme="xpro"] [data-testid^="stat-"] {
+html[data-theme="showroom"] [data-testid^="stat-"] {
   background: var(--surface) !important;
   border-top: 3px solid var(--primary) !important;
   box-shadow: 0 12px 28px -16px rgba(10, 10, 10, 0.18), 0 2px 4px rgba(10, 10, 10, 0.04);
   transition: transform 200ms ease, box-shadow 200ms ease;
 }
-html[data-theme="xpro"] [data-testid^="stat-"]:hover {
+html[data-theme="showroom"] [data-testid^="stat-"]:hover {
   transform: translateY(-2px);
   box-shadow: 0 16px 36px -18px rgba(225, 29, 43, 0.25), 0 4px 8px rgba(10, 10, 10, 0.06);
 }
 
 /* HEADLINE bling — uppercase eyebrows in red, big black headers */
-html[data-theme="xpro"] .label-eyebrow { color: var(--primary) !important; letter-spacing: 0.22em; }
-html[data-theme="xpro"] h1, html[data-theme="xpro"] h2 { color: var(--text-primary); }
+html[data-theme="showroom"] .label-eyebrow { color: var(--primary) !important; letter-spacing: 0.22em; }
+html[data-theme="showroom"] h1, html[data-theme="showroom"] h2 { color: var(--text-primary); }
 
 /* Hero / overview banner — warm parchment with racing watermark */
-html[data-theme="xpro"] .bg-shield-watermark {
+html[data-theme="showroom"] .bg-shield-watermark {
   background-color: #FBF9F2 !important;
   border: 1px solid var(--border) !important;
   position: relative;
 }
-html[data-theme="xpro"] .bg-shield-watermark::after {
+html[data-theme="showroom"] .bg-shield-watermark::after {
   content: '';
   position: absolute;
   left: 0; right: 0; bottom: 0;
@@ -151,7 +151,7 @@ html[data-theme="xpro"] .bg-shield-watermark::after {
 }
 
 /* Diagonal racing stripes overlay (sport feel) inside hero */
-html[data-theme="xpro"] .bg-stripes-overlay {
+html[data-theme="showroom"] .bg-stripes-overlay {
   background-image: repeating-linear-gradient(
     -45deg,
     transparent 0,
@@ -162,15 +162,15 @@ html[data-theme="xpro"] .bg-stripes-overlay {
 }
 
 /* Tables — clean white with red row hover */
-html[data-theme="xpro"] table { background-color: var(--surface) !important; }
-html[data-theme="xpro"] thead { background-color: #F1ECE0 !important; border-bottom: 2px solid var(--primary) !important; }
-html[data-theme="xpro"] tbody tr:hover { background-color: rgba(225, 29, 43, 0.04) !important; }
+html[data-theme="showroom"] table { background-color: var(--surface) !important; }
+html[data-theme="showroom"] thead { background-color: #F1ECE0 !important; border-bottom: 2px solid var(--primary) !important; }
+html[data-theme="showroom"] tbody tr:hover { background-color: rgba(225, 29, 43, 0.04) !important; }
 
 /* Primary buttons — keep red but add subtle glow */
-html[data-theme="xpro"] .bg-primary { box-shadow: 0 4px 14px -4px rgba(225, 29, 43, 0.45); }
+html[data-theme="showroom"] .bg-primary { box-shadow: 0 4px 14px -4px rgba(225, 29, 43, 0.45); }
 
 /* Notebook paper (promo card) — keep the handwriting feel but warmer cream */
-html[data-theme="xpro"] .notebook-paper {
+html[data-theme="showroom"] .notebook-paper {
   background-color: #FBF9F1 !important;
 }
 

@@ -185,7 +185,7 @@ export default function DealershipProfileSection({ dealership, onRefresh, t }) {
             className="w-full bg-surface border border-border px-3 py-2.5 text-sm"
           >
             <option value="">Escuro (padrão)</option>
-            <option value="xpro">Showroom Racing (creme + preto + vermelho)</option>
+            <option value="showroom">Showroom (creme + preto + vermelho)</option>
           </select>
         </div>
       </div>

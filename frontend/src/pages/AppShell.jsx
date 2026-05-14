@@ -40,20 +40,18 @@ export default function AppShell() {
   const isManager = user?.role === "gerente";
   const isStaff = isOwner || isManager;
 
-  // Apply per-dealership theme (e.g. X-Pro Motors gets a light "showroom" theme).
-  // Detection: dealership.theme = "xpro" OR name contains "x-pro" / "xpro".
+  // Apply per-dealership theme (set in Settings → Perfil da Loja).
+  // Allowed values: "showroom" (light/cream automotive style) or empty/null (default dark).
   useEffect(() => {
     const root = document.documentElement;
     const explicit = (dealership?.theme || "").toLowerCase();
-    const byName = (dealership?.name || "").toLowerCase().replace(/[-_\s]/g, "");
-    const useXpro = explicit === "xpro" || byName.includes("xpromotors");
-    if (useXpro) {
-      root.setAttribute("data-theme", "xpro");
+    if (explicit === "showroom") {
+      root.setAttribute("data-theme", "showroom");
     } else {
       root.removeAttribute("data-theme");
     }
     return () => root.removeAttribute("data-theme");
-  }, [dealership?.theme, dealership?.name]);
+  }, [dealership?.theme]);
   const [tab, setTab] = useState("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false); // mobile drawer state
   // Desktop: when the user collapses the sidebar it shows only icons. Hover
