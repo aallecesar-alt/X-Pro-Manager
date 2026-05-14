@@ -38,6 +38,21 @@ export default function AppShell() {
   const isOwner = user?.role === "owner";
   const isManager = user?.role === "gerente";
   const isStaff = isOwner || isManager;
+
+  // Apply per-dealership theme (e.g. X-Pro Motors gets a light "showroom" theme).
+  // Detection: dealership.theme = "xpro" OR name contains "x-pro" / "xpro".
+  useEffect(() => {
+    const root = document.documentElement;
+    const explicit = (dealership?.theme || "").toLowerCase();
+    const byName = (dealership?.name || "").toLowerCase().replace(/[-_\s]/g, "");
+    const useXpro = explicit === "xpro" || byName.includes("xpromotors");
+    if (useXpro) {
+      root.setAttribute("data-theme", "xpro");
+    } else {
+      root.removeAttribute("data-theme");
+    }
+    return () => root.removeAttribute("data-theme");
+  }, [dealership?.theme, dealership?.name]);
   const [tab, setTab] = useState("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false); // mobile drawer state
   // Desktop: when the user collapses the sidebar it shows only icons. Hover

@@ -23,6 +23,58 @@
   --champagne: #E8D9A5;
 }
 
+/* ============================================================
+   X-PRO MOTORS — light "showroom" theme.
+   Activated by adding data-theme="xpro" on <html> (set from the dealership
+   profile in AppShell). Designed to feel like a polished automotive
+   showroom: crisp off-white surfaces, deep navy ink, X-Pro red accents.
+   We override ONLY the CSS variables — every component already reads from
+   them, so the entire app re-skins automatically.
+   ============================================================ */
+html[data-theme="xpro"] {
+  --background: #EEF2F8;     /* light cool gray — showroom floor */
+  --surface: #FFFFFF;        /* crisp white cards */
+  --surface-hover: #F4F7FC;
+  --primary: #E11D2B;        /* vivid X-Pro red */
+  --primary-hover: #B91626;
+  --text-primary: #0B1220;   /* deep navy, almost black, very crisp */
+  --text-secondary: #4F5A6D; /* slate gray for secondary text */
+  --border: #D8DEE9;         /* subtle light border */
+  --success: #047857;
+  --warning: #B45309;
+}
+
+html[data-theme="xpro"] body {
+  background:
+    radial-gradient(1200px 600px at -10% -10%, rgba(225, 29, 43, 0.05), transparent 60%),
+    radial-gradient(1100px 500px at 110% 110%, rgba(11, 18, 32, 0.05), transparent 60%),
+    linear-gradient(180deg, #F2F5FA 0%, #E5EBF3 100%);
+  color: var(--text-primary);
+}
+
+/* Soften shadows in the light theme so cards feel premium-but-airy */
+html[data-theme="xpro"] .border-border { border-color: var(--border) !important; }
+html[data-theme="xpro"] .bg-background { background-color: var(--surface) !important; }
+html[data-theme="xpro"] .bg-surface { background-color: var(--surface-hover) !important; }
+html[data-theme="xpro"] .text-white { color: var(--text-primary) !important; }
+html[data-theme="xpro"] .label-eyebrow { color: var(--primary); }
+
+/* Diagonal "speed" backdrop visible only in light mode — adds the chamativo edge */
+html[data-theme="xpro"] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    115deg,
+    rgba(225, 29, 43, 0.03) 0,
+    rgba(225, 29, 43, 0.03) 1px,
+    transparent 1px,
+    transparent 38px
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
 * {
   box-sizing: border-box;
 }
