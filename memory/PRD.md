@@ -210,6 +210,16 @@ Per-car features:
 ## URL
 https://auto-commerce-lab.preview.emergentagent.com
 
+## Recent UI Updates (Feb 2026)
+- **AuthPage redesign** (Feb 2026): Replaced the centered card login with a cinematic split-screen showroom layout.
+  - Left (58%): big bold typography ("Acelere sua revenda ao próximo nível"), brand mark, feature pills (Estoque ∞ / Leads CRM / Financeiro ROI), live status pulse
+  - Right: elegant underline-style inputs with animated red focus glow, hero "Bem-vindo de volta" headline, gradient red CTA with sweep shine, "or" divider + ghost toggle button
+  - Auto-detects tenant by hostname (xpro → X-PRO MOTORS wordmark, else → Intercar shield)
+  - Responsive: hero panel hides on mobile, brand mark falls back to compact top header
+  - New i18n keys: `auth_hero_line1/2/3`, `auth_hero_blurb`, `auth_live_status`, `auth_eyebrow_login/signup`, `management_suite`, `show/hide/or` (PT/EN/ES)
+  - File: `/app/frontend/src/pages/AuthPage.jsx`
+  - Verified: PT login flow works end-to-end (carlos@intercar.com → dashboard)
+
 ## Backlog (next session)
 - Add photo upload from computer (not just URLs) — Cloudinary
 - Drag-and-drop on pipelines
