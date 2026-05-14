@@ -178,7 +178,7 @@ export default function AppShell() {
       {/* Mobile top bar — hidden on desktop */}
       <div className="lg:hidden fixed top-0 inset-x-0 h-14 bg-background/95 backdrop-blur-sm border-b border-border z-30 flex items-center justify-between px-3">
         <div className="flex items-center gap-2 min-w-0">
-          <img src="/intercar-logo.png" alt="" className="w-8 h-8 object-contain" />
+          <img src={dealership?.logo_url || "/intercar-logo.png"} alt="" className="w-8 h-8 object-contain" />
           <p className="font-display font-black uppercase text-sm truncate">{dealership?.name || "Intercar"}</p>
         </div>
         <button
@@ -226,8 +226,8 @@ export default function AppShell() {
             <div className={`relative shrink-0 ${sidebarExpanded ? "w-12 h-12" : "w-10 h-10"}`}>
               <div className="absolute inset-0 bg-primary/30 blur-xl rounded-full" />
               <img
-                src="/intercar-logo.png"
-                alt="Intercar"
+                src={dealership?.logo_url || "/intercar-logo.png"}
+                alt={dealership?.name || "Logo"}
                 className="relative w-full h-full object-contain drop-shadow-lg"
               />
             </div>
@@ -338,7 +338,7 @@ export default function AppShell() {
 
       {/* MAIN */}
       <main className="flex-1 p-4 lg:p-8 overflow-auto pt-20 lg:pt-8 min-w-0">
-        {tab === "overview" && canAccess("overview") && <Overview stats={stats} t={t} isSalesperson={isSalesperson} isBdc={isBdc} fpAlerts={isStaff ? fpAlerts : null} recAlerts={canAccess("receivables") ? recAlerts : null} onGoToFinancial={() => setTab("financial")} onGoToReceivables={() => setTab("receivables")} />}
+        {tab === "overview" && canAccess("overview") && <Overview stats={stats} dealership={dealership} t={t} isSalesperson={isSalesperson} isBdc={isBdc} fpAlerts={isStaff ? fpAlerts : null} recAlerts={canAccess("receivables") ? recAlerts : null} onGoToFinancial={() => setTab("financial")} onGoToReceivables={() => setTab("receivables")} />}
         {tab === "inventory" && canAccess("inventory") && (
           <Inventory
             vehicles={vehicles} t={t} search={search} setSearch={setSearch} isSalesperson={isSalesperson}
@@ -603,7 +603,7 @@ function PodiumCard({ rank, row, accent, featured = false, t }) {
   );
 }
 
-function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToFinancial, onGoToReceivables }) {
+function Overview({ stats, dealership, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToFinancial, onGoToReceivables }) {
   const [leaderboard, setLeaderboard] = useState({ rows: [], total_sold: 0 });
   const [promotion, setPromotion] = useState(null);
   const [editingPromo, setEditingPromo] = useState(false);
@@ -669,7 +669,7 @@ function Overview({ stats, t, isSalesperson, isBdc, fpAlerts, recAlerts, onGoToF
   return (
     <div data-testid="overview-tab">
       {/* Hero with subtle shield watermark */}
-      <div className="mb-6 lg:mb-10 bg-shield-watermark border border-border bg-surface/30 p-5 lg:p-8 relative overflow-hidden" style={{ "--shield-url": "url('/intercar-logo.png')" }}>
+      <div className="mb-6 lg:mb-10 bg-shield-watermark border border-border bg-surface/30 p-5 lg:p-8 relative overflow-hidden" style={{ "--shield-url": `url('${dealership?.logo_url || "/intercar-logo.png"}')` }}>
         <div className="bg-stripes-overlay absolute inset-0 opacity-50" />
         <div className="relative">
           <p className="label-eyebrow text-primary mb-2">{t("dashboard")} · {monthLabel}</p>
