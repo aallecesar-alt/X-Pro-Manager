@@ -3711,6 +3711,197 @@ async def receipt_pdf(rid: str, current: dict = Depends(get_current_user)):
     )
 
 
+# ============================================================
+# DOWN PAYMENT PAYMENTS — partial payments toward the agreed entrada.
+# Distinct from the "deposit receipts" collection above (sinal).
+# Each payment generates its own DOWN PAYMENT RECEIPT PDF and the system
+# tracks how much of the agreed `vehicles.down_payment` was actually
+# collected. Fires a push notification when the balance reaches zero.
+# ============================================================
+class DownPaymentPaymentBase(BaseModel):
+    amount: float
+    paid_at: Optional[str] = None         # YYYY-MM-DD; defaults to today
+    payment_method: str = ""              # Cash | Check | Card | Transfer | Zelle...
+    notes: Optional[str] = ""
+
+
+class DownPaymentPayment(DownPaymentPaymentBase):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    dealership_id: str
+    vehicle_id: str
+    payment_no: str = ""                  # zero-padded sequential per vehicle
+    issued_by_id: Optional[str] = None
+    issued_by_name: Optional[str] = None
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+async def _next_dp_payment_no(dealership_id: str, vehicle_id: str) -> str:
+    """Sequential payment number scoped to (dealership, vehicle)."""
+    cur = await db.down_payment_payments.count_documents(
+        {"dealership_id": dealership_id, "vehicle_id": vehicle_id}
+    )
+    return f"{cur + 1:02d}"
+
+
+async def _dp_summary(dealership_id: str, vehicle: dict) -> dict:
+    """Return { agreed, paid, balance, fully_paid, payments_count } for a vehicle."""
+    vid = vehicle.get("id")
+    agreed = float(vehicle.get("down_payment") or 0)
+    cur = db.down_payment_payments.find(
+        {"dealership_id": dealership_id, "vehicle_id": vid}, {"_id": 0, "amount": 1}
+    )
+    paid = 0.0
+    count = 0
+    async for r in cur:
+        paid += float(r.get("amount") or 0)
+        count += 1
+    return {
+        "agreed": agreed,
+        "paid": round(paid, 2),
+        "balance": round(max(agreed - paid, 0), 2),
+        "fully_paid": agreed > 0 and paid + 1e-6 >= agreed,
+        "payments_count": count,
+    }
+
+
+@api_router.get("/vehicles/{vid}/down-payments")
+async def list_down_payments(vid: str, current: dict = Depends(get_current_user)):
+    v = await db.vehicles.find_one(
+        {"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not v:
+        raise HTTPException(404, "Vehicle not found")
+    items = await db.down_payment_payments.find(
+        {"dealership_id": current["dealership_id"], "vehicle_id": vid}, {"_id": 0}
+    ).sort("created_at", 1).to_list(500)
+    summary = await _dp_summary(current["dealership_id"], v)
+    return {"payments": items, "summary": summary}
+
+
+@api_router.post("/vehicles/{vid}/down-payments", response_model=DownPaymentPayment)
+async def create_down_payment(vid: str, payload: DownPaymentPaymentBase, current: dict = Depends(get_current_user)):
+    v = await db.vehicles.find_one(
+        {"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not v:
+        raise HTTPException(404, "Vehicle not found")
+    if not payload.amount or float(payload.amount) <= 0:
+        raise HTTPException(400, "Amount must be greater than zero")
+
+    # Snapshot summary BEFORE inserting (so we can detect the transition
+    # from "owing" → "fully paid" and only fire the notification once).
+    prev = await _dp_summary(current["dealership_id"], v)
+
+    no = await _next_dp_payment_no(current["dealership_id"], vid)
+    paid_at = payload.paid_at or datetime.now(timezone.utc).date().isoformat()
+    row = DownPaymentPayment(
+        dealership_id=current["dealership_id"],
+        vehicle_id=vid,
+        payment_no=no,
+        amount=float(payload.amount),
+        paid_at=paid_at,
+        payment_method=payload.payment_method or "",
+        notes=payload.notes or "",
+        issued_by_id=current["id"],
+        issued_by_name=current.get("name"),
+    )
+    await db.down_payment_payments.insert_one(row.model_dump())
+
+    new_summary = await _dp_summary(current["dealership_id"], v)
+
+    # Fire push notification on the transition into "fully paid".
+    if new_summary["fully_paid"] and not prev["fully_paid"]:
+        try:
+            car_label = f"{v.get('year','')} {v.get('make','')} {v.get('model','')}".strip()
+            buyer = v.get("buyer_name") or "Cliente"
+            await send_push_to_role(
+                current["dealership_id"],
+                ["owner", "gerente"],
+                "Entrada quitada",
+                f"{buyer} quitou a entrada de US$ {new_summary['agreed']:,.0f} ({car_label})",
+                "/",
+            )
+        except Exception as e:
+            print(f"[push] down-payment paid-off notification failed: {e}")
+
+    return row
+
+
+@api_router.delete("/down-payments/{pid}")
+async def delete_down_payment(pid: str, current: dict = Depends(get_current_user)):
+    require_owner(current)
+    res = await db.down_payment_payments.delete_one(
+        {"id": pid, "dealership_id": current["dealership_id"]}
+    )
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Payment not found")
+    return {"deleted": True}
+
+
+@api_router.get("/down-payments/{pid}/receipt.pdf")
+async def down_payment_receipt_pdf(pid: str, current: dict = Depends(get_current_user)):
+    """Render the DOWN PAYMENT RECEIPT PDF for a single payment."""
+    from fastapi.responses import Response as _Resp
+    from down_payment_receipt_pdf import render_down_payment_receipt
+
+    p = await db.down_payment_payments.find_one(
+        {"id": pid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not p:
+        raise HTTPException(404, "Payment not found")
+    v = await db.vehicles.find_one(
+        {"id": p["vehicle_id"], "dealership_id": current["dealership_id"]}, {"_id": 0}
+    ) or {}
+    summary = await _dp_summary(current["dealership_id"], v)
+
+    # Determine ordinal "X of N" — chronological order across the vehicle's payments.
+    all_pmts = await db.down_payment_payments.find(
+        {"dealership_id": current["dealership_id"], "vehicle_id": p["vehicle_id"]},
+        {"_id": 0, "id": 1, "created_at": 1},
+    ).sort("created_at", 1).to_list(500)
+    idx = next((i + 1 for i, r in enumerate(all_pmts) if r["id"] == pid), 1)
+    total = len(all_pmts) or 1
+
+    store = await _receipt_store_for_pdf(current["dealership_id"])
+    dlr = await db.dealerships.find_one(
+        {"id": current["dealership_id"]}, {"_id": 0, "name": 1}
+    ) or {}
+    if dlr.get("name"):
+        store["name"] = dlr["name"]
+
+    pdf_bytes = render_down_payment_receipt(
+        payment=p,
+        vehicle=v,
+        customer={"name": v.get("buyer_name") or "", "phone": v.get("buyer_phone") or ""},
+        summary=summary,
+        payment_index=idx,
+        payment_total=total,
+        store=store,
+        issued_by_name=p.get("issued_by_name"),
+    )
+    safe = p.get("payment_no") or pid[:8]
+    return _Resp(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="down-payment-{safe}.pdf"'},
+    )
+
+
+@api_router.get("/down-payments/totals")
+async def down_payment_totals(current: dict = Depends(get_current_user)):
+    """Aggregate paid amounts per vehicle for the current dealership. Used by
+    the sales pipeline to show "entrada paga / acordada" on each sold card
+    without N+1 calls."""
+    pipeline = [
+        {"$match": {"dealership_id": current["dealership_id"]}},
+        {"$group": {"_id": "$vehicle_id", "paid": {"$sum": "$amount"}, "count": {"$sum": 1}}},
+    ]
+    rows = await db.down_payment_payments.aggregate(pipeline).to_list(2000)
+    return {r["_id"]: {"paid": round(float(r.get("paid") or 0), 2), "count": int(r.get("count") or 0)} for r in rows}
+
+
+
+
 class InstallmentPayPayload(BaseModel):
     paid_at: Optional[str] = None       # YYYY-MM-DD ; defaults to today
     paid_amount: Optional[float] = None  # defaults to the installment's amount

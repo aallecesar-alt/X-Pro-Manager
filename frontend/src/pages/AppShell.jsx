@@ -6,6 +6,7 @@ import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import VehicleScheduleModal from "@/components/VehicleScheduleModal";
 import InlineSchedule from "@/components/InlineSchedule";
 import DealershipProfileSection from "@/components/DealershipProfileSection";
+import DownPaymentDialog from "@/components/DownPaymentDialog";
 import { useAuth } from "@/context/AuthContext";
 import { useI18n, LANG_OPTIONS } from "@/lib/i18n.jsx";
 import PhotoUploader from "@/components/PhotoUploader";
@@ -1461,6 +1462,20 @@ function StatusPill({ status, t }) {
 }
 
 function Pipeline({ vehicles, t, onMove, onEdit, onHistory }) {
+  const [dpTotals, setDpTotals] = useState({});
+  const [dpDialogVehicle, setDpDialogVehicle] = useState(null);
+
+  const reloadTotals = async () => {
+    try {
+      const r = await api.get("/down-payments/totals");
+      setDpTotals(r.data || {});
+    } catch {
+      /* silent — non-blocking widget */
+    }
+  };
+
+  useEffect(() => { reloadTotals(); /* eslint-disable-next-line */ }, []);
+
   return (
     <div data-testid="pipeline-tab">
       <p className="label-eyebrow text-primary mb-2">{t("pipeline")}</p>
@@ -1476,41 +1491,103 @@ function Pipeline({ vehicles, t, onMove, onEdit, onHistory }) {
                 <span className="bg-background border border-border px-2 py-0.5 text-xs">{list.length}</span>
               </div>
               <div className="p-3 space-y-2">
-                {list.map((v) => (
-                  <div key={v.id} data-testid={`card-${v.id}`} className="bg-background border border-border p-3 hover:border-primary transition-colors">
-                    <p className="font-display font-bold text-sm">{v.make} {v.model}</p>
-                    <p className="text-xs text-text-secondary mb-3">{v.year} · {v.plate || v.color}</p>
-                    <p className="font-display font-bold text-primary">{formatCurrency(v.sale_price)}</p>
-                    {v.status === "sold" && v.sold_price > 0 && <p className="text-xs text-success mt-1">→ {formatCurrency(v.sold_price)}</p>}
-                    <div className="mt-3 flex gap-1 flex-wrap">
-                      {STATUS_COLUMNS.filter((c) => c.id !== v.status).map((c) => (
-                        <button
-                          key={c.id}
-                          data-testid={`move-${v.id}-${c.id}`}
-                          onClick={() => {
-                            if (c.id === "sold") onEdit(v);
-                            else onMove(v.id, c.id);
-                          }}
-                          className="text-[10px] px-2 py-1 border border-border hover:border-primary hover:text-primary uppercase tracking-wider transition-colors"
+                {list.map((v) => {
+                  const isSold = v.status === "sold";
+                  const agreed = Number(v.down_payment) || 0;
+                  const paid = Number(dpTotals[v.id]?.paid) || 0;
+                  const showDpStatus = isSold && agreed > 0;
+                  const balance = Math.max(agreed - paid, 0);
+                  const fullyPaid = agreed > 0 && balance <= 0;
+                  const pct = agreed > 0 ? Math.min(100, Math.round((paid / agreed) * 100)) : 0;
+                  return (
+                    <div key={v.id} data-testid={`card-${v.id}`} className="bg-background border border-border p-3 hover:border-primary transition-colors">
+                      <p className="font-display font-bold text-sm">{v.make} {v.model}</p>
+                      <p className="text-xs text-text-secondary mb-3">{v.year} · {v.plate || v.color}</p>
+                      <p className="font-display font-bold text-primary">{formatCurrency(v.sale_price)}</p>
+                      {isSold && v.sold_price > 0 && <p className="text-xs text-success mt-1">→ {formatCurrency(v.sold_price)}</p>}
+
+                      {/* Down-payment progress (only for sold vehicles with an agreed entrada) */}
+                      {showDpStatus && (
+                        <div
+                          className={`mt-3 px-2 py-2 border ${fullyPaid ? "border-success/50 bg-success/[0.06]" : "border-warning/40 bg-warning/[0.05]"}`}
+                          data-testid={`dp-status-${v.id}`}
                         >
-                          → {t(c.id)}
-                        </button>
-                      ))}
-                      <button onClick={() => onEdit(v)} className="text-[10px] px-2 py-1 border border-border hover:border-primary hover:text-primary uppercase tracking-wider transition-colors">{t("edit")}</button>
-                      {onHistory && (
-                        <button onClick={() => onHistory(v.id)} className="text-[10px] px-2 py-1 border border-border hover:border-primary hover:text-primary uppercase tracking-wider transition-colors inline-flex items-center gap-1" title={t("vehicle_history")}>
-                          <History size={10} />
-                        </button>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className={`text-[9px] uppercase tracking-widest font-display font-bold ${fullyPaid ? "text-success" : "text-warning"}`}>
+                              {fullyPaid ? (t("dp_fully_paid") || "Entrada Quitada") : (t("dp_entrance") || "Entrada")}
+                            </span>
+                            <span className="text-[10px] font-mono text-text-secondary">{pct}%</span>
+                          </div>
+                          <div className="h-1.5 bg-background border border-border overflow-hidden mb-1.5">
+                            <div
+                              className={`h-full transition-all ${fullyPaid ? "bg-success" : "bg-warning"}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-text-secondary">
+                              {formatCurrency(paid)} / {formatCurrency(agreed)}
+                            </span>
+                            {!fullyPaid && (
+                              <span className="text-warning font-display font-bold">
+                                {t("dp_owes") || "Falta"} {formatCurrency(balance)}
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            data-testid={`dp-open-${v.id}`}
+                            onClick={() => setDpDialogVehicle(v)}
+                            className={`mt-2 w-full text-[10px] uppercase tracking-widest font-display font-bold py-1.5 border transition-colors ${
+                              fullyPaid
+                                ? "border-success/40 text-success hover:bg-success hover:text-white"
+                                : "border-success/40 bg-success/15 text-success hover:bg-success hover:text-white"
+                            }`}
+                          >
+                            <HandCoins size={11} className="inline mr-1 -mt-px" />
+                            {fullyPaid ? (t("dp_view_history") || "Ver Histórico") : (t("dp_add_payment") || "Adicionar Pagamento")}
+                          </button>
+                        </div>
                       )}
+
+                      <div className="mt-3 flex gap-1 flex-wrap">
+                        {STATUS_COLUMNS.filter((c) => c.id !== v.status).map((c) => (
+                          <button
+                            key={c.id}
+                            data-testid={`move-${v.id}-${c.id}`}
+                            onClick={() => {
+                              if (c.id === "sold") onEdit(v);
+                              else onMove(v.id, c.id);
+                            }}
+                            className="text-[10px] px-2 py-1 border border-border hover:border-primary hover:text-primary uppercase tracking-wider transition-colors"
+                          >
+                            → {t(c.id)}
+                          </button>
+                        ))}
+                        <button onClick={() => onEdit(v)} className="text-[10px] px-2 py-1 border border-border hover:border-primary hover:text-primary uppercase tracking-wider transition-colors">{t("edit")}</button>
+                        {onHistory && (
+                          <button onClick={() => onHistory(v.id)} className="text-[10px] px-2 py-1 border border-border hover:border-primary hover:text-primary uppercase tracking-wider transition-colors inline-flex items-center gap-1" title={t("vehicle_history")}>
+                            <History size={10} />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {list.length === 0 && <p className="text-text-secondary text-xs text-center py-8">—</p>}
               </div>
             </div>
           );
         })}
       </div>
+
+      {dpDialogVehicle && (
+        <DownPaymentDialog
+          vehicle={dpDialogVehicle}
+          t={t}
+          onClose={() => { setDpDialogVehicle(null); reloadTotals(); }}
+          onChange={() => reloadTotals()}
+        />
+      )}
     </div>
   );
 }

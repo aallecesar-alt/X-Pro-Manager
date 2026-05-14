@@ -211,6 +211,16 @@ Per-car features:
 https://auto-commerce-lab.preview.emergentagent.com
 
 ## Recent UI Updates (Feb 2026)
+- **Down Payment Tracking** (Feb 2026): Sellers can now log partial payments toward each customer's agreed entrada directly from the sales pipeline.
+  - Sales pipeline card (sold column): inline status badge "ENTRADA $paid / $agreed · FALTA $X" or "ENTRADA QUITADA 100%" with a progress bar (amber while owing, green when paid).
+  - `DownPaymentDialog` modal: hero balance card, payment history (with print + delete per row), and a "Add Payment" form. On submit, the system auto-opens the freshly generated PDF receipt.
+  - PDF receipt: "DOWN PAYMENT RECEIPT" (English, same template as the installment receipt) — title, ordinal "X of N", agreed/paid/remaining cells, full-paid chip when balance hits zero.
+  - Push notification "Entrada quitada · {buyer} quitou a entrada de US$ X" fires once when balance reaches zero.
+  - Separate from the existing "Deposit Receipts" (sinal) collection — kept in a dedicated `down_payment_payments` collection so the two flows don't mix.
+  - Files: `/app/backend/down_payment_receipt_pdf.py`, `/app/frontend/src/components/DownPaymentDialog.jsx`, new endpoints in `server.py` (`/vehicles/{vid}/down-payments`, `/down-payments/{pid}`, `/down-payments/{pid}/receipt.pdf`, `/down-payments/totals`).
+  - i18n keys added in PT/EN/ES (`dp_*`).
+  - Verified end-to-end: 3 partial payments accumulating to full quote, PDF rendered, fully-paid status flipped.
+
 - **AuthPage redesign** (Feb 2026): Replaced the centered card login with a cinematic split-screen showroom layout.
   - Left (58%): big bold typography ("Acelere sua revenda ao próximo nível"), brand mark, feature pills (Estoque ∞ / Leads CRM / Financeiro ROI), live status pulse
   - Right: elegant underline-style inputs with animated red focus glow, hero "Bem-vindo de volta" headline, gradient red CTA with sweep shine, "or" divider + ghost toggle button
