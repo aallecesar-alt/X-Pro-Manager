@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import NameWithAvatar from "@/components/NameWithAvatar";
 import FloorPlans from "@/pages/FloorPlans";
 import FloorPlanAlertBanner from "@/components/FloorPlanAlertBanner";
-import { Plus, Trash2, Edit2, X, Check, Paperclip, FileText, Image as ImageIcon, RotateCcw, Lock, Download, FolderArchive, ChevronDown, ChevronUp, History } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Check, Paperclip, FileText, Image as ImageIcon, RotateCcw, Lock, Download, FolderArchive, ChevronDown, ChevronUp, History, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency } from "@/lib/api";
 
@@ -232,6 +232,28 @@ export default function Financial({ t, fpAlerts }) {
             {t("expenses_total")}: <span className="font-display font-bold text-white">{formatCurrency(closing.total_cost)}</span>
           </p>
         </div>
+        {(() => {
+          const missingPurchaseCount = closing.vehicles_sold.filter(v => !Number(v.purchase_price)).length;
+          if (missingPurchaseCount === 0) return null;
+          return (
+            <div
+              data-testid="missing-purchase-banner"
+              className="flex items-start gap-3 px-4 py-3 bg-warning/[0.08] border-b border-warning/40"
+            >
+              <AlertTriangle size={16} className="text-warning shrink-0 mt-0.5" />
+              <div className="text-xs text-warning leading-relaxed">
+                <span className="font-display font-bold uppercase tracking-wider">
+                  {missingPurchaseCount === 1
+                    ? (t("missing_purchase_singular") || "1 carro sem preço de compra")
+                    : `${missingPurchaseCount} ${t("missing_purchase_plural") || "carros sem preço de compra"}`}
+                </span>
+                <span className="text-warning/80 ml-2">
+                  {t("missing_purchase_hint") || "— preencha para o fechamento ficar correto. As linhas em destaque estão sem este valor."}
+                </span>
+              </div>
+            </div>
+          );
+        })()}
         {closing.vehicles_sold.length === 0 ? (
           <p className="text-text-secondary text-sm text-center py-12">—</p>
         ) : (
@@ -249,8 +271,19 @@ export default function Financial({ t, fpAlerts }) {
                 </tr>
               </thead>
               <tbody>
-                {closing.vehicles_sold.map((v) => (
-                  <tr key={v.vehicle_id} data-testid={`fin-sale-${v.vehicle_id}`} className="border-b border-border hover:bg-surface transition-colors">
+                {closing.vehicles_sold.map((v) => {
+                  const missingPurchase = !Number(v.purchase_price);
+                  return (
+                  <tr
+                    key={v.vehicle_id}
+                    data-testid={`fin-sale-${v.vehicle_id}`}
+                    data-missing-purchase={missingPurchase || undefined}
+                    className={`border-b transition-colors ${
+                      missingPurchase
+                        ? "bg-warning/[0.07] border-warning/30 hover:bg-warning/[0.12] border-l-2 border-l-warning"
+                        : "border-border hover:bg-surface"
+                    }`}
+                  >
                     <td className="p-3">
                       <button
                         type="button"
@@ -260,15 +293,25 @@ export default function Financial({ t, fpAlerts }) {
                       >
                         {v.image && <img src={v.image} alt="" className="w-10 h-8 object-cover" />}
                         <div>
-                          <p className="font-display font-bold border-b border-dashed border-text-secondary/40">{v.year} {v.make} {v.model}</p>
+                          <p className="font-display font-bold border-b border-dashed border-text-secondary/40 inline-flex items-center gap-1.5">
+                            {missingPurchase && (
+                              <AlertTriangle size={12} className="text-warning shrink-0" />
+                            )}
+                            {v.year} {v.make} {v.model}
+                          </p>
                           <p className="text-[10px] text-text-secondary uppercase tracking-wider">{t("view_expenses")}</p>
                         </div>
                       </button>
                     </td>
                     <td className="p-3">{v.buyer_name || "—"}</td>
                     <td className="p-3"><NameWithAvatar name={v.salesperson_name} size="sm" /></td>
-                    <td className="p-3 text-right">
+                    <td className={`p-3 text-right ${missingPurchase ? "text-warning font-display font-bold" : ""}`}>
                       <EditablePrice value={v.purchase_price} onSave={(val) => updatePurchasePrice(v.vehicle_id, val)} testid={`edit-purchase-${v.vehicle_id}`} />
+                      {missingPurchase && (
+                        <p className="text-[9px] uppercase tracking-widest text-warning mt-1">
+                          {t("missing_purchase_row_hint") || "Clique para preencher"}
+                        </p>
+                      )}
                     </td>
                     <td className="p-3 text-right text-text-secondary">{formatCurrency(v.expenses)}</td>
                     <td className="p-3 text-right font-display font-bold">{formatCurrency(v.sold_price)}</td>
@@ -276,7 +319,8 @@ export default function Financial({ t, fpAlerts }) {
                       {formatCurrency(v.profit)}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
