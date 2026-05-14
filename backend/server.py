@@ -2018,6 +2018,7 @@ async def cloudinary_signature(
         f"profiles/{dealership_id}/",
         f"chat/{dealership_id}/",
         f"applications/{dealership_id}/",
+        f"dealership-logos/{dealership_id}/",
     )
     # Auto-namespace bare prefixes
     bare_to_ns = {
@@ -2026,6 +2027,7 @@ async def cloudinary_signature(
         "delivery/": f"delivery/{dealership_id}/",
         "chat/": f"chat/{dealership_id}/",
         "applications/": f"applications/{dealership_id}/",
+        "dealership-logos/": f"dealership-logos/{dealership_id}/",
     }
     if folder in bare_to_ns:
         folder = bare_to_ns[folder]
@@ -2283,6 +2285,36 @@ async def overview_insights(current: dict = Depends(get_current_user)):
 async def get_dealership(current: dict = Depends(get_current_user)):
     d = await db.dealerships.find_one({"id": current["dealership_id"]}, {"_id": 0})
     return d
+
+
+class DealershipUpdate(BaseModel):
+    name: Optional[str] = None
+    logo_url: Optional[str] = None
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    website: Optional[str] = None
+    theme: Optional[str] = None
+
+
+@api_router.put("/dealership")
+async def update_dealership(payload: DealershipUpdate, current: dict = Depends(get_current_user)):
+    """Owner-only edit of the dealership profile (name, logo, contact info, theme).
+    The logo_url is expected to be a Cloudinary URL — upload happens client-side
+    via the existing /uploads/signed-url endpoint that the inventory form already uses.
+    """
+    if current.get("role") != "owner":
+        raise HTTPException(403, "Only the owner can change the dealership profile")
+    upd = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    if not upd:
+        raise HTTPException(400, "Nothing to update")
+    await db.dealerships.update_one(
+        {"id": current["dealership_id"]}, {"$set": upd}
+    )
+    refreshed = await db.dealerships.find_one(
+        {"id": current["dealership_id"]}, {"_id": 0}
+    )
+    return refreshed
 
 
 # ============================================================

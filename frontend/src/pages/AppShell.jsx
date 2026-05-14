@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import VehicleScheduleModal from "@/components/VehicleScheduleModal";
 import InlineSchedule from "@/components/InlineSchedule";
+import DealershipProfileSection from "@/components/DealershipProfileSection";
 import { useAuth } from "@/context/AuthContext";
 import { useI18n, LANG_OPTIONS } from "@/lib/i18n.jsx";
 import PhotoUploader from "@/components/PhotoUploader";
@@ -1536,6 +1537,9 @@ function SettingsTab({ dealership, t, onRefresh }) {
     <div data-testid="settings-tab" className="max-w-3xl">
       <p className="label-eyebrow text-primary mb-2">{t("settings")}</p>
       <h1 className="font-display font-black text-4xl uppercase tracking-tighter mb-10">{dealership.name}</h1>
+
+      {/* Dealership profile editor — logo, name, address, phone, website, theme */}
+      <DealershipProfileSection dealership={dealership} onRefresh={onRefresh} t={t} />
 
       <div className="border border-border p-6">
         <p className="label-eyebrow text-primary mb-2">{t("public_api")}</p>
