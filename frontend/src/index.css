@@ -24,55 +24,154 @@
 }
 
 /* ============================================================
-   X-PRO MOTORS — light "showroom" theme.
-   Activated by adding data-theme="xpro" on <html> (set from the dealership
-   profile in AppShell). Designed to feel like a polished automotive
-   showroom: crisp off-white surfaces, deep navy ink, X-Pro red accents.
-   We override ONLY the CSS variables — every component already reads from
-   them, so the entire app re-skins automatically.
+   X-PRO MOTORS — "Showroom Racing" theme.
+   Warm cream paper canvas + matte black sidebar (X-Pro brand colors)
+   + huge bold typography + red racing accents. Inspired by high-end
+   automotive brochures (Porsche / Lamborghini media kits).
    ============================================================ */
 html[data-theme="xpro"] {
-  --background: #EEF2F8;     /* light cool gray — showroom floor */
-  --surface: #FFFFFF;        /* crisp white cards */
-  --surface-hover: #F4F7FC;
-  --primary: #E11D2B;        /* vivid X-Pro red */
+  --background: #F5F1E8;     /* warm parchment (showroom paper) */
+  --surface: #FFFFFF;        /* pure white cards */
+  --surface-hover: #FAF7F0;
+  --primary: #E11D2B;        /* X-Pro vivid red */
   --primary-hover: #B91626;
-  --text-primary: #0B1220;   /* deep navy, almost black, very crisp */
-  --text-secondary: #4F5A6D; /* slate gray for secondary text */
-  --border: #D8DEE9;         /* subtle light border */
+  --text-primary: #0A0A0A;   /* deep matte black */
+  --text-secondary: #555555;
+  --border: #E2DDD0;         /* warm light border */
   --success: #047857;
   --warning: #B45309;
 }
 
+/* Page canvas: warm cream + faint racing checker watermark */
 html[data-theme="xpro"] body {
   background:
-    radial-gradient(1200px 600px at -10% -10%, rgba(225, 29, 43, 0.05), transparent 60%),
-    radial-gradient(1100px 500px at 110% 110%, rgba(11, 18, 32, 0.05), transparent 60%),
-    linear-gradient(180deg, #F2F5FA 0%, #E5EBF3 100%);
+    radial-gradient(1200px 600px at -10% -10%, rgba(225, 29, 43, 0.06), transparent 55%),
+    radial-gradient(1100px 500px at 110% 110%, rgba(10, 10, 10, 0.04), transparent 60%),
+    linear-gradient(180deg, #F8F5EE 0%, #EFEAE0 100%);
   color: var(--text-primary);
 }
 
-/* Soften shadows in the light theme so cards feel premium-but-airy */
-html[data-theme="xpro"] .border-border { border-color: var(--border) !important; }
-html[data-theme="xpro"] .bg-background { background-color: var(--surface) !important; }
-html[data-theme="xpro"] .bg-surface { background-color: var(--surface-hover) !important; }
-html[data-theme="xpro"] .text-white { color: var(--text-primary) !important; }
-html[data-theme="xpro"] .label-eyebrow { color: var(--primary); }
-
-/* Diagonal "speed" backdrop visible only in light mode — adds the chamativo edge */
+/* Top racing stripe across the whole page */
 html[data-theme="xpro"] body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg,
+    var(--primary) 0%,
+    var(--primary) 40%,
+    #000 40%,
+    #000 60%,
+    var(--primary) 60%,
+    var(--primary) 100%);
+  z-index: 100;
+  pointer-events: none;
+}
+
+/* Diagonal speed-line backdrop (very subtle) */
+html[data-theme="xpro"] body::after {
   content: '';
   position: fixed;
   inset: 0;
   background-image: repeating-linear-gradient(
     115deg,
-    rgba(225, 29, 43, 0.03) 0,
-    rgba(225, 29, 43, 0.03) 1px,
+    rgba(225, 29, 43, 0.025) 0,
+    rgba(225, 29, 43, 0.025) 1px,
     transparent 1px,
-    transparent 38px
+    transparent 36px
   );
   pointer-events: none;
   z-index: 0;
+}
+
+/* SIDEBAR — keep it MATTE BLACK with red brand accents (signature X-Pro look) */
+html[data-theme="xpro"] aside {
+  background:
+    linear-gradient(180deg, #0A0A0A 0%, #181010 100%) !important;
+  border-right: 2px solid var(--primary) !important;
+  color: #F4F4F4;
+}
+html[data-theme="xpro"] aside p,
+html[data-theme="xpro"] aside button,
+html[data-theme="xpro"] aside span:not(.text-primary) {
+  color: inherit;
+}
+html[data-theme="xpro"] aside .text-white { color: #F4F4F4 !important; }
+html[data-theme="xpro"] aside .text-text-secondary,
+html[data-theme="xpro"] aside [class*="text-text-secondary"] {
+  color: rgba(244, 244, 244, 0.65) !important;
+}
+html[data-theme="xpro"] aside .border-border { border-color: #2A1818 !important; }
+html[data-theme="xpro"] aside .bg-surface { background-color: rgba(255, 255, 255, 0.04) !important; }
+html[data-theme="xpro"] aside .hover\:bg-surface:hover { background-color: rgba(255, 255, 255, 0.06) !important; }
+html[data-theme="xpro"] aside .hover\:text-white:hover { color: #FFFFFF !important; }
+html[data-theme="xpro"] aside button[data-testid^="nav-"]:not(.bg-primary) {
+  color: rgba(244, 244, 244, 0.72) !important;
+}
+
+/* MAIN CONTENT: white cards with bold red top stripe */
+html[data-theme="xpro"] main { position: relative; z-index: 1; }
+html[data-theme="xpro"] .bg-background { background-color: var(--surface) !important; }
+html[data-theme="xpro"] .bg-surface\/30 { background-color: rgba(255, 255, 255, 0.7) !important; }
+html[data-theme="xpro"] .bg-surface\/60 { background-color: rgba(255, 255, 255, 0.85) !important; }
+html[data-theme="xpro"] .bg-surface { background-color: var(--surface-hover) !important; }
+html[data-theme="xpro"] .border-border { border-color: var(--border) !important; }
+html[data-theme="xpro"] .text-white { color: var(--text-primary) !important; }
+
+/* KPI / stat cards — red top border + bold soft shadow (showroom card feel) */
+html[data-theme="xpro"] [data-testid^="stat-"] {
+  background: var(--surface) !important;
+  border-top: 3px solid var(--primary) !important;
+  box-shadow: 0 12px 28px -16px rgba(10, 10, 10, 0.18), 0 2px 4px rgba(10, 10, 10, 0.04);
+  transition: transform 200ms ease, box-shadow 200ms ease;
+}
+html[data-theme="xpro"] [data-testid^="stat-"]:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 36px -18px rgba(225, 29, 43, 0.25), 0 4px 8px rgba(10, 10, 10, 0.06);
+}
+
+/* HEADLINE bling — uppercase eyebrows in red, big black headers */
+html[data-theme="xpro"] .label-eyebrow { color: var(--primary) !important; letter-spacing: 0.22em; }
+html[data-theme="xpro"] h1, html[data-theme="xpro"] h2 { color: var(--text-primary); }
+
+/* Hero / overview banner — warm parchment with racing watermark */
+html[data-theme="xpro"] .bg-shield-watermark {
+  background-color: #FBF9F2 !important;
+  border: 1px solid var(--border) !important;
+  position: relative;
+}
+html[data-theme="xpro"] .bg-shield-watermark::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+}
+
+/* Diagonal racing stripes overlay (sport feel) inside hero */
+html[data-theme="xpro"] .bg-stripes-overlay {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0,
+    transparent 18px,
+    rgba(225, 29, 43, 0.05) 18px,
+    rgba(225, 29, 43, 0.05) 20px
+  );
+}
+
+/* Tables — clean white with red row hover */
+html[data-theme="xpro"] table { background-color: var(--surface) !important; }
+html[data-theme="xpro"] thead { background-color: #F1ECE0 !important; border-bottom: 2px solid var(--primary) !important; }
+html[data-theme="xpro"] tbody tr:hover { background-color: rgba(225, 29, 43, 0.04) !important; }
+
+/* Primary buttons — keep red but add subtle glow */
+html[data-theme="xpro"] .bg-primary { box-shadow: 0 4px 14px -4px rgba(225, 29, 43, 0.45); }
+
+/* Notebook paper (promo card) — keep the handwriting feel but warmer cream */
+html[data-theme="xpro"] .notebook-paper {
+  background-color: #FBF9F1 !important;
 }
 
 * {
