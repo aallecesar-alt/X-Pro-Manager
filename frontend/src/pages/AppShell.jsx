@@ -32,6 +32,23 @@ const STATUS_COLUMNS = [
   { id: "sold", color: "border-success" },
 ];
 
+// Finance partners (banks/lenders) we work with — shown when the user picks
+// "Finance" as the payment method on a sold vehicle. Order kept exactly as
+// requested by the dealership. "Outro" gives the user a fallback for any
+// less-common lender that isn't in the list yet.
+const FINANCE_BANKS = [
+  "Westlake Financial",
+  "Western Funding",
+  "United Auto Credit",
+  "Credit Acceptance Corporation",
+  "Lendbuzz Inc.",
+  "First Help Financial",
+  "Shoreham Bank",
+  "Capital One",
+  "DCU",
+  "Outro",
+];
+
 export default function AppShell() {
   const { t, lang, setLang } = useI18n();
   const { user, dealership, logout, refreshDealership, refreshUser } = useAuth();
@@ -2147,8 +2164,30 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
               <Input label={t("buyer_phone")} value={form.buyer_phone} set={(v) => set("buyer_phone", v)} testid="f-buyer-phone" />
               <Input label={t("buyer_email") || "Email do comprador"} type="email" value={form.buyer_email || ""} set={(v) => set("buyer_email", v)} testid="f-buyer-email" />
               <Input label={t("buyer_address") || "Endereço do comprador"} value={form.buyer_address || ""} set={(v) => set("buyer_address", v)} testid="f-buyer-address" />
-              <Input label={t("payment_method")} value={form.payment_method} set={(v) => set("payment_method", v)} testid="f-payment" />
-              <Input label={t("bank_name_label")} value={form.bank_name || ""} set={(v) => set("bank_name", v)} testid="f-bank" />
+              <SelectWithPlaceholder
+                label={t("payment_method")}
+                value={form.payment_method}
+                set={(v) => {
+                  set("payment_method", v);
+                  // Clear bank_name when switching away from Finance
+                  if (v !== "Finance") set("bank_name", "");
+                }}
+                placeholder={t("select_option") || "Selecione..."}
+                options={["Finance", "Cash", "Bank Check"]}
+                testid="f-payment"
+              />
+              {form.payment_method === "Finance" ? (
+                <SelectWithPlaceholder
+                  label={t("bank_name_label")}
+                  value={form.bank_name || ""}
+                  set={(v) => set("bank_name", v)}
+                  placeholder={t("select_bank") || "Selecione o banco..."}
+                  options={FINANCE_BANKS}
+                  testid="f-bank"
+                />
+              ) : (
+                <div /> /* placeholder spacer so grid stays aligned */
+              )}
             </div>
 
             {/* Sale breakdown: down payment + bank check − registration → final sold price */}
@@ -4055,6 +4094,28 @@ function Select({ label, value, set, options, testid }) {
     <div>
       <label className="label-eyebrow block mb-2">{label}</label>
       <select data-testid={testid} value={value} onChange={(e) => set(e.target.value)} className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-10 text-sm cursor-pointer">
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+}
+
+/**
+ * Select with a non-selectable placeholder ("Selecione...") shown when value
+ * is empty. Used for payment_method / bank_name so the user has to make an
+ * explicit choice instead of silently inheriting the first option.
+ */
+function SelectWithPlaceholder({ label, value, set, options, testid, placeholder }) {
+  return (
+    <div>
+      <label className="label-eyebrow block mb-2">{label}</label>
+      <select
+        data-testid={testid}
+        value={value || ""}
+        onChange={(e) => set(e.target.value)}
+        className={`w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-10 text-sm cursor-pointer ${value ? "" : "text-text-secondary"}`}
+      >
+        <option value="" disabled>{placeholder}</option>
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
       </select>
     </div>
