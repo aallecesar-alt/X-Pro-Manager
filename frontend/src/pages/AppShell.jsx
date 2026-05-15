@@ -2280,15 +2280,21 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
                   const final = dp + bc + ti - reg;
                   set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
                 }} testid="f-bank-check" />
-                <Input label={`🧾 ${t("registration_cost")}`} type="number" value={form.registration_cost ?? ""} set={(v) => {
-                  set("registration_cost", v);
-                  const reg = Number(v) || 0;
-                  const dp = Number(form.down_payment) || 0;
-                  const bc = Number(form.bank_check_amount) || 0;
-                  const ti = Number(form.trade_in_value) || 0;
-                  const final = dp + bc + ti - reg;
-                  set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
-                }} testid="f-registration" />
+                <RegistrationField
+                  t={t}
+                  value={form.registration_cost ?? ""}
+                  salePrice={form.sale_price}
+                  tradeInValue={form.trade_in_value}
+                  onChange={(v) => {
+                    set("registration_cost", v);
+                    const reg = Number(v) || 0;
+                    const dp = Number(form.down_payment) || 0;
+                    const bc = Number(form.bank_check_amount) || 0;
+                    const ti = Number(form.trade_in_value) || 0;
+                    const final = dp + bc + ti - reg;
+                    set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
+                  }}
+                />
               </div>
             </div>
 
@@ -4164,6 +4170,93 @@ function Select({ label, value, set, options, testid }) {
       <select data-testid={testid} value={value} onChange={(e) => set(e.target.value)} className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-10 text-sm cursor-pointer">
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
       </select>
+    </div>
+  );
+}
+
+// Massachusetts registration calculator constants. Hard-coded to match
+// Intercar's typical closing costs — kept simple so the owner can spot-check
+// against the receipt.
+const MA_REG = {
+  TAX_RATE: 0.0625,    // 6.25% sales tax
+  REGISTRATION: 60,
+  TITLE: 75,
+  RUNNER: 200,
+};
+
+/**
+ * Registration cost field with an auto-calculator. Computes the MA closing
+ * costs from sale_price minus the trade-in value (since trade-ins are tax
+ * exempt under MA law) and shows a friendly breakdown the user can click to
+ * accept. The user can still type a different number manually.
+ */
+function RegistrationField({ t, value, salePrice, tradeInValue, onChange }) {
+  const sp = Number(salePrice) || 0;
+  const ti = Number(tradeInValue) || 0;
+  const taxBase = Math.max(sp - ti, 0);
+  const tax = taxBase * MA_REG.TAX_RATE;
+  const suggested = tax + MA_REG.REGISTRATION + MA_REG.TITLE + MA_REG.RUNNER;
+  const suggestedRounded = Number(suggested.toFixed(2));
+  const current = Number(value) || 0;
+  const matches = Math.abs(current - suggestedRounded) < 0.01;
+  const canSuggest = sp > 0;
+
+  return (
+    <div>
+      <label className="label-eyebrow block mb-2">🧾 {t("registration_cost")}</label>
+      <input
+        data-testid="f-registration"
+        type="number"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-10 text-sm"
+      />
+      {canSuggest && (
+        <div
+          data-testid="reg-calc"
+          className={`mt-2 border text-[10px] ${matches ? "border-success/50 bg-success/[0.05]" : "border-border bg-surface/40"}`}
+        >
+          <div className="px-2 py-1.5 flex items-center justify-between gap-2 border-b border-border/60">
+            <span className="uppercase tracking-widest text-text-secondary font-display font-bold">
+              {t("reg_calc_title") || "Calculadora MA"}
+            </span>
+            {matches ? (
+              <span className="text-success font-display font-bold uppercase">✓ {t("reg_calc_applied") || "aplicada"}</span>
+            ) : (
+              <button
+                type="button"
+                data-testid="reg-calc-apply"
+                onClick={() => onChange(suggestedRounded)}
+                className="text-success hover:text-white hover:bg-success transition-colors px-2 py-0.5 border border-success/40 font-display font-bold uppercase tracking-wider"
+              >
+                {t("reg_calc_apply") || "Usar"} {formatCurrency(suggestedRounded)}
+              </button>
+            )}
+          </div>
+          <div className="px-2 py-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-text-secondary">
+            <span>{t("reg_calc_sale") || "Venda"}</span>
+            <span className="text-right text-white">{formatCurrency(sp)}</span>
+            {ti > 0 && (
+              <>
+                <span>− {t("reg_calc_trade_in") || "Troca"}</span>
+                <span className="text-right text-warning">−{formatCurrency(ti)}</span>
+                <span className="border-t border-border/60 pt-0.5">{t("reg_calc_taxable") || "Base tributável"}</span>
+                <span className="text-right text-white border-t border-border/60 pt-0.5 font-display font-bold">{formatCurrency(taxBase)}</span>
+              </>
+            )}
+            <span>{t("reg_calc_tax") || "Sales tax (6,25%)"}</span>
+            <span className="text-right text-white">{formatCurrency(tax)}</span>
+            <span>{t("reg_calc_reg_fee") || "Registration fee"}</span>
+            <span className="text-right text-white">{formatCurrency(MA_REG.REGISTRATION)}</span>
+            <span>{t("reg_calc_title_fee") || "Title fee"}</span>
+            <span className="text-right text-white">{formatCurrency(MA_REG.TITLE)}</span>
+            <span>{t("reg_calc_runner_fee") || "Runner fee"}</span>
+            <span className="text-right text-white">{formatCurrency(MA_REG.RUNNER)}</span>
+            <span className="font-display font-bold text-success border-t border-success/30 pt-0.5">{t("reg_calc_total") || "Total sugerido"}</span>
+            <span className="text-right font-display font-bold text-success border-t border-success/30 pt-0.5">{formatCurrency(suggestedRounded)}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
