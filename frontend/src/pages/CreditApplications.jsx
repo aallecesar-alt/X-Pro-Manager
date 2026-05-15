@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { FileText, Search, Eye, Trash2, X, Phone, Mail, Calendar, MapPin, Briefcase, DollarSign, FileSignature, Copy, Check } from "lucide-react";
+import { FileText, Search, Eye, Trash2, X, Phone, Mail, Calendar, MapPin, Briefcase, DollarSign, FileSignature, Copy, Check, Printer } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -251,6 +251,19 @@ function ApplicationModal({ app, onClose, onChange }) {
     } finally { setBusy(false); }
   };
 
+  const onPrint = async () => {
+    setBusy(true);
+    try {
+      const res = await api.get(`/applications/${app.id}/pdf`, { responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+      window.open(url, "_blank");
+      // Give the new tab a moment to consume the blob before revoking.
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Erro ao gerar PDF");
+    } finally { setBusy(false); }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-8 px-4">
       <div className="bg-background border border-border w-full max-w-3xl">
@@ -370,14 +383,24 @@ function ApplicationModal({ app, onClose, onChange }) {
               </button>
             ))}
           </div>
-          <button
-            data-testid="app-delete"
-            onClick={onDelete}
-            disabled={busy}
-            className="border border-border hover:border-primary hover:text-primary px-4 h-9 inline-flex items-center gap-2 text-[11px] font-display font-bold uppercase tracking-widest"
-          >
-            <Trash2 size={13} /> Excluir
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              data-testid="app-print"
+              onClick={onPrint}
+              disabled={busy}
+              className="border border-success/40 bg-success/10 text-success hover:bg-success hover:text-white px-4 h-9 inline-flex items-center gap-2 text-[11px] font-display font-bold uppercase tracking-widest transition-colors disabled:opacity-50"
+            >
+              <Printer size={13} /> Imprimir aplicação
+            </button>
+            <button
+              data-testid="app-delete"
+              onClick={onDelete}
+              disabled={busy}
+              className="border border-border hover:border-primary hover:text-primary px-4 h-9 inline-flex items-center gap-2 text-[11px] font-display font-bold uppercase tracking-widest"
+            >
+              <Trash2 size={13} /> Excluir
+            </button>
+          </div>
         </div>
       </div>
     </div>

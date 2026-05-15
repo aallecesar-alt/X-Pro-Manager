@@ -5541,6 +5541,35 @@ async def get_application(aid: str, current: dict = Depends(get_current_user)):
     return _application_to_view(app_doc, masked=masked)
 
 
+@api_router.get("/applications/{aid}/pdf")
+async def get_application_pdf(aid: str, current: dict = Depends(get_current_user)):
+    """Render a printable PDF of a customer's submitted credit application."""
+    from fastapi.responses import Response as _Resp
+    from credit_application_pdf import render_credit_application
+
+    require_tab(current, "applications")
+    app_doc = await db.applications.find_one(
+        {"id": aid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not app_doc:
+        raise HTTPException(404, "Application not found")
+
+    store = await _receipt_store_for_pdf(current["dealership_id"])
+    dlr = await db.dealerships.find_one(
+        {"id": current["dealership_id"]}, {"_id": 0, "name": 1}
+    ) or {}
+    if dlr.get("name"):
+        store["name"] = dlr["name"]
+
+    pdf_bytes = render_credit_application(app_doc, store=store)
+    safe = (app_doc.get("full_name") or aid[:8]).replace(" ", "-")[:40]
+    return _Resp(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="credit-application-{safe}.pdf"'},
+    )
+
+
 @api_router.put("/applications/{aid}/status")
 async def update_application_status(
     aid: str,
