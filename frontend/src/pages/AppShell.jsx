@@ -2266,76 +2266,32 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
                   set("down_payment", v);
                   const dp = Number(v) || 0;
                   const bc = Number(form.bank_check_amount) || 0;
-                  const ti = Number(form.trade_in_value) || 0;
                   const reg = Number(form.registration_cost) || 0;
-                  const final = dp + bc + ti - reg;
+                  const final = dp + bc - reg;
                   set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
                 }} testid="f-down-payment" />
                 <Input label={`🏦 ${t("bank_check_amount")}`} type="number" value={form.bank_check_amount ?? ""} set={(v) => {
                   set("bank_check_amount", v);
                   const bc = Number(v) || 0;
                   const dp = Number(form.down_payment) || 0;
-                  const ti = Number(form.trade_in_value) || 0;
                   const reg = Number(form.registration_cost) || 0;
-                  const final = dp + bc + ti - reg;
+                  const final = dp + bc - reg;
                   set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
                 }} testid="f-bank-check" />
                 <RegistrationField
                   t={t}
                   value={form.registration_cost ?? ""}
                   salePrice={form.sale_price}
-                  tradeInValue={form.trade_in_value}
                   onChange={(v) => {
                     set("registration_cost", v);
                     const reg = Number(v) || 0;
                     const dp = Number(form.down_payment) || 0;
                     const bc = Number(form.bank_check_amount) || 0;
-                    const ti = Number(form.trade_in_value) || 0;
-                    const final = dp + bc + ti - reg;
+                    const final = dp + bc - reg;
                     set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
                   }}
                 />
               </div>
-            </div>
-
-            {/* TRADE-IN (Veículo na troca) — auto-creates a new stock vehicle on save */}
-            <div data-testid="trade-in-section" className="bg-warning/5 border border-warning/30 p-4 space-y-3">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <p className="label-eyebrow text-warning">🔄 Veículo na troca</p>
-                {Number(form.trade_in_value) > 0 && (
-                  <p className="text-[10px] uppercase tracking-widest text-text-secondary">
-                    Soma como pagamento → vai pro estoque após salvar
-                  </p>
-                )}
-                {form.trade_in_vehicle_id && (
-                  <span className="text-[10px] uppercase tracking-widest px-2 py-0.5 border border-success text-success bg-success/10 inline-flex items-center gap-1">
-                    <Check size={10} /> Já no estoque
-                  </span>
-                )}
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <Input label="Marca" value={form.trade_in_make || ""} set={(v) => set("trade_in_make", v)} testid="f-ti-make" />
-                <Input label="Modelo" value={form.trade_in_model || ""} set={(v) => set("trade_in_model", v)} testid="f-ti-model" />
-                <Input label="Ano" type="number" value={form.trade_in_year || ""} set={(v) => set("trade_in_year", v)} testid="f-ti-year" />
-                <Input label="💰 Valor avaliado" type="number" value={form.trade_in_value ?? ""} set={(v) => {
-                  set("trade_in_value", v);
-                  const ti = Number(v) || 0;
-                  const dp = Number(form.down_payment) || 0;
-                  const bc = Number(form.bank_check_amount) || 0;
-                  const reg = Number(form.registration_cost) || 0;
-                  const final = dp + bc + ti - reg;
-                  set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
-                }} testid="f-ti-value" />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Input label="Saldo devedor no banco" type="number" value={form.trade_in_payoff_amount ?? ""} set={(v) => set("trade_in_payoff_amount", v)} testid="f-ti-payoff" />
-                <Input label="Banco financiador" value={form.trade_in_payoff_bank || ""} set={(v) => set("trade_in_payoff_bank", v)} testid="f-ti-payoff-bank" />
-              </div>
-              {Number(form.trade_in_payoff_amount) > 0 && (
-                <p className="text-[11px] text-text-secondary italic">
-                  ⚠️ A quitação de R$ {Number(form.trade_in_payoff_amount).toLocaleString("pt-BR")} será lançada automaticamente como despesa do veículo no estoque.
-                </p>
-              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -4186,14 +4142,13 @@ const MA_REG = {
 
 /**
  * Registration cost field with an auto-calculator. Computes the MA closing
- * costs from sale_price minus the trade-in value (since trade-ins are tax
- * exempt under MA law) and shows a friendly breakdown the user can click to
- * accept. The user can still type a different number manually.
+ * costs (sales tax + reg/title/runner fees) from the sale price and shows a
+ * friendly breakdown the user can click to accept. The user can still type
+ * a different number manually.
  */
-function RegistrationField({ t, value, salePrice, tradeInValue, onChange }) {
+function RegistrationField({ t, value, salePrice, onChange }) {
   const sp = Number(salePrice) || 0;
-  const ti = Number(tradeInValue) || 0;
-  const taxBase = Math.max(sp - ti, 0);
+  const taxBase = Math.max(sp, 0);
   const tax = taxBase * MA_REG.TAX_RATE;
   const suggested = tax + MA_REG.REGISTRATION + MA_REG.TITLE + MA_REG.RUNNER;
   const suggestedRounded = Number(suggested.toFixed(2));
@@ -4236,14 +4191,6 @@ function RegistrationField({ t, value, salePrice, tradeInValue, onChange }) {
           <div className="px-2 py-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-text-secondary">
             <span>{t("reg_calc_sale") || "Venda"}</span>
             <span className="text-right text-white">{formatCurrency(sp)}</span>
-            {ti > 0 && (
-              <>
-                <span>− {t("reg_calc_trade_in") || "Troca"}</span>
-                <span className="text-right text-warning">−{formatCurrency(ti)}</span>
-                <span className="border-t border-border/60 pt-0.5">{t("reg_calc_taxable") || "Base tributável"}</span>
-                <span className="text-right text-white border-t border-border/60 pt-0.5 font-display font-bold">{formatCurrency(taxBase)}</span>
-              </>
-            )}
             <span>{t("reg_calc_tax") || "Sales tax (6,25%)"}</span>
             <span className="text-right text-white">{formatCurrency(tax)}</span>
             <span>{t("reg_calc_reg_fee") || "Registration fee"}</span>
