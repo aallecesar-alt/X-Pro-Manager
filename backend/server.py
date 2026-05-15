@@ -1756,6 +1756,32 @@ def _extract_vehicles_from_listing(html_text: str, base_url: str):
                     price = v
             except Exception:
                 pass
+        # Try to find mileage near the link (within parent). Same heuristics
+        # used by /vehicles/import-url, but limited to the card's own text.
+        mileage = 0
+        for mi_m in _re.finditer(
+            r"(?<![$\d])(\d[\d,]{2,8})\s*(?:miles?|mi)(?![A-Za-z])",
+            parent_text or "", flags=_re.IGNORECASE,
+        ):
+            try:
+                n = int(mi_m.group(1).replace(",", ""))
+                if 100 <= n <= 999_999:
+                    mileage = n
+                    break
+            except Exception:
+                continue
+        if not mileage:
+            lab = _re.search(
+                r"(?:Mileage|Odometer|Miles)\s*[:#]?\s*(\d[\d,]{0,8})",
+                parent_text or "", flags=_re.IGNORECASE,
+            )
+            if lab:
+                try:
+                    n = int(lab.group(1).replace(",", ""))
+                    if 100 <= n <= 999_999:
+                        mileage = n
+                except Exception:
+                    pass
         # Try to extract year/make/model from the slug ('used-2019-honda-civic')
         slug_m = _re.search(r"/details/(?:new-|used-)?(\d{4})-([a-z0-9-]+)", href.lower())
         year = int(slug_m.group(1)) if slug_m else None
@@ -1774,6 +1800,7 @@ def _extract_vehicles_from_listing(html_text: str, base_url: str):
             "make": make,
             "model": model,
             "price": price,
+            "mileage": mileage,
         })
         if len(items) >= 200:
             break
@@ -2026,6 +2053,91 @@ async def import_vehicle_from_url(payload: dict, current: dict = Depends(get_cur
     if vin_m:
         vin = vin_m.group(1)
 
+    # ----------------------------------------------------------------
+    # Mileage extraction — three strategies (most reliable first):
+    # 1) JSON-LD (schema.org/Vehicle): {"mileageFromOdometer":{"value":12345}}
+    # 2) Microdata: <... itemprop="mileageFromOdometer" content="12345">
+    # 3) Visible text patterns: "12,345 mi", "Mileage: 12,345", "12345 miles"
+    # ----------------------------------------------------------------
+    mileage = 0
+    # Strategy 1: JSON-LD
+    try:
+        import json as _json
+        for script in soup.find_all("script", {"type": "application/ld+json"}):
+            raw = (script.string or script.get_text() or "").strip()
+            if not raw:
+                continue
+            try:
+                data = _json.loads(raw)
+            except Exception:
+                continue
+            # Could be a list or single object
+            candidates_ld = data if isinstance(data, list) else [data]
+            for obj in candidates_ld:
+                if not isinstance(obj, dict):
+                    continue
+                # Vehicle schema usually nests mileageFromOdometer
+                mfo = obj.get("mileageFromOdometer") or obj.get("mileage")
+                if isinstance(mfo, dict):
+                    val = mfo.get("value") or mfo.get("numberOfPieces")
+                elif isinstance(mfo, (int, float, str)):
+                    val = mfo
+                else:
+                    val = None
+                if val:
+                    try:
+                        n = int(float(str(val).replace(",", "").replace(" miles", "").replace(" mi", "")))
+                        if 1 <= n <= 999_999:
+                            mileage = n
+                            break
+                    except Exception:
+                        pass
+            if mileage:
+                break
+    except Exception:
+        pass
+
+    # Strategy 2: Microdata
+    if not mileage:
+        mi_tag = soup.find(attrs={"itemprop": "mileageFromOdometer"})
+        if mi_tag:
+            raw = mi_tag.get("content") or mi_tag.get_text(" ", strip=True)
+            mi_m = _re.search(r"(\d[\d,]*)", raw or "")
+            if mi_m:
+                try:
+                    n = int(mi_m.group(1).replace(",", ""))
+                    if 1 <= n <= 999_999:
+                        mileage = n
+                except Exception:
+                    pass
+
+    # Strategy 3: Visible text regex — pick a typical-range candidate.
+    # Look for "12,345 miles", "12345 mi", "Mileage: 12,345", "Odometer 12,345"
+    if not mileage:
+        text_blob = soup.get_text(" ", strip=True)
+        # Patterns with explicit label first (more reliable)
+        labeled = _re.findall(
+            r"(?:Mileage|Odometer|Miles)\s*[:#]?\s*(\d[\d,]{0,8})",
+            text_blob, flags=_re.IGNORECASE,
+        )
+        # Then patterns like "12,345 mi" / "12,345 miles" (ensure not preceded by $)
+        trailing = _re.findall(
+            r"(?<![$\d])(\d[\d,]{2,8})\s*(?:miles?|mi)(?![A-Za-z])",
+            text_blob, flags=_re.IGNORECASE,
+        )
+        all_candidates = []
+        for raw in labeled + trailing:
+            try:
+                n = int(raw.replace(",", ""))
+                if 100 <= n <= 999_999:  # plausible odometer reading
+                    all_candidates.append(n)
+            except Exception:
+                continue
+        if all_candidates:
+            # Most-common candidate (mode); ties resolved by first occurrence
+            from collections import Counter as _Counter
+            mileage = _Counter(all_candidates).most_common(1)[0][0]
+
     return {
         "extracted": {
             "image": image or "",
@@ -2037,6 +2149,7 @@ async def import_vehicle_from_url(payload: dict, current: dict = Depends(get_cur
             "model": model,
             "price": price,
             "vin": vin,
+            "mileage": mileage,
             "source_url": url,
         }
     }

@@ -63,6 +63,7 @@ export default function ImportInventoryPageModal({ t, onClose, onImported }) {
           year: x.year || it.year || new Date().getFullYear(),
           color: "",
           vin: x.vin || "",
+          mileage: x.mileage || it.mileage || 0,
           purchase_price: 0,
           sale_price: x.price || it.price || 0,
           expenses: 0,

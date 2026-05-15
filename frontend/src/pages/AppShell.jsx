@@ -2043,6 +2043,7 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
   const isEdit = !!vehicle;
   const initial = vehicle || {
     make: prefill?.make || "", model: prefill?.model || "", year: prefill?.year || 2024, color: "", vin: prefill?.vin || "",
+    mileage: prefill?.mileage || 0,
     transmission: "Automatic", fuel_type: "Gasoline", body_type: "Sedan",
     purchase_price: 0, sale_price: prefill?.price || 0, expenses: 0, description: prefill?.description || "",
     images: [], status: "in_stock", buyer_name: "", buyer_phone: "", buyer_email: "", buyer_address: "", payment_method: "", sold_price: 0, bank_name: "",
@@ -2061,7 +2062,7 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const numFields = [
-    "year", "purchase_price", "sale_price", "expenses", "sold_price", "commission_amount",
+    "year", "mileage", "purchase_price", "sale_price", "expenses", "sold_price", "commission_amount",
     // sold-financing breakdown — must be numeric so deletes (empty string) save as 0
     "down_payment", "bank_check_amount", "registration_cost",
     "trade_in_year", "trade_in_value", "trade_in_payoff_amount",
@@ -2121,6 +2122,7 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
           <Input label={t("year")} type="number" value={form.year} set={(v) => set("year", v)} testid="f-year" required />
           <Input label={t("color")} value={form.color} set={(v) => set("color", v)} testid="f-color" />
           <Input label={t("vin")} value={form.vin} set={(v) => set("vin", v)} testid="f-vin" />
+          <Input label={t("mileage")} type="number" value={form.mileage ?? 0} set={(v) => set("mileage", v)} testid="f-mileage" />
           <Select label={t("transmission")} value={form.transmission} set={(v) => set("transmission", v)} options={["Automatic", "Manual"]} testid="f-trans" />
           <Select label={t("fuel_type")} value={form.fuel_type} set={(v) => set("fuel_type", v)} options={["Gasoline", "Diesel", "Hybrid", "Electric", "Flex"]} testid="f-fuel" />
           <Select label={t("body_type")} value={form.body_type} set={(v) => set("body_type", v)} options={["Sedan", "SUV", "Truck", "Coupe", "Hatch", "Convertible", "Wagon", "Van"]} testid="f-body" />
@@ -4009,6 +4011,7 @@ function ImportUrlModal({ t, onClose, onImported }) {
                   <p className="font-display font-bold mb-1 truncate">{preview.title || "—"}</p>
                   {preview.year ? <p className="text-text-secondary">{preview.year} {preview.make} {preview.model}</p> : null}
                   {preview.price ? <p className="font-display font-bold text-primary">{formatCurrency(preview.price)}</p> : null}
+                  {preview.mileage ? <p className="text-xs text-success font-display font-bold inline-flex items-center gap-1"><Gauge size={11} /> {preview.mileage.toLocaleString()} mi</p> : null}
                   {preview.vin ? <p className="text-xs text-text-secondary font-mono">VIN {preview.vin}</p> : null}
                   {preview.images?.length > 1 ? (
                     <p className="text-xs text-success">{preview.images.length} {t("photos_imported")}</p>
