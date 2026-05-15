@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Car, LayoutDashboard, Package, TrendingUp, TrendingDown, Truck, Users, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks, HandCoins, Printer, Flame, Timer, Activity, Star, ArrowUpRight, ArrowDownRight, Award, BarChart3, Gem, Hourglass, ClipboardList, Gauge } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, TrendingDown, Truck, Users, User, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks, HandCoins, Printer, Flame, Timer, Activity, Star, ArrowUpRight, ArrowDownRight, Award, BarChart3, Gem, Hourglass, ClipboardList, Gauge } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import VehicleScheduleModal from "@/components/VehicleScheduleModal";
@@ -1516,17 +1516,85 @@ function Pipeline({ vehicles, t, onMove, onEdit, onHistory }) {
                   const balance = Math.max(agreed - paid, 0);
                   const fullyPaid = agreed > 0 && balance <= 0;
                   const pct = agreed > 0 ? Math.min(100, Math.round((paid / agreed) * 100)) : 0;
+                  // Sold-card identifiers: pick a thumbnail, format date and
+                  // last-4 of VIN to make near-duplicate cars (same year/model)
+                  // visually unique.
+                  const thumb = (v.images && v.images[0]) || v.image || null;
+                  const vinTail = v.vin ? String(v.vin).slice(-6).toUpperCase() : "";
+                  const soldDate = v.sold_date
+                    ? new Date(v.sold_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
+                    : null;
                   return (
-                    <div key={v.id} data-testid={`card-${v.id}`} className="bg-background border border-border p-3 hover:border-primary transition-colors">
-                      <p className="font-display font-bold text-sm">{v.make} {v.model}</p>
-                      <p className="text-xs text-text-secondary mb-3">{v.year} · {v.plate || v.color}</p>
-                      <p className="font-display font-bold text-primary">{formatCurrency(v.sale_price)}</p>
-                      {isSold && v.sold_price > 0 && <p className="text-xs text-success mt-1">→ {formatCurrency(v.sold_price)}</p>}
+                    <div key={v.id} data-testid={`card-${v.id}`} className="bg-background border border-border hover:border-primary transition-colors">
+                      {isSold ? (
+                        <>
+                          {/* SOLD card — buyer-centric layout with thumbnail */}
+                          <div className="p-3 flex gap-3">
+                            {thumb ? (
+                              <img
+                                src={thumb}
+                                alt=""
+                                className="w-16 h-16 object-cover border border-border shrink-0"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className="w-16 h-16 grid place-items-center bg-surface border border-border text-text-secondary shrink-0">
+                                <Car size={20} />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="font-display font-bold text-sm truncate">{v.make} {v.model}</p>
+                              <p className="text-[10px] text-text-secondary truncate">
+                                {v.year}
+                                {v.color ? <> · {v.color}</> : null}
+                                {vinTail ? <> · <span className="font-mono">{vinTail}</span></> : null}
+                              </p>
+                              {v.buyer_name && (
+                                <p
+                                  className="text-xs text-success font-display font-bold mt-1 truncate inline-flex items-center gap-1"
+                                  data-testid={`buyer-${v.id}`}
+                                  title={v.buyer_name}
+                                >
+                                  <User size={10} className="shrink-0" /> {v.buyer_name}
+                                </p>
+                              )}
+                              <div className="mt-1 flex items-baseline justify-between gap-2">
+                                <p className="font-display font-bold text-primary text-sm">{formatCurrency(v.sold_price || v.sale_price)}</p>
+                                {soldDate && (
+                                  <span className="text-[9px] uppercase tracking-widest text-text-secondary font-display font-bold">
+                                    {soldDate}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          {v.bank_name || v.payment_method ? (
+                            <div className="px-3 pb-2 flex flex-wrap gap-1.5">
+                              {v.payment_method && (
+                                <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 bg-surface border border-border text-text-secondary">
+                                  {v.payment_method}
+                                </span>
+                              )}
+                              {v.bank_name && (
+                                <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 bg-primary/10 border border-primary/30 text-primary">
+                                  {v.bank_name}
+                                </span>
+                              )}
+                            </div>
+                          ) : null}
+                        </>
+                      ) : (
+                        <div className="p-3">
+                          <p className="font-display font-bold text-sm">{v.make} {v.model}</p>
+                          <p className="text-xs text-text-secondary mb-3">{v.year} · {v.plate || v.color}</p>
+                          <p className="font-display font-bold text-primary">{formatCurrency(v.sale_price)}</p>
+                        </div>
+                      )}
 
                       {/* Down-payment progress (only for sold vehicles with an agreed entrada) */}
                       {showDpStatus && (
                         <div
-                          className={`mt-3 px-2 py-2 border ${fullyPaid ? "border-success/50 bg-success/[0.06]" : "border-warning/40 bg-warning/[0.05]"}`}
+                          className={`mx-3 mb-2 px-2 py-2 border ${fullyPaid ? "border-success/50 bg-success/[0.06]" : "border-warning/40 bg-warning/[0.05]"}`}
                           data-testid={`dp-status-${v.id}`}
                         >
                           <div className="flex items-center justify-between mb-1.5">
@@ -1566,7 +1634,7 @@ function Pipeline({ vehicles, t, onMove, onEdit, onHistory }) {
                         </div>
                       )}
 
-                      <div className="mt-3 flex gap-1 flex-wrap">
+                      <div className="px-3 pb-3 flex gap-1 flex-wrap">
                         {STATUS_COLUMNS.filter((c) => c.id !== v.status).map((c) => (
                           <button
                             key={c.id}
