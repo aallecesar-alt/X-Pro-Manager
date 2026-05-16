@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Car, LayoutDashboard, Package, TrendingUp, TrendingDown, Truck, Users, User, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks, HandCoins, Printer, Flame, Timer, Activity, Star, ArrowUpRight, ArrowDownRight, Award, BarChart3, Gem, Hourglass, ClipboardList, Gauge } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, TrendingDown, Truck, Users, User, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks, HandCoins, Printer, Flame, Timer, Activity, Star, ArrowUpRight, ArrowDownRight, Award, BarChart3, Gem, Hourglass, ClipboardList, Gauge, Sun, Moon } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import VehicleScheduleModal from "@/components/VehicleScheduleModal";
@@ -58,18 +58,36 @@ export default function AppShell() {
   const isManager = user?.role === "gerente";
   const isStaff = isOwner || isManager;
 
-  // Apply per-dealership theme (set in Settings → Perfil da Loja).
-  // Allowed values: "showroom" (light/cream automotive style) or empty/null (default dark).
+  // Per-user day/night toggle. "auto" = follow the dealership preference,
+  // "light" forces the showroom theme, "dark" forces the dark default.
+  // Persisted in localStorage scoped by user id so different staff members
+  // can pick their own preference without affecting each other.
+  const themeStorageKey = user?.id ? `theme_mode_${user.id}` : "theme_mode_anon";
+  const [themeMode, setThemeMode] = useState(() => {
+    if (typeof window === "undefined") return "auto";
+    return localStorage.getItem(themeStorageKey) || "auto";
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(themeStorageKey, themeMode);
+    }
+  }, [themeMode, themeStorageKey]);
+
+  // Apply theme based on user choice (falls back to the dealership preference).
   useEffect(() => {
     const root = document.documentElement;
-    const explicit = (dealership?.theme || "").toLowerCase();
-    if (explicit === "showroom") {
+    const dealershipTheme = (dealership?.theme || "").toLowerCase();
+    let resolved = dealershipTheme; // when themeMode === "auto"
+    if (themeMode === "light") resolved = "showroom";
+    else if (themeMode === "dark") resolved = "";
+    if (resolved === "showroom") {
       root.setAttribute("data-theme", "showroom");
     } else {
       root.removeAttribute("data-theme");
     }
     return () => root.removeAttribute("data-theme");
-  }, [dealership?.theme]);
+  }, [dealership?.theme, themeMode]);
   const [tab, setTab] = useState("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false); // mobile drawer state
   // Desktop: when the user collapses the sidebar it shows only icons. Hover
@@ -339,6 +357,45 @@ export default function AppShell() {
         </nav>
 
         <div className={`border-t border-border space-y-3 ${sidebarExpanded ? "p-3" : "p-2"}`}>
+          {/* Day/Night theme toggle — overrides the dealership preference per user */}
+          <button
+            data-testid="theme-toggle"
+            onClick={() => {
+              setThemeMode((prev) => {
+                // 3-state cycle: auto → light → dark → auto
+                if (prev === "auto") return "light";
+                if (prev === "light") return "dark";
+                return "auto";
+              });
+            }}
+            title={
+              themeMode === "auto"
+                ? (t("theme_auto") || "Automático (segue a loja)")
+                : themeMode === "light"
+                  ? (t("theme_day") || "Modo dia (claro)")
+                  : (t("theme_night") || "Modo noite (escuro)")
+            }
+            className={`w-full flex items-center text-xs text-text-secondary hover:text-primary transition-colors ${
+              sidebarExpanded ? "gap-2 px-4 py-2" : "justify-center px-2 py-2"
+            }`}
+          >
+            {themeMode === "light" ? (
+              <Sun size={14} className="text-warning" />
+            ) : themeMode === "dark" ? (
+              <Moon size={14} className="text-info" />
+            ) : (
+              <Sun size={14} className="opacity-60" />
+            )}
+            {sidebarExpanded && (
+              <span className="font-display font-bold uppercase tracking-widest">
+                {themeMode === "auto"
+                  ? (t("theme_auto_short") || "Auto")
+                  : themeMode === "light"
+                    ? (t("theme_day_short") || "Dia")
+                    : (t("theme_night_short") || "Noite")}
+              </span>
+            )}
+          </button>
           {sidebarExpanded && (
             <div className="flex gap-1" data-testid="lang-switcher-shell">
               {LANG_OPTIONS.map((l) => (
