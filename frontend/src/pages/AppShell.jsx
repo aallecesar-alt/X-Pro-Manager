@@ -2315,40 +2315,69 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
               )}
             </div>
 
-            {/* Sale breakdown: down payment + bank check − registration → final sold price */}
+            {/* Sale breakdown — fields shown depend on the payment method.
+                Finance: down payment + bank check − registration → final sold price (auto)
+                Cash / Bank Check: customer paid the full amount in one shot, so we
+                only ask for the final sold price + registration cost. */}
             <div className="bg-success/5 border border-success/30 p-4 space-y-3">
               <p className="label-eyebrow text-success">{t("sale_breakdown")}</p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <Input label={`💵 ${t("down_payment")}`} type="number" value={form.down_payment ?? ""} set={(v) => {
-                  set("down_payment", v);
-                  const dp = Number(v) || 0;
-                  const bc = Number(form.bank_check_amount) || 0;
-                  const reg = Number(form.registration_cost) || 0;
-                  const final = dp + bc - reg;
-                  set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
-                }} testid="f-down-payment" />
-                <Input label={`🏦 ${t("bank_check_amount")}`} type="number" value={form.bank_check_amount ?? ""} set={(v) => {
-                  set("bank_check_amount", v);
-                  const bc = Number(v) || 0;
-                  const dp = Number(form.down_payment) || 0;
-                  const reg = Number(form.registration_cost) || 0;
-                  const final = dp + bc - reg;
-                  set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
-                }} testid="f-bank-check" />
-                <RegistrationField
-                  t={t}
-                  value={form.registration_cost ?? ""}
-                  salePrice={form.sale_price}
-                  onChange={(v) => {
-                    set("registration_cost", v);
-                    const reg = Number(v) || 0;
-                    const dp = Number(form.down_payment) || 0;
+              {form.payment_method === "Finance" ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <Input label={`💵 ${t("down_payment")}`} type="number" value={form.down_payment ?? ""} set={(v) => {
+                    set("down_payment", v);
+                    const dp = Number(v) || 0;
                     const bc = Number(form.bank_check_amount) || 0;
+                    const reg = Number(form.registration_cost) || 0;
                     const final = dp + bc - reg;
                     set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
-                  }}
-                />
-              </div>
+                  }} testid="f-down-payment" />
+                  <Input label={`🏦 ${t("bank_check_amount")}`} type="number" value={form.bank_check_amount ?? ""} set={(v) => {
+                    set("bank_check_amount", v);
+                    const bc = Number(v) || 0;
+                    const dp = Number(form.down_payment) || 0;
+                    const reg = Number(form.registration_cost) || 0;
+                    const final = dp + bc - reg;
+                    set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
+                  }} testid="f-bank-check" />
+                  <RegistrationField
+                    t={t}
+                    value={form.registration_cost ?? ""}
+                    salePrice={form.sale_price}
+                    onChange={(v) => {
+                      set("registration_cost", v);
+                      const reg = Number(v) || 0;
+                      const dp = Number(form.down_payment) || 0;
+                      const bc = Number(form.bank_check_amount) || 0;
+                      const final = dp + bc - reg;
+                      set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
+                    }}
+                  />
+                </div>
+              ) : (
+                // Cash / Bank Check / nothing selected yet: just the sold price + registration.
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <Input
+                    label={`💵 ${t("sold_price")}`}
+                    type="number"
+                    value={form.sold_price ?? ""}
+                    set={(v) => {
+                      // Clear down_payment + bank_check_amount when staying in cash/check flow
+                      // so the sold_price field stays the single source of truth (no stale data
+                      // from a previous "Finance" entry).
+                      set("sold_price", v);
+                      if (form.down_payment) set("down_payment", 0);
+                      if (form.bank_check_amount) set("bank_check_amount", 0);
+                    }}
+                    testid="f-sold-price"
+                  />
+                  <RegistrationField
+                    t={t}
+                    value={form.registration_cost ?? ""}
+                    salePrice={form.sale_price}
+                    onChange={(v) => set("registration_cost", v)}
+                  />
+                </div>
+              )}
             </div>
 
             {/* TRADE-IN (Veículo na troca) — auto-creates a new stock vehicle on save */}
