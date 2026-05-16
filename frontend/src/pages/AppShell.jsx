@@ -2303,9 +2303,26 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
                 label={t("payment_method")}
                 value={form.payment_method}
                 set={(v) => {
+                  const prev = form.payment_method;
                   set("payment_method", v);
                   // Clear bank_name when switching away from Finance
                   if (v !== "Finance") set("bank_name", "");
+                  // When switching FROM Finance to Cash/Bank Check, the Finance
+                  // formula may have left sold_price at 0 (because dp+bc weren't
+                  // filled). Auto-populate from sale_price so the user sees
+                  // something sensible instead of an empty box.
+                  if (prev === "Finance" && v !== "Finance") {
+                    const cur = Number(form.sold_price) || 0;
+                    if (cur === 0) {
+                      const sp = Number(form.sale_price) || 0;
+                      const reg = Number(form.registration_cost) || 0;
+                      const base = sp + (form.registration_in_price ? reg : 0);
+                      set("sold_price", Number(base.toFixed(2)));
+                    }
+                    // Also clear dp/bc since they don't apply to Cash/BC.
+                    if (form.down_payment) set("down_payment", 0);
+                    if (form.bank_check_amount) set("bank_check_amount", 0);
+                  }
                 }}
                 placeholder={t("select_option") || "Selecione..."}
                 options={["Finance", "Cash", "Bank Check"]}
@@ -2338,9 +2355,11 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
                     const dp = Number(v) || 0;
                     const bc = Number(form.bank_check_amount) || 0;
                     const reg = Number(form.registration_cost) || 0;
-                    // When registration is included in the car price, it stays in sold_price (no subtraction).
-                    // When passthrough, deduct it because dp+bc already paid for reg separately.
-                    const final = dp + bc - (form.registration_in_price ? 0 : reg);
+                    // dp + bc represent the raw car payment. When registration
+                    // is included in the price (dealer absorbs it), add it on
+                    // top so the gross sold_price reflects what the customer
+                    // effectively paid for the deal.
+                    const final = dp + bc + (form.registration_in_price ? reg : 0);
                     set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
                   }} testid="f-down-payment" />
                   <Input label={`🏦 ${t("bank_check_amount")}`} type="number" value={form.bank_check_amount ?? ""} set={(v) => {
@@ -2348,7 +2367,7 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
                     const bc = Number(v) || 0;
                     const dp = Number(form.down_payment) || 0;
                     const reg = Number(form.registration_cost) || 0;
-                    const final = dp + bc - (form.registration_in_price ? 0 : reg);
+                    const final = dp + bc + (form.registration_in_price ? reg : 0);
                     set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
                   }} testid="f-bank-check" />
                   <RegistrationField
@@ -2361,7 +2380,7 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
                       const dp = Number(form.down_payment) || 0;
                       const bc = Number(form.bank_check_amount) || 0;
                       const reg = Number(form.registration_cost) || 0;
-                      const final = dp + bc - (v ? 0 : reg);
+                      const final = dp + bc + (v ? reg : 0);
                       set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
                     }}
                     onChange={(v) => {
@@ -2369,7 +2388,7 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
                       const reg = Number(v) || 0;
                       const dp = Number(form.down_payment) || 0;
                       const bc = Number(form.bank_check_amount) || 0;
-                      const final = dp + bc - (form.registration_in_price ? 0 : reg);
+                      const final = dp + bc + (form.registration_in_price ? reg : 0);
                       set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
                     }}
                   />
