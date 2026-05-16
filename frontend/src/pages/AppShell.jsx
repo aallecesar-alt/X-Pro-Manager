@@ -2338,7 +2338,9 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
                     const dp = Number(v) || 0;
                     const bc = Number(form.bank_check_amount) || 0;
                     const reg = Number(form.registration_cost) || 0;
-                    const final = dp + bc - reg;
+                    // When registration is included in the car price, it stays in sold_price (no subtraction).
+                    // When passthrough, deduct it because dp+bc already paid for reg separately.
+                    const final = dp + bc - (form.registration_in_price ? 0 : reg);
                     set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
                   }} testid="f-down-payment" />
                   <Input label={`🏦 ${t("bank_check_amount")}`} type="number" value={form.bank_check_amount ?? ""} set={(v) => {
@@ -2346,7 +2348,7 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
                     const bc = Number(v) || 0;
                     const dp = Number(form.down_payment) || 0;
                     const reg = Number(form.registration_cost) || 0;
-                    const final = dp + bc - reg;
+                    const final = dp + bc - (form.registration_in_price ? 0 : reg);
                     set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
                   }} testid="f-bank-check" />
                   <RegistrationField
@@ -2354,13 +2356,20 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
                     value={form.registration_cost ?? ""}
                     salePrice={form.sale_price}
                     inPrice={!!form.registration_in_price}
-                    onInPriceChange={(v) => set("registration_in_price", v)}
+                    onInPriceChange={(v) => {
+                      set("registration_in_price", v);
+                      const dp = Number(form.down_payment) || 0;
+                      const bc = Number(form.bank_check_amount) || 0;
+                      const reg = Number(form.registration_cost) || 0;
+                      const final = dp + bc - (v ? 0 : reg);
+                      set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
+                    }}
                     onChange={(v) => {
                       set("registration_cost", v);
                       const reg = Number(v) || 0;
                       const dp = Number(form.down_payment) || 0;
                       const bc = Number(form.bank_check_amount) || 0;
-                      const final = dp + bc - reg;
+                      const final = dp + bc - (form.registration_in_price ? 0 : reg);
                       set("sold_price", final > 0 ? Number(final.toFixed(2)) : 0);
                     }}
                   />
@@ -2373,9 +2382,8 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
                     type="number"
                     value={form.sold_price ?? ""}
                     set={(v) => {
-                      // Clear down_payment + bank_check_amount when staying in cash/check flow
-                      // so the sold_price field stays the single source of truth (no stale data
-                      // from a previous "Finance" entry).
+                      // Treat the typed amount as the dealer's authoritative
+                      // sold_price (already including reg if the user wants it).
                       set("sold_price", v);
                       if (form.down_payment) set("down_payment", 0);
                       if (form.bank_check_amount) set("bank_check_amount", 0);
@@ -2387,8 +2395,31 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
                     value={form.registration_cost ?? ""}
                     salePrice={form.sale_price}
                     inPrice={!!form.registration_in_price}
-                    onInPriceChange={(v) => set("registration_in_price", v)}
-                    onChange={(v) => set("registration_cost", v)}
+                    onInPriceChange={(v) => {
+                      // Toggle adjusts sold_price by ±reg so the bookkeeping
+                      // matches what the user expects on screen.
+                      const reg = Number(form.registration_cost) || 0;
+                      const cur = Number(form.sold_price) || 0;
+                      if (v && !form.registration_in_price) {
+                        // OFF → ON: include reg in sold_price
+                        set("sold_price", Number((cur + reg).toFixed(2)));
+                      } else if (!v && form.registration_in_price) {
+                        // ON → OFF: strip reg back out
+                        set("sold_price", Number(Math.max(cur - reg, 0).toFixed(2)));
+                      }
+                      set("registration_in_price", v);
+                    }}
+                    onChange={(v) => {
+                      const newReg = Number(v) || 0;
+                      const oldReg = Number(form.registration_cost) || 0;
+                      set("registration_cost", v);
+                      // While IN_PRICE=ON, sold_price tracks the reg delta.
+                      if (form.registration_in_price) {
+                        const cur = Number(form.sold_price) || 0;
+                        const adjusted = Math.max(cur + (newReg - oldReg), 0);
+                        set("sold_price", Number(adjusted.toFixed(2)));
+                      }
+                    }}
                   />
                 </div>
               )}
@@ -2435,7 +2466,24 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input label={t("sold_price")} type="number" value={form.sold_price} set={(v) => set("sold_price", v)} testid="f-sold-price" />
+              {/* Finance flow auto-computes sold_price from dp+bc-reg, so we
+                  keep a read-only mirror here just for confirmation. Cash /
+                  Bank Check already have the sold_price input inside the
+                  recebimento panel above. */}
+              {form.payment_method === "Finance" ? (
+                <div>
+                  <label className="label-eyebrow block mb-2">{t("sold_price")}</label>
+                  <input
+                    data-testid="f-sold-price-display"
+                    type="number"
+                    value={form.sold_price ?? ""}
+                    readOnly
+                    className="w-full bg-surface/40 border border-border px-3 h-10 text-sm text-success font-display font-bold cursor-not-allowed"
+                  />
+                </div>
+              ) : (
+                <div />
+              )}
               {/* Salesperson selector — owner only. Salespeople auto-assign themselves on save */}
               {!isSalesperson && (
                 <div>
