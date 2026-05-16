@@ -736,6 +736,9 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
         })
     # Log commission paid toggle
     if "commission_paid" in upd and existing and bool(upd.get("commission_paid")) != bool(existing.get("commission_paid")):
+        # Block marking commission as paid if the deal hasn't been funded yet
+        if upd.get("commission_paid") and not existing.get("funded"):
+            raise HTTPException(400, "Marque FUNDED primeiro — a comissão só pode ser paga após o banco quitar o veículo.")
         push_events.append({
             "type": "commission_paid" if upd.get("commission_paid") else "commission_unpaid",
             "at": now_iso,
@@ -2947,6 +2950,45 @@ async def delete_salesperson(sid: str, current: dict = Depends(get_current_user)
     return {"deleted": True}
 
 
+@api_router.put("/vehicles/{vid}/funded")
+async def toggle_funded(vid: str, payload: Dict[str, bool], current: dict = Depends(get_current_user)):
+    """Owner / gerente toggle for the FUNDED status. Marks when the finance
+    company has actually wired the money to the dealership. Salesperson
+    commission can only be paid AFTER funded=True."""
+    require_owner(current)
+    v = await db.vehicles.find_one(
+        {"id": vid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not v:
+        raise HTTPException(404, "Vehicle not found")
+    new_val = bool(payload.get("funded"))
+    now_iso = datetime.now(timezone.utc).isoformat()
+    update = {"funded": new_val}
+    if new_val:
+        update["funded_at"] = now_iso
+    else:
+        update["funded_at"] = ""
+        # If toggling off and commission was already paid, revert it so the
+        # state stays consistent ("paid" should never out-live "funded").
+        if v.get("commission_paid"):
+            update["commission_paid"] = False
+            update["commission_paid_at"] = ""
+
+    history_event = {
+        "type": "funded" if new_val else "unfunded",
+        "at": now_iso,
+        "by_id": current.get("id", ""),
+        "by_name": current.get("full_name") or current.get("email") or "",
+    }
+    await db.vehicles.update_one(
+        {"id": vid, "dealership_id": current["dealership_id"]},
+        {"$set": update, "$push": {"history": history_event}},
+    )
+    return {"funded": new_val, "funded_at": update["funded_at"]}
+
+
+
+
 @api_router.get("/sales-report")
 async def sales_report(
     year: Optional[int] = None,
@@ -2997,6 +3039,8 @@ async def sales_report(
             "commission_amount": float(v.get("commission_amount") or 0),
             "commission_paid": bool(v.get("commission_paid", False)),
             "commission_paid_at": v.get("commission_paid_at", "") or "",
+            "funded": bool(v.get("funded", False)),
+            "funded_at": v.get("funded_at", "") or "",
             "image": (v.get("images") or [None])[0] if v.get("images") else None,
         }
         if not sp_view:

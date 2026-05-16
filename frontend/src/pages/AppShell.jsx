@@ -3297,7 +3297,21 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
       toast.success(t("saved"));
       loadReport();
       onReload();
-    } catch { toast.error(t("error_generic")); }
+    } catch (e) {
+      toast.error(e.response?.data?.detail || t("error_generic"));
+    }
+  };
+
+  const toggleFunded = async (vehicle_id, currentlyFunded) => {
+    if (isSalesperson) return;
+    try {
+      await api.put(`/vehicles/${vehicle_id}/funded`, { funded: !currentlyFunded });
+      toast.success(currentlyFunded ? (t("funded_undone") || "FUNDED removido") : (t("funded_marked") || "FUNDED marcado"));
+      loadReport();
+      onReload();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || t("error_generic"));
+    }
   };
 
   const updateCommissionAmount = async (vehicle_id, value) => {
@@ -3605,8 +3619,8 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
                         <th className="text-left p-3 label-eyebrow">{t("make")}/{t("model")}</th>
                         <th className="text-left p-3 label-eyebrow">{t("buyer_name")}</th>
                         {!isSalesperson && <th className="text-left p-3 label-eyebrow">{t("salesperson")}</th>}
-                        <th className="text-right p-3 label-eyebrow">{t("sold_price")}</th>
                         <th className="text-right p-3 label-eyebrow">{t("commission_amount")}</th>
+                        <th className="text-center p-3 label-eyebrow">{t("funded") || "Funded"}</th>
                         <th className="text-center p-3 label-eyebrow">{t("paid")}</th>
                       </tr>
                     </thead>
@@ -3636,7 +3650,6 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
                               />
                             </td>
                           )}
-                          <td className="p-3 text-right font-display font-bold">{formatCurrency(r.sold_price)}</td>
                           <td className="p-3 text-right">
                             {isSalesperson ? (
                               <span className="font-display font-bold">{formatCurrency(r.commission_amount || 0)}</span>
@@ -3651,14 +3664,44 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
                           <td className="p-3 text-center">
                             <button
                               type="button"
+                              data-testid={`toggle-funded-${r.vehicle_id}`}
+                              onClick={() => !isSalesperson && toggleFunded(r.vehicle_id, r.funded)}
+                              disabled={isSalesperson}
+                              title={isSalesperson ? "" : (r.funded ? (t("unmark_funded") || "Desmarcar FUNDED") : (t("mark_funded") || "Marcar FUNDED — banco pagou"))}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 border transition-colors text-xs font-display font-black uppercase tracking-wider ${
+                                r.funded
+                                  ? "border-success bg-success text-white hover:bg-success/80"
+                                  : "border-border text-text-secondary hover:border-success hover:text-success"
+                              } ${isSalesperson ? "cursor-default" : ""}`}
+                            >
+                              {r.funded ? <CheckCircle2 size={14} /> : <DollarSign size={14} />}
+                              {r.funded ? "FUNDED" : (t("not_funded") || "Não")}
+                            </button>
+                            {r.funded && r.funded_at && (
+                              <p data-testid={`funded-at-${r.vehicle_id}`} className="text-[10px] text-text-secondary mt-1">
+                                {new Date(r.funded_at).toLocaleDateString()}
+                              </p>
+                            )}
+                          </td>
+                          <td className="p-3 text-center">
+                            <button
+                              type="button"
                               data-testid={`toggle-paid-${r.vehicle_id}`}
                               onClick={() => !isSalesperson && togglePaid(r.vehicle_id, r.commission_paid)}
-                              disabled={isSalesperson}
-                              title={isSalesperson ? "" : (r.commission_paid ? t("mark_unpaid") : t("mark_paid"))}
+                              disabled={isSalesperson || (!r.funded && !r.commission_paid)}
+                              title={
+                                isSalesperson
+                                  ? ""
+                                  : !r.funded && !r.commission_paid
+                                    ? (t("commission_blocked_until_funded") || "Marque FUNDED primeiro")
+                                    : (r.commission_paid ? t("mark_unpaid") : t("mark_paid"))
+                              }
                               className={`inline-flex items-center gap-1.5 px-3 py-1.5 border transition-colors text-xs font-display font-bold uppercase tracking-wider ${
                                 r.commission_paid
                                   ? "border-success text-success hover:bg-success/10"
-                                  : "border-warning text-warning hover:bg-warning/10"
+                                  : !r.funded
+                                    ? "border-border text-text-secondary/50 cursor-not-allowed"
+                                    : "border-warning text-warning hover:bg-warning/10"
                               } ${isSalesperson ? "cursor-default" : ""}`}
                             >
                               {r.commission_paid ? <CheckCircle2 size={14} /> : <Clock size={14} />}
