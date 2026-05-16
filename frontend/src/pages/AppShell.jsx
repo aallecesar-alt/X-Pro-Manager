@@ -1557,7 +1557,17 @@ function Pipeline({ vehicles, t, onMove, onEdit, onHistory }) {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {STATUS_COLUMNS.map((col) => {
-          const list = vehicles.filter((v) => v.status === col.id);
+          // Sold column is always ordered by latest sale first so the most
+          // recent deals stay on top. Other columns keep the natural order so
+          // the user can keep their visual layout stable.
+          const list = vehicles
+            .filter((v) => v.status === col.id)
+            .sort((a, b) => {
+              if (col.id !== "sold") return 0;
+              const ad = a.sold_at || a.updated_at || a.created_at || "";
+              const bd = b.sold_at || b.updated_at || b.created_at || "";
+              return bd.localeCompare(ad); // descending
+            });
           return (
             <div key={col.id} data-testid={`column-${col.id}`} className={`border-t-2 ${col.color} bg-surface min-h-[400px]`}>
               <div className="p-4 border-b border-border flex items-center justify-between">
