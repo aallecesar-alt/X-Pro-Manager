@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Car, LayoutDashboard, Package, TrendingUp, TrendingDown, Truck, Users, User, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks, HandCoins, Printer, Flame, Timer, Activity, Star, ArrowUpRight, ArrowDownRight, Award, BarChart3, Gem, Hourglass, ClipboardList, Gauge, Sun, Moon } from "lucide-react";
+import { Car, LayoutDashboard, Package, TrendingUp, TrendingDown, Truck, Users, User, Settings, LogOut, Plus, Search, Edit2, Trash2, X, Check, Copy, RefreshCw, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, FileText, Paperclip, Upload, Download, Image as ImageIcon, File as FileIcon, CheckCircle2, Clock, DollarSign, LayoutGrid, List, Trophy, Medal, Sparkles, Calendar, Headphones, UserPlus, AlertTriangle, Crown, Wrench, ShieldCheck, History, Key, ListChecks, HandCoins, Printer, Flame, Timer, Activity, Star, ArrowUpRight, ArrowDownRight, Award, BarChart3, Gem, Hourglass, ClipboardList, Gauge, Sun, Moon, CheckSquare } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import VehicleScheduleModal from "@/components/VehicleScheduleModal";
@@ -13,6 +13,7 @@ import PhotoUploader from "@/components/PhotoUploader";
 import ExpenseManager from "@/components/ExpenseManager";
 import Financial from "@/pages/Financial";
 import LeadsPage from "@/pages/LeadsPage";
+import TasksPage from "@/pages/TasksPage";
 import PostSales from "@/pages/PostSales";
 import CreditApplications from "@/pages/CreditApplications";
 import Receivables from "@/pages/Receivables";
@@ -162,6 +163,7 @@ export default function AppShell() {
     { id: "pipeline", label: t("pipeline"), icon: TrendingUp },
     { id: "delivery", label: t("delivery"), icon: Truck },
     { id: "leads", label: t("leads_title"), icon: Headphones },
+    { id: "tasks", label: t("tasks") || "Tarefas", icon: CheckSquare },
     { id: "salespeople", label: t("salespeople"), icon: Users },
     { id: "financial", label: t("financial"), icon: DollarSign },
     { id: "post_sales", label: t("post_sales_tab"), icon: ShieldCheck },
@@ -439,6 +441,7 @@ export default function AppShell() {
         {tab === "pipeline" && canAccess("pipeline") && <Pipeline vehicles={vehicles} t={t} onMove={updateStatus} onEdit={(v) => setEditing(v)} onHistory={setHistoryVid} />}
         {tab === "delivery" && canAccess("delivery") && <Delivery deliveries={deliveries} vehicles={vehicles} team={team} currentUser={user} scheduleAlertCount={scheduleAlertCount} salespeople={salespeople} t={t} onReload={reload} isStaff={isStaff} onHistory={setHistoryVid} />}
         {tab === "leads" && canAccess("leads") && <LeadsPage t={t} role={user?.role || "owner"} currentSpId={user?.salesperson_id || ""} salespeople={salespeople} />}
+        {tab === "tasks" && canAccess("tasks") && <TasksPage />}
         {tab === "salespeople" && canAccess("salespeople") && <SalespeopleTab salespeople={salespeople} t={t} onReload={reload} isSalesperson={isSalesperson} currentSpId={user?.salesperson_id || ""} />}
         {tab === "financial" && canAccess("financial") && <Financial t={t} fpAlerts={isOwner ? fpAlerts : null} />}
         {tab === "post_sales" && canAccess("post_sales") && <PostSales t={t} />}

@@ -262,20 +262,20 @@ async def get_current_user(request: Request) -> dict:
 ALL_TAB_PERMISSIONS = [
     "overview", "inventory", "pipeline", "delivery",
     "leads", "salespeople", "financial", "post_sales", "applications",
-    "receivables", "delivery_schedule",
+    "receivables", "delivery_schedule", "tasks",
 ]
 ROLE_DEFAULT_PERMISSIONS = {
     "owner": ALL_TAB_PERMISSIONS,
     # BDC handles incoming clients → can also see applications.
-    "bdc": ["overview", "leads", "applications"],
+    "bdc": ["overview", "leads", "applications", "tasks"],
     # Salespeople need to see credit applications to follow up on financing leads.
     # They also create and view their own delivery schedules so the yard knows what to prep.
-    "salesperson": ["overview", "inventory", "pipeline", "delivery", "leads", "salespeople", "applications", "delivery_schedule"],
+    "salesperson": ["overview", "inventory", "pipeline", "delivery", "leads", "salespeople", "applications", "delivery_schedule", "tasks"],
     # Manager — by default sees applications so they can route financing.
-    "gerente": ["applications", "delivery_schedule"],
-    # Geral (yard / parts / shop staff) — defaults to post-sales + delivery schedule
+    "gerente": ["applications", "delivery_schedule", "tasks"],
+    # Geral (yard / parts / shop staff) — defaults to post-sales + delivery schedule + tasks
     # (this is the menino do pátio who executes the prep tasks).
-    "geral": ["post_sales", "delivery_schedule"],
+    "geral": ["post_sales", "delivery_schedule", "tasks"],
 }
 
 
@@ -358,6 +358,26 @@ async def startup():
     await db.leads.create_index("id", unique=True)
     await db.leads.create_index([("dealership_id", 1), ("created_at", -1)])
     await db.leads.create_index([("dealership_id", 1), ("monday_item_id", 1)])
+    await db.tasks.create_index("id", unique=True)
+    await db.tasks.create_index([("dealership_id", 1), ("status", 1), ("due_at", 1)])
+
+    # Background reminder loop: every 5 minutes, scan for tasks needing
+    # 1h-before / overdue notifications. Runs in-process; if multiple
+    # workers spin up later we'd switch to a real job queue.
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    import tasks_module
+    scheduler = AsyncIOScheduler(timezone="UTC")
+
+    async def _tick():
+        try:
+            await tasks_module.run_reminder_pass(db)
+        except Exception as e:
+            logger.warning(f"[task-reminder] pass failed: {e}")
+
+    scheduler.add_job(_tick, "interval", minutes=5, id="task_reminders",
+                      replace_existing=True, coalesce=True, max_instances=1)
+    scheduler.start()
+    app.state.task_scheduler = scheduler
 
     # ── Migration: existing salesperson / gerente / bdc accounts that have
     # an explicit permissions array (not null) but don't include "applications"
@@ -6176,6 +6196,12 @@ app.include_router(api_router)
 app.include_router(public_router)
 
 
+# Re-register the api_router below if any new endpoints get added later in
+# this file. Done lazily right before middleware to ensure all routes are
+# attached. Calling include_router twice is idempotent for FastAPI but we
+# need it once after the late task endpoints are defined.
+
+
 # ============================================================
 # Receivable payment-schedule PDF (preview endpoint without auth so the
 # owner can peek at the layout). The authenticated endpoint that powers
@@ -6248,6 +6274,200 @@ async def receipt_preview():
     )
 
 
+# ============================================================
+# TASK MANAGEMENT — multi-tenant todos, optionally linked to vehicles.
+# Notifications: in-app push (immediate) + email (Resend) on assign/reminder/overdue.
+# Permissions: only owner/gerente create/assign. Salespeople see their own.
+# ============================================================
+import tasks_module as _tasks_mod  # noqa: E402
+
+
+def _can_manage_tasks(user: dict) -> bool:
+    """Owner and gerente can create/assign/edit any task."""
+    return user.get("role") in ("owner", "gerente")
+
+
+@api_router.get("/tasks")
+async def list_tasks(
+    status: Optional[str] = None,
+    mine: bool = False,
+    current: dict = Depends(get_current_user),
+):
+    """List tasks. By default returns all tasks (managers) or only the user's
+    own (salespeople/bdc). `?status=open` filters by status; `?mine=true`
+    forces the user's own tasks even for managers."""
+    query: dict = {"dealership_id": current["dealership_id"]}
+    if status:
+        query["status"] = status
+    is_manager = _can_manage_tasks(current)
+    if mine or not is_manager:
+        query["assignee_ids"] = current["id"]
+    cur = db.tasks.find(query, {"_id": 0}).sort("due_at", 1)
+    items = await cur.to_list(500)
+
+    # Hydrate assignee details (name + email) for the UI without N+1.
+    user_ids = {uid for it in items for uid in (it.get("assignee_ids") or [])}
+    users = {}
+    if user_ids:
+        async for u in db.users.find(
+            {"id": {"$in": list(user_ids)}, "dealership_id": current["dealership_id"]},
+            {"_id": 0, "id": 1, "full_name": 1, "email": 1, "role": 1},
+        ):
+            users[u["id"]] = {
+                "id": u["id"],
+                "name": u.get("full_name") or u.get("email") or "",
+                "email": u.get("email", ""),
+                "role": u.get("role", ""),
+            }
+    for it in items:
+        it["assignees"] = [users.get(uid, {"id": uid}) for uid in (it.get("assignee_ids") or [])]
+    return items
+
+
+@api_router.post("/tasks")
+async def create_task(payload: _tasks_mod.TaskCreate, current: dict = Depends(get_current_user)):
+    if not _can_manage_tasks(current):
+        raise HTTPException(403, "Only owner or gerente can create tasks")
+    now = datetime.now(timezone.utc).isoformat()
+    task_doc = payload.model_dump()
+    task_doc.update({
+        "id": str(uuid.uuid4()),
+        "dealership_id": current["dealership_id"],
+        "status": "open",
+        "created_at": now,
+        "updated_at": now,
+        "completed_at": None,
+        "created_by_id": current["id"],
+        "created_by_name": current.get("name") or current.get("email") or "",
+        "notified_created": False,
+        "notified_1h": False,
+        "last_overdue_at": None,
+    })
+    await db.tasks.insert_one(task_doc)
+    task_doc.pop("_id", None)
+
+    # Fire on-create notifications: in-app push + email
+    try:
+        await _notify_task_created(task_doc)
+        await db.tasks.update_one({"id": task_doc["id"]}, {"$set": {"notified_created": True}})
+        task_doc["notified_created"] = True
+    except Exception as e:
+        logger.warning(f"[task-create] notify failed: {e}")
+    return task_doc
+
+
+async def _notify_task_created(task: dict):
+    """Fan-out to assignees: in-app push + email."""
+    ids = task.get("assignee_ids") or []
+    if not ids:
+        return
+    # In-app push: target each assignee directly using the existing helper.
+    title = "Nova tarefa atribuída"
+    body = task.get("title", "")
+    url = "/tasks"
+    for uid in ids:
+        try:
+            await send_push_to_user(task["dealership_id"], uid, title, body, url)
+        except Exception:
+            pass
+
+    # Email (Resend)
+    cur = db.users.find({"id": {"$in": ids}}, {"_id": 0, "email": 1})
+    emails = [u["email"] async for u in cur if u.get("email")]
+    if emails:
+        store = await _tasks_mod._store_name(db, task["dealership_id"])
+        subj, html = _tasks_mod.render_task_email(task=task, kind="created", store_name=store)
+        await _tasks_mod.send_email(emails, subj, html)
+
+
+@api_router.put("/tasks/{tid}")
+async def update_task(tid: str, payload: _tasks_mod.TaskUpdate, current: dict = Depends(get_current_user)):
+    existing = await db.tasks.find_one(
+        {"id": tid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not existing:
+        raise HTTPException(404, "Task not found")
+    is_manager = _can_manage_tasks(current)
+    am_assignee = current["id"] in (existing.get("assignee_ids") or [])
+    # Non-managers can only flip status on tasks they're assigned to.
+    if not is_manager:
+        if not am_assignee:
+            raise HTTPException(403, "Not allowed")
+        # Only let them change status
+        if any(payload.model_dump(exclude_unset=True).get(k) is not None
+               for k in ("title", "description", "due_at", "priority",
+                         "vehicle_id", "vehicle_label", "assignee_ids")):
+            raise HTTPException(403, "Only managers can edit task fields")
+
+    upd = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    upd["updated_at"] = datetime.now(timezone.utc).isoformat()
+    if upd.get("status") == "done" and existing.get("status") != "done":
+        upd["completed_at"] = upd["updated_at"]
+    if upd.get("status") and upd["status"] != "done":
+        upd["completed_at"] = None
+    # Re-set reminder flags if assignees / due_at change so they get fresh alerts
+    if "assignee_ids" in upd or "due_at" in upd:
+        upd["notified_1h"] = False
+        upd["last_overdue_at"] = None
+    await db.tasks.update_one({"id": tid}, {"$set": upd})
+
+    # If new assignees were added, ping them now.
+    if "assignee_ids" in upd:
+        old_set = set(existing.get("assignee_ids") or [])
+        new_set = set(upd["assignee_ids"]) - old_set
+        if new_set:
+            updated = await db.tasks.find_one({"id": tid}, {"_id": 0})
+            patched = dict(updated)
+            patched["assignee_ids"] = list(new_set)
+            try:
+                await _notify_task_created(patched)
+            except Exception:
+                pass
+    return {"ok": True}
+
+
+@api_router.delete("/tasks/{tid}")
+async def delete_task(tid: str, current: dict = Depends(get_current_user)):
+    if not _can_manage_tasks(current):
+        raise HTTPException(403, "Only owner or gerente can delete tasks")
+    res = await db.tasks.delete_one({"id": tid, "dealership_id": current["dealership_id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Task not found")
+    return {"deleted": True}
+
+
+@api_router.post("/tasks/_test_email")
+async def task_test_email(current: dict = Depends(get_current_user)):
+    """Send a one-off test email to the current user. Useful for the user
+    to verify Resend is configured before relying on reminders."""
+    require_owner(current)
+    if not current.get("email"):
+        raise HTTPException(400, "No email on file for current user")
+    store = await _tasks_mod._store_name(db, current["dealership_id"])
+    subj, html = _tasks_mod.render_task_email(
+        task={
+            "title": "Teste de notificação",
+            "description": "Se você está lendo isso, o Resend está configurado corretamente.",
+            "priority": "medium",
+            "due_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+        },
+        kind="created",
+        store_name=store,
+    )
+    await _tasks_mod.send_email([current["email"]], subj, html)
+    return {"sent_to": current["email"]}
+
+
+
+
+# Re-attach the api_router after the task endpoints registered above.
+# FastAPI's include_router copies routes lazily, so any routes added to
+# api_router after the first include() must be re-included here.
+app.include_router(api_router)
+
+
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -6259,4 +6479,10 @@ app.add_middleware(
 
 @app.on_event("shutdown")
 async def shutdown():
+    sched = getattr(app.state, "task_scheduler", None)
+    if sched:
+        try:
+            sched.shutdown(wait=False)
+        except Exception:
+            pass
     client.close()
