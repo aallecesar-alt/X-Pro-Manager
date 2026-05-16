@@ -3377,27 +3377,7 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
         ))}
       </div>
 
-      {/* Top-level stats */}
-      <div className={`grid grid-cols-2 ${isSalesperson ? "md:grid-cols-3" : "md:grid-cols-4"} gap-px bg-border border border-border mb-8`}>
-        <div className="bg-background p-5">
-          <p className="label-eyebrow mb-2">{t("sales_count")}</p>
-          <p className="font-display font-black text-2xl">{report.total_sales}</p>
-        </div>
-        {!isSalesperson && (
-          <div className="bg-background p-5">
-            <p className="label-eyebrow mb-2">{t("total_revenue")}</p>
-            <p className="font-display font-black text-2xl text-primary">{formatCurrency(report.total_revenue)}</p>
-          </div>
-        )}
-        <div className="bg-background p-5">
-          <p className="label-eyebrow mb-2">{t("commission_paid")}</p>
-          <p className="font-display font-black text-2xl text-success">{formatCurrency(report.total_commission_paid || 0)}</p>
-        </div>
-        <div className="bg-background p-5">
-          <p className="label-eyebrow mb-2">{t("commission_pending")}</p>
-          <p className="font-display font-black text-2xl text-warning">{formatCurrency(report.total_commission_pending || 0)}</p>
-        </div>
-      </div>
+      {/* Top-level stats removed by user request — kept the period filter + tables only */}
 
       {/* Salespeople list with their performance — collapsible to keep page tidy */}
       <div className="border border-border mb-10">
