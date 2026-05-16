@@ -2216,7 +2216,7 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
   const numFields = [
     "year", "mileage", "purchase_price", "sale_price", "expenses", "sold_price", "commission_amount",
     // sold-financing breakdown — must be numeric so deletes (empty string) save as 0
-    "down_payment", "bank_check_amount", "registration_cost",
+    "down_payment", "bank_check_amount", "registration_cost", "discount",
     "trade_in_year", "trade_in_value", "trade_in_payoff_amount",
   ];
   // Free-text fields that must always be sent as a string (empty when cleared)
@@ -2394,53 +2394,85 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
                   />
                 </div>
               ) : (
-                // Cash / Bank Check / nothing selected yet: just the sold price + registration.
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <Input
-                    label={`💵 ${t("sold_price")}`}
-                    type="number"
-                    value={form.sold_price ?? ""}
-                    set={(v) => {
-                      // Treat the typed amount as the dealer's authoritative
-                      // sold_price (already including reg if the user wants it).
-                      set("sold_price", v);
-                      if (form.down_payment) set("down_payment", 0);
-                      if (form.bank_check_amount) set("bank_check_amount", 0);
-                    }}
-                    testid="f-sold-price"
-                  />
-                  <RegistrationField
-                    t={t}
-                    value={form.registration_cost ?? ""}
-                    salePrice={form.sale_price}
-                    inPrice={!!form.registration_in_price}
-                    onInPriceChange={(v) => {
-                      // Toggle adjusts sold_price by ±reg so the bookkeeping
-                      // matches what the user expects on screen.
-                      const reg = Number(form.registration_cost) || 0;
-                      const cur = Number(form.sold_price) || 0;
-                      if (v && !form.registration_in_price) {
-                        // OFF → ON: include reg in sold_price
-                        set("sold_price", Number((cur + reg).toFixed(2)));
-                      } else if (!v && form.registration_in_price) {
-                        // ON → OFF: strip reg back out
-                        set("sold_price", Number(Math.max(cur - reg, 0).toFixed(2)));
-                      }
-                      set("registration_in_price", v);
-                    }}
-                    onChange={(v) => {
-                      const newReg = Number(v) || 0;
-                      const oldReg = Number(form.registration_cost) || 0;
-                      set("registration_cost", v);
-                      // While IN_PRICE=ON, sold_price tracks the reg delta.
-                      if (form.registration_in_price) {
+                // Cash / Bank Check / nothing selected yet: just the sold price + registration + optional discount.
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <Input
+                      label={`💵 ${t("sold_price")}`}
+                      type="number"
+                      value={form.sold_price ?? ""}
+                      set={(v) => {
+                        // Treat the typed amount as the dealer's authoritative
+                        // sold_price (already including reg if the user wants it,
+                        // and already net of discount).
+                        set("sold_price", v);
+                        if (form.down_payment) set("down_payment", 0);
+                        if (form.bank_check_amount) set("bank_check_amount", 0);
+                      }}
+                      testid="f-sold-price"
+                    />
+                    <RegistrationField
+                      t={t}
+                      value={form.registration_cost ?? ""}
+                      salePrice={form.sale_price}
+                      inPrice={!!form.registration_in_price}
+                      onInPriceChange={(v) => {
+                        const reg = Number(form.registration_cost) || 0;
                         const cur = Number(form.sold_price) || 0;
-                        const adjusted = Math.max(cur + (newReg - oldReg), 0);
-                        set("sold_price", Number(adjusted.toFixed(2)));
-                      }
-                    }}
-                  />
-                </div>
+                        if (v && !form.registration_in_price) {
+                          set("sold_price", Number((cur + reg).toFixed(2)));
+                        } else if (!v && form.registration_in_price) {
+                          set("sold_price", Number(Math.max(cur - reg, 0).toFixed(2)));
+                        }
+                        set("registration_in_price", v);
+                      }}
+                      onChange={(v) => {
+                        const newReg = Number(v) || 0;
+                        const oldReg = Number(form.registration_cost) || 0;
+                        set("registration_cost", v);
+                        if (form.registration_in_price) {
+                          const cur = Number(form.sold_price) || 0;
+                          const adjusted = Math.max(cur + (newReg - oldReg), 0);
+                          set("sold_price", Number(adjusted.toFixed(2)));
+                        }
+                      }}
+                    />
+                  </div>
+                  {/* Discount field — Cash & Bank Check only. Reduces sold_price by the delta. */}
+                  <div className="border border-warning/40 bg-warning/[0.04] p-3 mt-2">
+                    <label className="label-eyebrow block mb-2 text-warning">
+                      🏷️ {t("discount_label") || "Desconto"}
+                      <span className="ml-2 text-text-secondary normal-case tracking-normal font-normal">
+                        {t("discount_hint") || "(opcional — abatido do preço final)"}
+                      </span>
+                    </label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+                      <input
+                        data-testid="f-discount"
+                        type="number"
+                        value={form.discount ?? 0}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          const newDisc = Number(v) || 0;
+                          const oldDisc = Number(form.discount) || 0;
+                          set("discount", v);
+                          // Apply discount delta to sold_price so the user sees
+                          // the net amount immediately.
+                          const cur = Number(form.sold_price) || 0;
+                          const adjusted = Math.max(cur - (newDisc - oldDisc), 0);
+                          set("sold_price", Number(adjusted.toFixed(2)));
+                        }}
+                        className="w-full bg-surface border border-border focus:border-warning focus:outline-none px-3 h-10 text-sm"
+                        placeholder="0.00"
+                      />
+                      {Number(form.discount) > 0 && (
+                        <p data-testid="discount-applied-hint" className="text-[11px] text-warning leading-tight">
+                          {t("discount_applied_hint") || "Desconto aplicado · subtraído do Preço Final Vendido"}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </>
               )}
             </div>
 

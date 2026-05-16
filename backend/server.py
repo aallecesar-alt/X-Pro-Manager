@@ -96,6 +96,12 @@ class VehicleBase(BaseModel):
     # Cost to register/title/plate the vehicle in the buyer's name (US emplacamento).
     # Auto-synced into expense_items with category="registration" so it deducts from profit.
     registration_cost: float = 0
+    # When True: registration was rolled into the sold price (dealership paid it) → counts as expense
+    # When False: registration was paid separately by the customer (passthrough) → does NOT count as expense
+    registration_in_price: bool = False
+    # Discount given to the customer at closing (Cash / Bank Check only).
+    # Reduces sold_price. Stored separately for traceability.
+    discount: float = 0
     # Trade-in vehicle (carro entregue pelo cliente como parte do pagamento).
     # When trade_in_value > 0, it counts toward the total payment (alongside down_payment
     # and bank_check_amount). When the sale is recorded, the trade-in car is auto-created
@@ -168,6 +174,7 @@ class VehicleUpdate(BaseModel):
     bank_check_amount: Optional[float] = None
     registration_cost: Optional[float] = None
     registration_in_price: Optional[bool] = None
+    discount: Optional[float] = None
     trade_in_make: Optional[str] = None
     trade_in_model: Optional[str] = None
     trade_in_year: Optional[int] = None
