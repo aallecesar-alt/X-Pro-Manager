@@ -167,6 +167,7 @@ class VehicleUpdate(BaseModel):
     down_payment: Optional[float] = None
     bank_check_amount: Optional[float] = None
     registration_cost: Optional[float] = None
+    registration_in_price: Optional[bool] = None
     trade_in_make: Optional[str] = None
     trade_in_model: Optional[str] = None
     trade_in_year: Optional[int] = None
@@ -812,16 +813,27 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, current: dict = Depen
 
     # Mirror registration_cost into expense_items so it appears in the per-vehicle
     # profit breakdown (same pattern as Floor Plan + Post-Sales). Idempotent.
-    if "registration_cost" in upd:
-        reg_amount = float(upd.get("registration_cost") or 0)
+    # ONLY counts as expense when registration_in_price=True (dealership absorbed the cost).
+    # When the customer pays registration separately, it's a passthrough — not an expense.
+    if "registration_cost" in upd or "registration_in_price" in upd:
+        reg_amount = float(
+            upd.get("registration_cost")
+            if "registration_cost" in upd
+            else (existing or {}).get("registration_cost") or 0
+        )
+        in_price = bool(
+            upd.get("registration_in_price")
+            if "registration_in_price" in upd
+            else (existing or {}).get("registration_in_price")
+        )
         items = list((upd.get("expense_items") if "expense_items" in upd else (existing or {}).get("expense_items")) or [])
         # Drop any previous registration mirror first.
         items = [it for it in items if it.get("category") != "registration"]
-        if reg_amount > 0:
+        if reg_amount > 0 and in_price:
             items.append({
                 "id": f"reg-{vid}",
                 "category": "registration",
-                "description": "Emplacamento / Registro",
+                "description": "Emplacamento / Registro (incluso no preço)",
                 "amount": reg_amount,
                 "date": (upd.get("sold_at") or (existing or {}).get("sold_at") or datetime.now(timezone.utc).isoformat())[:10],
                 "attachments": [],

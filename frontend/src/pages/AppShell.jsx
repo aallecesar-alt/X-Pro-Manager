@@ -2343,6 +2343,8 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
                     t={t}
                     value={form.registration_cost ?? ""}
                     salePrice={form.sale_price}
+                    inPrice={!!form.registration_in_price}
+                    onInPriceChange={(v) => set("registration_in_price", v)}
                     onChange={(v) => {
                       set("registration_cost", v);
                       const reg = Number(v) || 0;
@@ -2374,6 +2376,8 @@ function VehicleForm({ vehicle, prefill, salespeople = [], isSalesperson, onClos
                     t={t}
                     value={form.registration_cost ?? ""}
                     salePrice={form.sale_price}
+                    inPrice={!!form.registration_in_price}
+                    onInPriceChange={(v) => set("registration_in_price", v)}
                     onChange={(v) => set("registration_cost", v)}
                   />
                 </div>
@@ -4295,7 +4299,7 @@ const MA_REG = {
  * exempt under MA law) and shows a friendly breakdown the user can click to
  * accept. The user can still type a different number manually.
  */
-function RegistrationField({ t, value, salePrice, tradeInValue, onChange }) {
+function RegistrationField({ t, value, salePrice, tradeInValue, onChange, inPrice = false, onInPriceChange = null }) {
   const sp = Number(salePrice) || 0;
   const ti = Number(tradeInValue) || 0;
   const taxBase = Math.max(sp - ti, 0);
@@ -4316,6 +4320,34 @@ function RegistrationField({ t, value, salePrice, tradeInValue, onChange }) {
         onChange={(e) => onChange(e.target.value)}
         className="w-full bg-surface border border-border focus:border-primary focus:outline-none px-3 h-10 text-sm"
       />
+      {onInPriceChange && (
+        <label
+          className={`mt-2 flex items-start gap-2 p-2 border cursor-pointer transition-colors text-[11px] ${
+            inPrice
+              ? "border-success/60 bg-success/[0.06] text-white"
+              : "border-border bg-surface/40 text-text-secondary hover:border-success/40"
+          }`}
+        >
+          <input
+            type="checkbox"
+            data-testid="f-reg-in-price"
+            checked={!!inPrice}
+            onChange={(e) => onInPriceChange(e.target.checked)}
+            className="mt-0.5 accent-success"
+          />
+          <span>
+            <span className={`font-display font-bold uppercase tracking-wider ${inPrice ? "text-success" : ""}`}>
+              {t("reg_in_price_label") || "Incluir no preço do carro"}
+            </span>
+            <br />
+            <span className="text-text-secondary text-[10px] leading-tight">
+              {inPrice
+                ? (t("reg_in_price_on_hint") || "Loja absorveu o emplacamento → será lançado como despesa do veículo.")
+                : (t("reg_in_price_off_hint") || "Cliente paga separado → não conta como despesa (passthrough).")}
+            </span>
+          </span>
+        </label>
+      )}
       {canSuggest && (
         <div
           data-testid="reg-calc"
