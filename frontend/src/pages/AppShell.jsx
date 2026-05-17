@@ -3551,9 +3551,12 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
   };
 
   // Salespeople list visible to current viewer
+  // Hide inactive salespeople from the main view; salespeople with zero sales
+  // and active=false (e.g. someone added by mistake or who left) should not
+  // pollute the sales report.
   const visibleSalespeople = isSalesperson
     ? salespeople.filter(s => s.id === currentSpId)
-    : salespeople;
+    : salespeople.filter(s => s.active !== false);
 
   return (
     <div data-testid="salespeople-tab">
@@ -3691,6 +3694,24 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
                         {!isSalesperson && (
                           <>
                             <button data-testid={`edit-sp-${sp.id}`} onClick={() => setEditingSp(sp)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Edit2 size={14} /></button>
+                            <button
+                              data-testid={`toggle-active-sp-${sp.id}`}
+                              onClick={async () => {
+                                const willInactivate = sp.active !== false;
+                                if (willInactivate && !window.confirm(`Inativar ${sp.name}? Ele(a) sai do relatório de vendas mas as vendas históricas continuam intactas.`)) return;
+                                try {
+                                  await api.put(`/salespeople/${sp.id}`, { active: !willInactivate });
+                                  toast.success(willInactivate ? "Inativado" : "Reativado");
+                                  onReload();
+                                } catch (err) {
+                                  toast.error(err.response?.data?.detail || t("error_generic"));
+                                }
+                              }}
+                              title={sp.active !== false ? "Inativar (esconder do relatório)" : "Reativar"}
+                              className="w-8 h-8 border border-border hover:border-warning hover:text-warning flex items-center justify-center transition-colors"
+                            >
+                              {sp.active !== false ? <X size={14} /> : <Check size={14} />}
+                            </button>
                             <button data-testid={`del-sp-${sp.id}`} onClick={() => removeSp(sp.id)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Trash2 size={14} /></button>
                           </>
                         )}
