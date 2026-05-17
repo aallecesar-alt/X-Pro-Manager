@@ -2493,6 +2493,11 @@ class DealershipUpdate(BaseModel):
     email: Optional[str] = None
     website: Optional[str] = None
     theme: Optional[str] = None
+    # Owner's electronic signature for payroll receipts. Can be a Cloudinary URL
+    # (uploaded image) OR a base64 data URL (drawn on canvas). Either renders fine
+    # in the PDF.
+    signature_url: Optional[str] = None
+    signature_data_url: Optional[str] = None
 
 
 @api_router.put("/dealership")
@@ -2540,6 +2545,7 @@ class SalespersonUpdate(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     active: Optional[bool] = None
+    salary_weekly: Optional[float] = None
 
 
 @api_router.get("/salespeople", response_model=List[Salesperson])
@@ -6456,6 +6462,249 @@ async def task_test_email(current: dict = Depends(get_current_user)):
     )
     await _tasks_mod.send_email([current["email"]], subj, html)
     return {"sent_to": current["email"]}
+
+
+
+
+# ============================================================
+# WEEKLY PAYROLL — close the week for a salesperson, mark all FUNDED
+# cars as commission_paid, and generate a bilingual receipt PDF.
+# ============================================================
+def _week_range_mon_sat(week_start_str: str) -> tuple[str, str]:
+    """Take any date inside the desired week and return (Monday, Saturday).
+    User payroll convention is Mon→Sat (Sundays are off)."""
+    from datetime import date, timedelta as _td
+    d = date.fromisoformat(week_start_str[:10])
+    # Monday of that week (weekday: 0=Mon...6=Sun)
+    monday = d - _td(days=d.weekday())
+    saturday = monday + _td(days=5)
+    return monday.isoformat(), saturday.isoformat()
+
+
+@api_router.get("/salespeople/{sid}/payroll-week")
+async def preview_payroll_week(
+    sid: str,
+    week_start: str,
+    current: dict = Depends(get_current_user),
+):
+    """Preview the funded-but-unpaid cars for a salesperson in a given week.
+    Returns the cars + suggested salary so the owner can confirm before saving.
+    Mon→Sat window based on funded_at.
+    """
+    if not _can_manage_tasks(current):  # owner / gerente
+        raise HTTPException(403, "Not allowed")
+    sp = await db.salespeople.find_one(
+        {"id": sid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not sp:
+        raise HTTPException(404, "Salesperson not found")
+
+    monday, saturday = _week_range_mon_sat(week_start)
+    # Use ISO range — funded_at is stored as a full UTC iso string. Comparing
+    # the date portion via string prefix works because YYYY-MM-DD sorts lex.
+    cars_cursor = db.vehicles.find(
+        {
+            "dealership_id": current["dealership_id"],
+            "salesperson_id": sid,
+            "funded": True,
+            "funded_at": {"$gte": monday, "$lte": saturday + "T23:59:59"},
+        },
+        {"_id": 0},
+    ).sort("funded_at", 1)
+    cars = []
+    async for v in cars_cursor:
+        cars.append({
+            "id": v.get("id"),
+            "year": v.get("year"),
+            "make": v.get("make"),
+            "model": v.get("model"),
+            "vin": v.get("vin"),
+            "sold_price": float(v.get("sold_price") or v.get("sale_price") or 0),
+            "commission_amount": float(v.get("commission_amount") or 0),
+            "funded_at": v.get("funded_at"),
+            "commission_paid": bool(v.get("commission_paid", False)),
+            "buyer_name": v.get("buyer_name", ""),
+        })
+
+    return {
+        "salesperson": {
+            "id": sp["id"],
+            "name": sp.get("name", ""),
+            "phone": sp.get("phone", ""),
+            "email": sp.get("email", ""),
+            "salary_weekly": float(sp.get("salary_weekly") or 0),
+        },
+        "period": {"start": monday, "end": saturday},
+        "cars": cars,
+        "suggested": {
+            "salary": float(sp.get("salary_weekly") or 0),
+            "commissions": sum(c["commission_amount"] for c in cars),
+            "bonus": 0,
+        },
+    }
+
+
+class PayrollClose(BaseModel):
+    week_start: str         # any date in the target week (Mon-Sat)
+    salary: float = 0
+    bonus: float = 0
+    car_ids: List[str]      # cars to include (must be funded + assigned to this sp)
+
+
+@api_router.post("/salespeople/{sid}/payroll-week")
+async def close_payroll_week(
+    sid: str,
+    payload: PayrollClose,
+    current: dict = Depends(get_current_user),
+):
+    """Persist the payroll closing, mark `commission_paid=true` on each car,
+    and return the saved record + a download URL for the PDF receipt."""
+    if not _can_manage_tasks(current):
+        raise HTTPException(403, "Not allowed")
+    sp = await db.salespeople.find_one(
+        {"id": sid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not sp:
+        raise HTTPException(404, "Salesperson not found")
+
+    monday, saturday = _week_range_mon_sat(payload.week_start)
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Load all selected cars at once (defensive: validate they really belong)
+    cars = await db.vehicles.find(
+        {
+            "dealership_id": current["dealership_id"],
+            "salesperson_id": sid,
+            "id": {"$in": payload.car_ids},
+            "funded": True,
+        },
+        {"_id": 0},
+    ).to_list(200)
+    if len(cars) != len(payload.car_ids):
+        raise HTTPException(400, "Some selected cars are not funded or not assigned to this salesperson")
+
+    commission_total = sum(float(c.get("commission_amount") or 0) for c in cars)
+    total = float(payload.salary or 0) + commission_total + float(payload.bonus or 0)
+
+    # Mark all selected cars as commission_paid
+    if payload.car_ids:
+        await db.vehicles.update_many(
+            {"id": {"$in": payload.car_ids}, "dealership_id": current["dealership_id"]},
+            {"$set": {"commission_paid": True, "commission_paid_at": now_iso}},
+        )
+
+    record = {
+        "id": str(uuid.uuid4()),
+        "dealership_id": current["dealership_id"],
+        "salesperson_id": sid,
+        "salesperson_name": sp.get("name", ""),
+        "week_start": monday,
+        "week_end": saturday,
+        "car_ids": payload.car_ids,
+        "cars_snapshot": [
+            {
+                "id": c.get("id"),
+                "year": c.get("year"),
+                "make": c.get("make"),
+                "model": c.get("model"),
+                "vin": c.get("vin"),
+                "sold_price": float(c.get("sold_price") or c.get("sale_price") or 0),
+                "commission_amount": float(c.get("commission_amount") or 0),
+                "funded_at": c.get("funded_at"),
+            }
+            for c in cars
+        ],
+        "salary": float(payload.salary or 0),
+        "bonus": float(payload.bonus or 0),
+        "commissions_total": commission_total,
+        "total": total,
+        "issued_by_id": current["id"],
+        "issued_by_name": current.get("name", ""),
+        "issued_at": now_iso,
+    }
+    await db.payrolls.insert_one(record)
+    record.pop("_id", None)
+    return record
+
+
+@api_router.get("/payrolls/{pid}/receipt.pdf")
+async def payroll_receipt_pdf(pid: str, current: dict = Depends(get_current_user)):
+    from fastapi.responses import Response as _Resp
+    from payroll_receipt_pdf import render_payroll_receipt
+
+    record = await db.payrolls.find_one(
+        {"id": pid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not record:
+        raise HTTPException(404, "Payroll record not found")
+
+    sp = await db.salespeople.find_one(
+        {"id": record["salesperson_id"], "dealership_id": current["dealership_id"]}, {"_id": 0}
+    ) or {"name": record.get("salesperson_name", "")}
+
+    # Load owner name + signature from dealership profile
+    dealer = await db.dealerships.find_one(
+        {"id": current["dealership_id"]}, {"_id": 0}
+    ) or {}
+    store = await _receipt_store_for_pdf(current["dealership_id"])
+    if dealer.get("name"):
+        store["name"] = dealer["name"]
+    store["signature_url"] = dealer.get("signature_url")
+    store["signature_data_url"] = dealer.get("signature_data_url")
+    owner_doc = await db.users.find_one(
+        {"dealership_id": current["dealership_id"], "role": "owner"},
+        {"_id": 0, "full_name": 1},
+    ) or {}
+    owner_name = owner_doc.get("full_name") or ""
+
+    pdf_bytes = render_payroll_receipt(
+        salesperson=sp,
+        period_start=record["week_start"],
+        period_end=record["week_end"],
+        cars=record["cars_snapshot"],
+        salary=record["salary"],
+        bonus=record["bonus"],
+        store=store,
+        owner_name=owner_name,
+    )
+    safe = (sp.get("name") or pid[:8]).replace(" ", "-")[:40]
+    return _Resp(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="payroll-{safe}-{record["week_start"]}.pdf"'},
+    )
+
+
+@api_router.get("/payrolls")
+async def list_payrolls(
+    salesperson_id: Optional[str] = None,
+    current: dict = Depends(get_current_user),
+):
+    q: dict = {"dealership_id": current["dealership_id"]}
+    if salesperson_id:
+        q["salesperson_id"] = salesperson_id
+    cur = db.payrolls.find(q, {"_id": 0}).sort("issued_at", -1)
+    items = await cur.to_list(200)
+    return items
+
+
+@api_router.delete("/payrolls/{pid}")
+async def delete_payroll(pid: str, current: dict = Depends(get_current_user)):
+    """Owner only — used to undo a wrongly closed payroll. Unmarks the
+    affected cars' commission_paid so they show as pending again."""
+    require_owner(current)
+    rec = await db.payrolls.find_one(
+        {"id": pid, "dealership_id": current["dealership_id"]}, {"_id": 0}
+    )
+    if not rec:
+        raise HTTPException(404, "Not found")
+    if rec.get("car_ids"):
+        await db.vehicles.update_many(
+            {"id": {"$in": rec["car_ids"]}, "dealership_id": current["dealership_id"]},
+            {"$set": {"commission_paid": False, "commission_paid_at": ""}},
+        )
+    await db.payrolls.delete_one({"id": pid})
+    return {"deleted": True}
 
 
 

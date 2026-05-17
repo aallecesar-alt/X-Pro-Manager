@@ -6,6 +6,8 @@ import api, { formatCurrency, PUBLIC_API_BASE } from "@/lib/api";
 import VehicleScheduleModal from "@/components/VehicleScheduleModal";
 import InlineSchedule from "@/components/InlineSchedule";
 import DealershipProfileSection from "@/components/DealershipProfileSection";
+import SignatureSection from "@/components/SignatureSection";
+import WeeklyPayrollModal from "@/components/WeeklyPayrollModal";
 import DownPaymentDialog from "@/components/DownPaymentDialog";
 import { useAuth } from "@/context/AuthContext";
 import { useI18n, LANG_OPTIONS } from "@/lib/i18n.jsx";
@@ -1770,6 +1772,7 @@ function SettingsTab({ dealership, t, onRefresh }) {
 
       {/* Dealership profile editor — logo, name, address, phone, website, theme */}
       <DealershipProfileSection dealership={dealership} onRefresh={onRefresh} t={t} />
+      <SignatureSection dealership={dealership} onRefresh={onRefresh} />
 
       <div className="border border-border p-6">
         <p className="label-eyebrow text-primary mb-2">{t("public_api")}</p>
@@ -3448,6 +3451,7 @@ function InlineMoneyEdit({ value, onSave, testid }) {
 
 function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }) {
   const [editingSp, setEditingSp] = useState(null);
+  const [payrollSp, setPayrollSp] = useState(null);
   const [credsFor, setCredsFor] = useState(null); // salesperson object whose credentials are being edited
   const [periodFilter, setPeriodFilter] = useState("all");
   const [selectedSp, setSelectedSp] = useState(isSalesperson ? (currentSpId || "all") : "all");
@@ -3693,6 +3697,14 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
                         )}
                         {!isSalesperson && (
                           <>
+                            <button
+                              data-testid={`close-week-sp-${sp.id}`}
+                              onClick={() => setPayrollSp(sp)}
+                              title="Fechar semana (gerar recibo de pagamento)"
+                              className="h-8 px-3 border border-success/40 text-success hover:bg-success hover:text-white transition-colors text-[10px] font-display font-bold uppercase tracking-widest inline-flex items-center gap-1"
+                            >
+                              <Calendar size={11} /> Fechar Semana
+                            </button>
                             <button data-testid={`edit-sp-${sp.id}`} onClick={() => setEditingSp(sp)} className="w-8 h-8 border border-border hover:border-primary hover:text-primary flex items-center justify-center transition-colors"><Edit2 size={14} /></button>
                             <button
                               data-testid={`toggle-active-sp-${sp.id}`}
@@ -3950,6 +3962,13 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
       {editingSp && (
         <SalespersonForm sp={editingSp.id ? editingSp : null} t={t} onClose={() => setEditingSp(null)} onSaved={() => { setEditingSp(null); onReload(); }} />
       )}
+      {payrollSp && (
+        <WeeklyPayrollModal
+          salesperson={payrollSp}
+          onClose={() => setPayrollSp(null)}
+          onSaved={() => { loadReport(); onReload(); }}
+        />
+      )}
 
       {credsFor && (
         <SalespersonCredentialsModal
@@ -3965,14 +3984,18 @@ function SalespeopleTab({ salespeople, t, onReload, isSalesperson, currentSpId }
 }
 
 function SalespersonForm({ sp, t, onClose, onSaved }) {
-  const [form, setForm] = useState(sp || { name: "", commission_amount: 0, phone: "", email: "", active: true });
+  const [form, setForm] = useState(sp || { name: "", commission_amount: 0, salary_weekly: 0, phone: "", email: "", active: true });
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const save = async (e) => {
     e.preventDefault();
     setSaving(true);
-    const payload = { ...form, commission_amount: Number(form.commission_amount) || 0 };
+    const payload = {
+      ...form,
+      commission_amount: Number(form.commission_amount) || 0,
+      salary_weekly: Number(form.salary_weekly) || 0,
+    };
     try {
       if (sp) await api.put(`/salespeople/${sp.id}`, payload);
       else await api.post("/salespeople", payload);
@@ -3995,6 +4018,7 @@ function SalespersonForm({ sp, t, onClose, onSaved }) {
           <Input label={t("phone")} value={form.phone} set={(v) => set("phone", v)} testid="sp-phone" />
         </div>
         <Input label={t("email")} type="email" value={form.email} set={(v) => set("email", v)} testid="sp-email" />
+        <Input label="Salário semanal (US$)" type="number" value={form.salary_weekly ?? 0} set={(v) => set("salary_weekly", v)} testid="sp-salary-weekly" />
         <label className="flex items-center gap-2 cursor-pointer">
           <input data-testid="sp-active" type="checkbox" checked={form.active !== false} onChange={(e) => set("active", e.target.checked)} className="w-4 h-4 accent-primary" />
           <span className="label-eyebrow">{t("active")}</span>
