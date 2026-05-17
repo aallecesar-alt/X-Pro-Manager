@@ -6624,6 +6624,29 @@ async def close_payroll_week(
     }
     await db.payrolls.insert_one(record)
     record.pop("_id", None)
+
+    # Mirror this payroll into operational_expenses so it shows up in the
+    # Financeiro tab as a "Gastos Operacionais" entry. Linked to the payroll
+    # via the same id so we can undo cleanly if needed.
+    if total > 0:
+        exp_doc = {
+            "id": f"payroll-{record['id']}",
+            "dealership_id": current["dealership_id"],
+            "date": now_iso[:10],
+            "category": "payroll",
+            "description": f"Pagamento semanal · {sp.get('name','')} · {monday} → {saturday}",
+            "amount": float(total),
+            "attachment_url": "",
+            "attachment_public_id": "",
+            "created_at": now_iso,
+        }
+        await db.operational_expenses.insert_one(exp_doc)
+        record["operational_expense_id"] = exp_doc["id"]
+        await db.payrolls.update_one(
+            {"id": record["id"]},
+            {"$set": {"operational_expense_id": exp_doc["id"]}},
+        )
+
     return record
 
 
@@ -6703,6 +6726,12 @@ async def delete_payroll(pid: str, current: dict = Depends(get_current_user)):
             {"id": {"$in": rec["car_ids"]}, "dealership_id": current["dealership_id"]},
             {"$set": {"commission_paid": False, "commission_paid_at": ""}},
         )
+    # Also remove the mirrored operational expense entry so the Financeiro
+    # stays consistent if the owner undoes a payroll.
+    exp_id = rec.get("operational_expense_id") or f"payroll-{rec['id']}"
+    await db.operational_expenses.delete_one(
+        {"id": exp_id, "dealership_id": current["dealership_id"]}
+    )
     await db.payrolls.delete_one({"id": pid})
     return {"deleted": True}
 

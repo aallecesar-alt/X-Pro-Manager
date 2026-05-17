@@ -169,12 +169,11 @@ def render_payroll_receipt(
     c.line(margin, y, w - margin, y)
     y -= 14
 
-    # Column positions
+    # Column positions (no sold price — only what affects payment)
     cols = {
         "vehicle": margin + 4,
-        "vin":     margin + 230,
-        "funded":  margin + 320,
-        "sold":    margin + 380,
+        "vin":     margin + 280,
+        "funded":  margin + 380,
         "comm":    w - margin - 4,
     }
     c.setFillColor(GREY)
@@ -182,7 +181,6 @@ def render_payroll_receipt(
     c.drawString(cols["vehicle"], y, "VEHICLE")
     c.drawString(cols["vin"],     y, "VIN")
     c.drawString(cols["funded"],  y, "FUNDED")
-    c.drawString(cols["sold"],    y, "SOLD PRICE")
     c.drawRightString(cols["comm"], y, "COMMISSION")
     y -= 6
     c.line(margin, y, w - margin, y)
@@ -198,15 +196,12 @@ def render_payroll_receipt(
         c.setFillColor(INK)
         c.setFont("Helvetica", 9.5)
         label = f"{car.get('year','')} {car.get('make','')} {car.get('model','')}".strip()
-        c.drawString(cols["vehicle"], y, label[:42])
+        c.drawString(cols["vehicle"], y, label[:46])
         c.setFont("Helvetica", 8.5)
         c.setFillColor(GREY)
         vin = (car.get("vin") or "")[-6:].upper() if car.get("vin") else "—"
         c.drawString(cols["vin"], y, vin)
         c.drawString(cols["funded"], y, _fmt_date(car.get("funded_at") or ""))
-        c.setFillColor(INK)
-        c.setFont("Helvetica", 9.5)
-        c.drawString(cols["sold"], y, _money(car.get("sold_price")))
         c.setFont("Helvetica-Bold", 10)
         c.setFillColor(GREEN)
         c.drawRightString(cols["comm"], y, _money(comm))
